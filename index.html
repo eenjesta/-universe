@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#07090d" />
+    <meta name="description" content="Ø Universe — Explore · Create · Connect. Een eindeloze, levende wereld waar technologie, creativiteit en mensen samenkomen." />
+    <title>Ø Universe</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307090d'/%3E%3Ccircle cx='32' cy='32' r='17' fill='none' stroke='%23ece6dc' stroke-width='4'/%3E%3Cline x1='14' y1='50' x2='50' y2='14' stroke='%23ece6dc' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <style>
+      /* Boot styles: only what is needed before the JS bundle loads. */
+      html, body { margin: 0; height: 100%; background: #07090d; overflow: hidden; }
+      #boot {
+        position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 28px;
+        background: radial-gradient(ellipse at 50% 120%, #2a1a12 0%, #0b0d12 55%, #07090d 100%);
+        color: #ece6dc; font-family: 'Jost', system-ui, sans-serif; transition: opacity .8s ease;
+      }
+      #boot.done { opacity: 0; pointer-events: none; }
+      #boot .boot-logo { display: flex; align-items: center; gap: 22px; }
+      #boot .boot-logo svg { width: 64px; height: 64px; }
+      #boot .boot-word { font-weight: 300; font-size: 44px; letter-spacing: .42em; margin-right: -.42em; }
+      #boot .boot-sub { font-weight: 400; font-size: 12px; letter-spacing: .5em; opacity: .7; margin-right: -.5em; }
+      #boot .boot-bar { width: 240px; height: 2px; background: rgba(236, 230, 220, .14); border-radius: 2px; overflow: hidden; }
+      #boot .boot-bar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #f0b46a, #ece6dc); transition: width .3s ease; }
+      #boot .boot-status { font-size: 12px; letter-spacing: .12em; opacity: .55; min-height: 1em; }
+      #boot .boot-error { max-width: 640px; color: #ffb4a8; font-size: 13px; line-height: 1.5; text-align: center; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="gl" tabindex="0" aria-label="Ø Universe 3D-wereld"></canvas>
+      <div id="hud" class="layer layer-hud"></div>
+      <div id="screens" class="layer layer-screens"></div>
+      <div id="modals" class="layer layer-modals"></div>
+      <div id="toasts" class="layer layer-toasts"></div>
+      <div id="fade" class="layer layer-fade"></div>
+    </div>
+    <div id="boot" role="status" aria-live="polite">
+      <div class="boot-logo">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="21" fill="none" stroke="#ece6dc" stroke-width="2.6"/><line x1="10" y1="54" x2="54" y2="10" stroke="#ece6dc" stroke-width="2.6" stroke-linecap="round"/></svg>
+        <div class="boot-word">UNIVERSE</div>
+      </div>
+      <div class="boot-sub">EXPLORE · CREATE · CONNECT</div>
+      <div class="boot-bar"><i id="boot-progress"></i></div>
+      <div class="boot-status" id="boot-status">Wereld wordt geladen…</div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,64 @@
+/*
+ * Shell — shared pieces: the Ø logo mark, key caps, spinner, modal backdrops.
+ * Module-specific styles live in title/, hud/, menu/ and map/.
+ */
+
+.shell-mark { display: block; overflow: visible; }
+
+/* ----------------------------------------------------------------- keys */
+.shell-keys { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.shell-keys-sep { color: var(--ink-3); font-size: 12px; margin: 0 2px; letter-spacing: 0.02em; }
+.kbd.shell-kbd {
+  min-width: 26px; height: 26px; padding: 0 7px;
+  font-size: 12px; line-height: 1; font-weight: 500;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+  border-color: rgba(236, 230, 220, 0.28);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+.kbd.shell-kbd-wide { padding: 0 10px; letter-spacing: 0.06em; }
+.kbd.shell-kbd-mouse { padding: 0 4px; }
+.kbd.shell-kbd-mouse .icon { width: 16px; height: 16px; }
+
+/* -------------------------------------------------------------- spinner */
+.shell-spinner {
+  display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid rgba(236, 230, 220, 0.18); border-top-color: var(--cyan);
+  animation: shell-spin 0.9s linear infinite;
+}
+@keyframes shell-spin { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------------ backdrops */
+.modal-wrap.shell-pause-wrap .modal-backdrop,
+.modal-wrap.shell-help-wrap .modal-backdrop {
+  background:
+    radial-gradient(ellipse at 28% 40%, rgba(4, 6, 10, 0.42), rgba(4, 6, 10, 0.8) 75%);
+  backdrop-filter: blur(7px) saturate(1.08);
+  -webkit-backdrop-filter: blur(7px) saturate(1.08);
+}
+.modal-wrap.shell-map-wrap .modal-backdrop {
+  background: rgba(3, 5, 8, 0.78);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* the dialogs themselves rise in */
+.modal-wrap.shell-pause-wrap .modal,
+.modal-wrap.shell-help-wrap .modal,
+.modal-wrap.shell-map-wrap .modal {
+  transform: translateY(14px) scale(0.985);
+  transition: transform 0.38s var(--ease);
+}
+.modal-wrap.shell-pause-wrap.show .modal,
+.modal-wrap.shell-help-wrap.show .modal,
+.modal-wrap.shell-map-wrap.show .modal { transform: none; }
+
+/* shared small caps heading */
+.shell-caps { text-transform: uppercase; letter-spacing: var(--track); }
+
+/* danger button */
+.btn.shell-btn-danger { border-color: rgba(255, 122, 110, 0.6); color: #ffd6d0; background: rgba(255, 122, 110, 0.12); }
+.btn.shell-btn-danger:hover { background: rgba(255, 122, 110, 0.26); border-color: rgba(255, 122, 110, 0.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-spinner { animation-duration: 2.4s; }
+}

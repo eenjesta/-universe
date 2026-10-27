@@ -1,0 +1,16 @@
+# dependencies & build output
+node_modules/
+dist/
+
+# headless test screenshots (large)
+shots/
+
+# concept art & references (kept local, not published)
+generated/
+reference/
+/Ø Universe_*.png
+
+# macOS / editor noise
+.DS_Store
+._*
+*.log

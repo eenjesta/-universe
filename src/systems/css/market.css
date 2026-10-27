@@ -1,0 +1,178 @@
+/*
+ * Marketplace — holographic glass terminal window (14_marketplace.png):
+ * cyan-tinted translucent glass, luminous border, scanlines, tabs
+ * Kopen / Verkopen / Mijn items, product cards with favourite hearts.
+ */
+.sys-mkt-wrap .modal-backdrop {
+  background: radial-gradient(ellipse at 50% 55%, rgba(14, 50, 76, .22), rgba(3, 6, 10, .58));
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.sys-mkt-wrap .modal.sys-mkt {
+  position: relative;
+  width: min(960px, calc(100vw - 32px)); max-height: min(660px, calc(100vh - 36px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: linear-gradient(160deg, rgba(126, 194, 236, .26) 0%, rgba(44, 86, 122, .34) 42%, rgba(14, 28, 46, .62) 100%);
+  border: 1px solid rgba(172, 230, 255, .58);
+  border-radius: 16px;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 0 0 1px rgba(127, 224, 255, .12), 0 0 80px rgba(127, 224, 255, .22), inset 0 0 90px rgba(127, 224, 255, .08), 0 30px 90px rgba(0, 0, 0, .5);
+  animation: sys-holo-in .6s var(--ease);
+}
+@keyframes sys-holo-in {
+  0% { opacity: 0; transform: scaleY(.03) scaleX(.9); filter: brightness(2.2); }
+  45% { opacity: 1; transform: scaleY(1.015); filter: brightness(1.4); }
+  100% { transform: none; filter: none; }
+}
+.sys-mkt-scan {
+  position: absolute; inset: 0; pointer-events: none; border-radius: inherit; z-index: 0;
+  background: repeating-linear-gradient(0deg, rgba(190, 238, 255, .035) 0 1px, transparent 1px 4px);
+}
+.sys-mkt-scan::after {
+  /* one soft light band sweeping down once when the hologram opens */
+  content: ''; position: absolute; left: 0; right: 0; height: 140px; top: 0;
+  background: linear-gradient(180deg, transparent, rgba(160, 230, 255, .08), transparent);
+  transform: translateY(-140px); opacity: 0;
+  animation: sys-holo-band 1.6s var(--ease) .2s 1;
+}
+@keyframes sys-holo-band { 0% { transform: translateY(-140px); opacity: 1; } 100% { transform: translateY(640px); opacity: 0; } }
+.sys-mkt > *:not(.sys-mkt-scan) { position: relative; z-index: 1; }
+
+.sys-mkt-head { display: flex; align-items: center; gap: 16px; padding: 18px 20px 12px 22px; }
+.sys-mkt-title { display: flex; align-items: center; gap: 12px; flex: 1; font-size: 21px; letter-spacing: .03em; color: #fff; }
+.sys-mkt-title .icon { color: #d9f5ff; filter: drop-shadow(0 0 6px rgba(127, 224, 255, .8)); }
+.sys-mkt-credits {
+  display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 11px; border-radius: 999px;
+  background: rgba(240, 180, 106, .1); border: 1px solid rgba(240, 180, 106, .45);
+  color: var(--gold-2); font-size: 15px; font-variant-numeric: tabular-nums;
+}
+.sys-mkt-credits .icon { color: var(--gold-2); }
+.sys-mkt-unit { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; opacity: .75; }
+.sys-mkt-head .modal-close { color: rgba(220, 245, 255, .8); }
+
+.sys-mkt-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 22px; border-bottom: 1px solid rgba(172, 230, 255, .3); }
+.sys-mkt-tab {
+  pointer-events: auto; cursor: pointer;
+  padding: 10px 0 11px; margin-bottom: -1px;
+  background: transparent; border: 1px solid transparent; border-bottom: 0; border-radius: 10px 10px 0 0;
+  color: rgba(225, 242, 255, .78); font-size: 15px; letter-spacing: .04em;
+  transition: background .2s, color .2s, border-color .2s;
+}
+.sys-mkt-tab:hover { color: #fff; background: rgba(127, 224, 255, .06); }
+.sys-mkt-tab.active {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(127, 224, 255, .3), rgba(127, 224, 255, .1));
+  border-color: rgba(172, 230, 255, .6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 -4px 22px rgba(127, 224, 255, .15);
+}
+
+.sys-mkt-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 22px 2px; }
+.sys-mkt-filter {
+  pointer-events: auto; cursor: pointer; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid rgba(172, 230, 255, .25); background: rgba(8, 18, 28, .3);
+  color: rgba(225, 242, 255, .8); font-size: 12px; letter-spacing: .02em;
+}
+.sys-mkt-filter:hover { border-color: rgba(172, 230, 255, .55); }
+.sys-mkt-filter.active { color: #fff; border-color: rgba(172, 230, 255, .7); background: rgba(127, 224, 255, .18); }
+
+.sys-mkt-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 22px 16px; }
+.sys-mkt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: 14px; }
+.sys-mkt-card {
+  position: relative; display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 10px 12px;
+  background: linear-gradient(180deg, rgba(12, 26, 40, .62), rgba(8, 17, 27, .74));
+  border: 1px solid rgba(172, 230, 255, .3); border-radius: 12px;
+  overflow: visible;
+  transition: transform .2s var(--ease), border-color .2s, box-shadow .2s;
+}
+.sys-mkt-card:hover { border-color: rgba(172, 230, 255, .62); box-shadow: 0 0 26px rgba(127, 224, 255, .16); transform: translateY(-2px); }
+.sys-mkt-card.owned { border-color: rgba(143, 227, 168, .32); }
+.sys-mkt-thumb { position: relative; border-radius: 8px; overflow: hidden; aspect-ratio: 32 / 21; border: 1px solid rgba(172, 230, 255, .18); background: #0b141e; }
+.sys-mkt-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sys-mkt-fav {
+  position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; display: grid; place-items: center;
+  border-radius: 50%; border: 0; background: rgba(6, 12, 18, .35);
+  color: rgba(255, 255, 255, .88); cursor: pointer; pointer-events: auto;
+  transition: transform .2s var(--ease), color .2s, background .2s;
+}
+.sys-mkt-fav:hover { transform: scale(1.12); background: rgba(6, 12, 18, .6); }
+.sys-mkt-fav.on { color: #ff86b0; filter: drop-shadow(0 0 6px rgba(255, 110, 160, .7)); }
+.sys-mkt-cat { margin-top: 8px; font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: rgba(172, 230, 255, .82); }
+.sys-mkt-name { font-size: 15.5px; color: #fff; letter-spacing: .01em; }
+.sys-mkt-desc {
+  font-size: 12px; line-height: 1.38; color: rgba(225, 242, 255, .55); min-height: 2.76em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sys-mkt-act { margin-top: auto; display: flex; flex-direction: column; gap: 9px; padding-top: 8px; }
+.sys-mkt-price { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: #eaf8ff; font-variant-numeric: tabular-nums; }
+.sys-mkt-price .icon { color: #bfefff; }
+.sys-mkt-price.poor { color: #ffb0a8; }
+.sys-mkt-btn {
+  pointer-events: auto; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 34px; padding: 0 14px; border-radius: 8px;
+  border: 1px solid rgba(172, 230, 255, .6);
+  background: linear-gradient(180deg, rgba(127, 224, 255, .24), rgba(127, 224, 255, .08));
+  color: #fff; font-size: 14px; letter-spacing: .04em;
+  transition: background .2s, box-shadow .2s, border-color .2s, opacity .2s;
+}
+.sys-mkt-btn:hover { background: linear-gradient(180deg, rgba(127, 224, 255, .4), rgba(127, 224, 255, .15)); box-shadow: 0 0 20px rgba(127, 224, 255, .3); }
+.sys-mkt-btn.poor { opacity: .72; }
+.sys-mkt-btn.owned { border-color: rgba(143, 227, 168, .55); background: rgba(143, 227, 168, .1); color: var(--green); }
+.sys-mkt-btn[disabled] { cursor: default; box-shadow: none; }
+.sys-mkt-btn.sm { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.sys-mkt-btn[disabled]:not(.owned) { opacity: .35; }
+.sys-mkt-note { font-size: 12px; line-height: 1.35; color: rgba(225, 242, 255, .7); padding: 6px 0 2px; }
+
+.sys-mkt-card.shake { animation: sys-shake .45s; }
+.sys-mkt-card.pulse { animation: sys-pulse .6s var(--ease); }
+@keyframes sys-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(2px); } }
+@keyframes sys-pulse { 0% { box-shadow: 0 0 0 0 rgba(143, 227, 168, .6); } 100% { box-shadow: 0 0 0 16px rgba(143, 227, 168, 0); } }
+.sys-mkt-flash {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  padding: 6px 12px; border-radius: 8px; font-size: 13px; white-space: nowrap; pointer-events: none;
+  background: rgba(8, 12, 18, .88); border: 1px solid rgba(255, 122, 110, .6); color: #ffb0a8;
+  animation: sys-flash 1.5s var(--ease) forwards;
+}
+.sys-mkt-flash.ok { border-color: rgba(143, 227, 168, .6); color: var(--green); }
+@keyframes sys-flash { 0% { opacity: 0; transform: translate(-50%, -30%); } 15% { opacity: 1; transform: translate(-50%, -50%); } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+.sys-mkt-sell { display: flex; flex-direction: column; gap: 8px; }
+.sys-mkt-sub { margin: 6px 2px 2px; font-size: 10.5px; letter-spacing: .26em; text-transform: uppercase; color: rgba(172, 230, 255, .8); }
+.sys-mkt-row {
+  display: grid; grid-template-columns: 46px 1fr auto auto; align-items: center; gap: 16px;
+  padding: 10px 14px; border: 1px solid rgba(172, 230, 255, .22); border-radius: 12px;
+  background: rgba(8, 18, 28, .45);
+}
+.sys-mkt-ric { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; background: rgba(127, 224, 255, .1); color: #d9f5ff; }
+.sys-mkt-rthumb { width: 46px; height: 32px; object-fit: cover; border-radius: 6px; }
+.sys-mkt-rname { font-size: 15px; color: #fff; }
+.sys-mkt-rhave { font-size: 11.5px; color: rgba(225, 242, 255, .55); }
+.sys-mkt-rprice { text-align: right; }
+.sys-mkt-rbtns { display: flex; gap: 6px; }
+
+.sys-mkt-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 60px 0; color: rgba(225, 242, 255, .7); font-size: 14px; text-align: center; }
+.sys-mkt-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 22px 14px; border-top: 1px solid rgba(172, 230, 255, .16);
+  font-size: 11.5px; color: rgba(225, 242, 255, .55); letter-spacing: .02em;
+}
+.sys-mkt-keys { display: flex; align-items: center; gap: 6px; }
+.sys-mkt-keys .kbd { min-width: 20px; height: 20px; font-size: 10.5px; }
+
+/* wide screens: the hologram floats right of the player, like the terminal window in
+   14_marketplace.png (player + Levensboom stay visible on the left) */
+@media (min-width: 1100px) {
+  .modal-wrap.sys-mkt-wrap { justify-content: flex-end; padding-right: max(28px, 4.5vw); }
+  .sys-mkt-wrap .modal-backdrop {
+    background: linear-gradient(90deg, rgba(3, 6, 10, 0) 0%, rgba(3, 6, 10, .08) 38%, rgba(6, 22, 36, .42) 100%);
+  }
+  .sys-mkt-wrap .modal.sys-mkt { width: min(680px, 54vw); }
+  .sys-mkt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .sys-mkt-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .sys-mkt-row { grid-template-columns: 40px 1fr; }
+  .sys-mkt-rprice, .sys-mkt-rbtns { grid-column: 2; text-align: left; }
+  .sys-mkt-foot span:first-child { display: none; }
+}

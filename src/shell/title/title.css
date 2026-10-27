@@ -1,0 +1,319 @@
+/*
+ * Title screen — poster layout (reference/concept.png, crop_hero.png):
+ * logo + motto + tagline top-left, menu below it, the four pillars in a dark
+ * column on the right, "Gameplay overview" cards across the bottom.
+ */
+.shell-title {
+  --pad: clamp(20px, 3.3vw, 64px);
+  --pillars-w: clamp(250px, 26vw, 440px);
+  --logo: clamp(50px, 9.4vh, 112px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--pillars-w);
+  grid-template-rows: minmax(0, 1fr) auto;
+  color: var(--ink);
+  overflow: hidden;
+  pointer-events: none;
+}
+.shell-title > * { pointer-events: auto; }
+.shell-title .shell-title-scrim { pointer-events: none; }
+
+/* soft darkening so the type reads over the 3D scene (left + bottom) */
+.shell-title-scrim {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    linear-gradient(90deg, rgba(5, 7, 11, 0.74) 0%, rgba(5, 7, 11, 0.46) 22%, rgba(5, 7, 11, 0.12) 40%, rgba(5, 7, 11, 0) 52%),
+    linear-gradient(0deg, rgba(5, 7, 11, 0.5) 0%, rgba(5, 7, 11, 0) 46%),
+    linear-gradient(180deg, rgba(5, 7, 11, 0.42) 0%, rgba(5, 7, 11, 0) 22%);
+}
+
+.shell-title-main {
+  position: relative; z-index: 1;
+  grid-column: 1; grid-row: 1;
+  display: flex; flex-direction: column; justify-content: flex-start;
+  gap: clamp(14px, 3.6vh, 46px);
+  padding: clamp(22px, 5.2vh, 68px) var(--pad) 12px;
+  min-height: 0;
+  pointer-events: none;
+}
+.shell-title-main > * { pointer-events: auto; }
+
+/* --------------------------------------------------------------- brand */
+.shell-brand { max-width: min(760px, 100%); }
+.shell-logo {
+  display: flex; align-items: center; gap: calc(var(--logo) * 0.3);
+  margin: 0; font-weight: 300; line-height: 1;
+  will-change: transform;
+}
+.shell-logo-mark { display: block; flex: none; width: var(--logo); height: var(--logo); color: var(--ink); filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.35)); }
+.shell-logo-mark .shell-mark { width: 100%; height: 100%; }
+.shell-logo-word {
+  display: inline-flex;
+  font-size: calc(var(--logo) * 0.52);
+  letter-spacing: 0.42em; margin-right: -0.42em;
+  font-weight: 300; color: var(--ink);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
+}
+.shell-motto {
+  margin: calc(var(--logo) * 0.12) 0 0 calc(var(--logo) * 1.3);
+  font-size: clamp(10px, calc(var(--logo) * 0.13), 15px);
+  letter-spacing: 0.56em; text-transform: uppercase; font-weight: 400;
+  color: rgba(236, 230, 220, 0.86);
+  white-space: nowrap;
+}
+.shell-tagline {
+  margin: clamp(16px, 4vh, 40px) 0 0;
+  font-size: clamp(15px, 2.75vh, 27px); line-height: 1.38; font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
+}
+.shell-rule {
+  width: clamp(150px, 15vw, 250px); height: 1px; margin: clamp(14px, 3vh, 30px) 0 clamp(12px, 2.4vh, 24px);
+  background: linear-gradient(90deg, rgba(236, 230, 220, 0.75), rgba(236, 230, 220, 0.25));
+  transform-origin: 0 50%;
+}
+.shell-brighter {
+  font-size: clamp(10px, 1.7vh, 15px); letter-spacing: 0.62em; text-transform: uppercase;
+  color: rgba(236, 230, 220, 0.82);
+}
+
+/* ---------------------------------------------------------------- menu */
+.shell-tmenu { display: flex; flex-direction: column; align-items: flex-start; gap: clamp(2px, 0.6vh, 8px); }
+.shell-tmenu-item {
+  position: relative; display: inline-flex; align-items: center; gap: 14px;
+  padding: clamp(5px, 1vh, 10px) 4px clamp(5px, 1vh, 10px) 0;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  color: rgba(236, 230, 220, 0.74);
+  transition: color 0.25s var(--ease), transform 0.35s var(--ease);
+  outline: none;
+}
+.shell-tmenu-item::after {
+  content: ''; position: absolute; left: 32px; right: 0; bottom: 0; height: 1px;
+  background: linear-gradient(90deg, rgba(236, 230, 220, 0.9), rgba(236, 230, 220, 0.15));
+  transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform 0.45s var(--ease);
+}
+.shell-tmenu-icon { display: inline-flex; width: 18px; justify-content: center; color: var(--ink-3); transition: color 0.25s, transform 0.35s var(--ease); }
+.shell-tmenu-text { display: flex; flex-direction: column; }
+.shell-tmenu-label { font-size: clamp(15px, 2.45vh, 22px); letter-spacing: 0.16em; font-weight: 400; }
+.shell-tmenu-sub { font-size: clamp(11px, 1.6vh, 13px); color: var(--ink-3); letter-spacing: 0.06em; margin-top: 3px; }
+.shell-tmenu-item:hover, .shell-tmenu-item:focus-visible { color: #fff; transform: translateX(4px); }
+.shell-tmenu-item:hover::after, .shell-tmenu-item:focus-visible::after { transform: scaleX(1); }
+.shell-tmenu-item:hover .shell-tmenu-icon, .shell-tmenu-item:focus-visible .shell-tmenu-icon { color: var(--cyan); transform: translateX(2px); }
+.shell-tmenu-item.is-primary { color: #fff; margin-bottom: clamp(2px, 0.8vh, 8px); }
+.shell-tmenu-item.is-primary .shell-tmenu-label { font-size: clamp(19px, 3.3vh, 30px); letter-spacing: 0.2em; font-weight: 400; }
+.shell-tmenu-item.is-primary .shell-tmenu-icon {
+  width: 34px; height: 34px; border-radius: 50%;
+  align-items: center; color: #0b0d12; background: var(--ink);
+  box-shadow: 0 0 0 0 rgba(236, 230, 220, 0.35);
+  animation: shell-pulse 2.8s ease-out 3s infinite;
+}
+.shell-tmenu-item.is-primary .shell-tmenu-icon .icon { transform: translateX(1px); }
+.shell-tmenu-item.is-primary::after { left: 48px; transform: scaleX(0.35); }
+.shell-tmenu-item.is-primary:hover::after, .shell-tmenu-item.is-primary:focus-visible::after { transform: scaleX(1); }
+.shell-tmenu-item.is-primary:hover .shell-tmenu-icon, .shell-tmenu-item.is-primary:focus-visible .shell-tmenu-icon { color: #0b0d12; background: #fff; }
+.shell-tmenu-item:not(.is-primary) { margin-left: 8px; }
+@keyframes shell-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(236, 230, 220, 0.4); }
+  70% { box-shadow: 0 0 0 14px rgba(236, 230, 220, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(236, 230, 220, 0); }
+}
+
+/* -------------------------------------------------------------- pillars */
+.shell-pillars {
+  position: relative; z-index: 1;
+  grid-column: 2; grid-row: 1;
+  display: flex; flex-direction: column; justify-content: center;
+  gap: clamp(16px, 4.6vh, 50px);
+  padding: clamp(24px, 6vh, 72px) clamp(18px, 2.1vw, 42px) clamp(18px, 4vh, 48px);
+  background: linear-gradient(90deg, rgba(7, 9, 13, 0.5) 0%, rgba(7, 9, 13, 0.8) 16%, rgba(7, 9, 13, 0.9) 100%);
+  border-left: 1px solid rgba(236, 230, 220, 0.1);
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+}
+.shell-pillar { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(14px, 1.4vw, 26px); align-items: start; }
+.shell-pillar-icon { display: block; color: var(--ink); padding-top: 2px; }
+.shell-pillar-icon .icon { width: clamp(26px, 4.6vh, 46px); height: clamp(26px, 4.6vh, 46px); stroke-width: 1.35; }
+.shell-pillar-title { font-size: clamp(11px, 1.8vh, 16px); letter-spacing: 0.22em; text-transform: uppercase; font-weight: 500; color: #fff; }
+.shell-pillar-text { margin-top: clamp(3px, 0.7vh, 8px); font-size: clamp(12px, 2.05vh, 18px); line-height: 1.38; color: rgba(236, 230, 220, 0.76); }
+
+/* ------------------------------------------------------------ overview */
+.shell-overview {
+  position: relative; z-index: 2;
+  grid-column: 1 / -1; grid-row: 2;
+  padding: clamp(10px, 2.2vh, 26px) var(--pad) clamp(16px, 3.4vh, 38px);
+  background: linear-gradient(180deg, rgba(7, 9, 13, 0.72) 0%, rgba(7, 9, 13, 0.92) 40%, rgba(7, 9, 13, 0.97) 100%);
+  border-top: 1px solid rgba(236, 230, 220, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.shell-ov-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: clamp(8px, 1.7vh, 18px); }
+.shell-ov-title { margin: 0; font-size: clamp(13px, 2.35vh, 22px); font-weight: 400; letter-spacing: 0.36em; text-transform: uppercase; }
+.shell-ov-sub { margin: 0; font-size: clamp(12px, 1.95vh, 17px); color: rgba(236, 230, 220, 0.78); }
+
+.shell-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(4px, 0.7vw, 14px);
+}
+.shell-chev { display: flex; color: rgba(236, 230, 220, 0.85); }
+.shell-chev .icon { width: clamp(16px, 2.6vh, 26px); height: clamp(16px, 2.6vh, 26px); stroke-width: 2; }
+
+.shell-card {
+  position: relative; display: block; width: 100%;
+  height: clamp(92px, 19.5vh, 230px);
+  padding: 0; margin: 0;
+  border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(236, 230, 220, 0.16);
+  background: #0c1017;
+  color: var(--ink); text-align: left; cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  transition: transform 0.4s var(--ease), border-color 0.3s, box-shadow 0.4s var(--ease);
+  isolation: isolate;
+  outline: none;
+}
+.shell-card:hover, .shell-card:focus-visible {
+  transform: translateY(-4px);
+  border-color: rgba(127, 224, 255, 0.55);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(127, 224, 255, 0.25), 0 0 28px rgba(127, 224, 255, 0.16);
+}
+.shell-card-media { position: absolute; inset: 0; z-index: -2; }
+.shell-card-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
+  opacity: 0; transform: scale(1.06);
+  transition: opacity 1.1s var(--ease), transform 1.6s var(--ease);
+}
+.shell-card.has-thumb .shell-card-img { opacity: 1; transform: scale(1.015); }
+.shell-card:hover .shell-card-img { transform: scale(1.07); transition-duration: 1.1s, 4s; }
+/* placeholders until the live render arrives */
+.shell-card-ph {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: rgba(236, 230, 220, 0.18);
+  background: linear-gradient(160deg, #1d2a3a 0%, #0e141d 60%);
+}
+.shell-card-ph::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.06) 50%, transparent 70%);
+  background-size: 240% 100%;
+  animation: shell-shimmer 1.8s linear infinite;
+}
+.shell-card-ph-explore { background: linear-gradient(170deg, #5a6e8a 0%, #c98c5a 48%, #1b1f22 100%); }
+.shell-card-ph-build { background: linear-gradient(170deg, #36506a 0%, #4b5e3e 55%, #151a14 100%); }
+.shell-card-ph-meet { background: linear-gradient(170deg, #3a3a6e 0%, #6c4aa0 50%, #1a1426 100%); }
+.shell-card-ph-more { background: radial-gradient(ellipse at 70% 30%, #3a4c78 0%, #0b0f1c 60%, #05060b 100%); }
+.shell-card.has-thumb .shell-card-ph::after { animation: none; opacity: 0; }
+@keyframes shell-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+
+.shell-card-shade {
+  position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(0deg, rgba(5, 7, 11, 0.94) 0%, rgba(5, 7, 11, 0.7) 26%, rgba(5, 7, 11, 0.12) 58%, rgba(5, 7, 11, 0) 72%);
+}
+.shell-card-body {
+  position: absolute; left: clamp(10px, 1.1vw, 18px); right: clamp(10px, 1.1vw, 18px); bottom: clamp(8px, 1.6vh, 16px);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(8px, 0.9vw, 14px); align-items: center;
+}
+.shell-card-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: clamp(24px, 4.3vh, 40px); height: clamp(24px, 4.3vh, 40px); border-radius: 50%;
+  background: var(--ink); color: #101216; font-size: clamp(13px, 2.3vh, 20px); font-weight: 500;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  align-self: center;
+}
+.shell-card-title { font-size: clamp(12px, 2.2vh, 20px); letter-spacing: 0.16em; text-transform: uppercase; font-weight: 500; color: #fff; }
+.shell-card-text {
+  margin-top: 3px; font-size: clamp(11px, 1.75vh, 15px); line-height: 1.3; color: rgba(236, 230, 220, 0.82);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.shell-card-cta {
+  position: absolute; top: 10px; right: 10px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px 5px 12px; border-radius: 999px;
+  font-size: 12px; letter-spacing: 0.04em; color: #fff;
+  background: rgba(8, 12, 18, 0.66); border: 1px solid rgba(127, 224, 255, 0.45);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; transform: translateY(-4px);
+  transition: opacity 0.3s, transform 0.35s var(--ease);
+}
+.shell-card-cta .icon { color: var(--cyan); }
+.shell-card:hover .shell-card-cta, .shell-card:focus-visible .shell-card-cta { opacity: 1; transform: none; }
+
+.shell-version {
+  position: absolute; z-index: 3; right: var(--pad); bottom: clamp(4px, 0.9vh, 12px);
+  font-size: 11px; letter-spacing: 0.12em; color: rgba(236, 230, 220, 0.36);
+  pointer-events: none;
+}
+
+/* -------------------------------------------------------------- reveal */
+.shell-title .shell-rv { opacity: 0; }
+.shell-title.is-in .shell-rv { animation: shell-rise 1.05s var(--ease) var(--d, 0s) both; }
+.shell-title.is-in .shell-rule.shell-rv { animation-name: shell-grow; }
+.shell-title.is-short.is-in .shell-rv { animation-duration: 0.7s; }
+@keyframes shell-rise {
+  from { opacity: 0; transform: translateY(18px); filter: blur(5px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes shell-grow {
+  from { opacity: 0; transform: scaleX(0); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+.shell-title .shell-pillars { opacity: 0; transform: translateX(28px); transition: opacity 1.2s var(--ease) 0.25s, transform 1.4s var(--ease) 0.25s; }
+.shell-title .shell-overview { opacity: 0; transform: translateY(30px); transition: opacity 1.1s var(--ease) 0.55s, transform 1.3s var(--ease) 0.55s; }
+.shell-title.is-in .shell-pillars, .shell-title.is-in .shell-overview { opacity: 1; transform: none; }
+.shell-title.is-short .shell-pillars, .shell-title.is-short .shell-overview { transition-delay: 0s; transition-duration: 0.6s; }
+
+/* logo draw-in (no hand-off from the boot screen) */
+.shell-title .shell-mark-ring { stroke-dasharray: 100; stroke-dashoffset: 100; }
+.shell-title .shell-mark-slash { stroke-dasharray: 100; stroke-dashoffset: 100; }
+.shell-title .shell-logo-ch { opacity: 0; transform: translateX(0.25em); display: inline-block; }
+.shell-title.is-in .shell-mark-ring { animation: shell-draw 1.5s cubic-bezier(0.65, 0, 0.25, 1) 0.05s forwards; }
+.shell-title.is-in .shell-mark-slash { animation: shell-draw 0.75s cubic-bezier(0.6, 0, 0.3, 1) 0.75s forwards; }
+.shell-title.is-in .shell-logo-ch { animation: shell-letter 0.9s var(--ease) calc(0.25s + var(--i) * 0.06s) forwards; }
+.shell-title.is-short.is-in .shell-mark-ring, .shell-title.is-short.is-in .shell-mark-slash { animation-duration: 0.8s; animation-delay: 0s; }
+.shell-title.is-short.is-in .shell-logo-ch { animation-duration: 0.6s; animation-delay: calc(var(--i) * 0.03s); }
+@keyframes shell-draw { to { stroke-dashoffset: 0; } }
+@keyframes shell-letter { to { opacity: 1; transform: none; } }
+/* hand-off from the boot logo: everything is already drawn */
+.shell-title.is-flip .shell-mark-ring, .shell-title.is-flip .shell-mark-slash { stroke-dashoffset: 0; animation: none; }
+.shell-title.is-flip .shell-logo-ch { opacity: 1; transform: none; animation: none; }
+
+/* leaving the title (mode switch fades to black) */
+.shell-title.is-leaving .shell-title-main,
+.shell-title.is-leaving .shell-pillars,
+.shell-title.is-leaving .shell-overview { opacity: 0.35; transition: opacity 0.35s; pointer-events: none; }
+
+/* ------------------------------------------------------------ responsive */
+@media (max-width: 1180px) {
+  .shell-title { --pillars-w: clamp(220px, 25vw, 300px); }
+  .shell-pillar-title { font-size: 12px; letter-spacing: 0.18em; }
+  .shell-pillar-text { font-size: 12.5px; }
+}
+@media (max-width: 1000px) {
+  .shell-card-text { display: none; }
+  .shell-card-cta { display: none; }
+  .shell-tagline .shell-br { display: none; }
+}
+@media (max-width: 920px) {
+  .shell-title { --pillars-w: 230px; --logo: clamp(44px, 8vh, 72px); }
+  .shell-pillars { padding-left: 18px; padding-right: 16px; }
+  .shell-pillar { gap: 12px; }
+  .shell-pillar-icon .icon { width: 26px; height: 26px; }
+  .shell-pillar-title { font-size: 11px; letter-spacing: 0.16em; }
+  .shell-pillar-text { font-size: 12px; }
+  .shell-motto { letter-spacing: 0.42em; }
+}
+@media (max-width: 720px) {
+  .shell-title { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .shell-pillars { display: none; }
+  .shell-cards { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; }
+  .shell-card { flex: 0 0 62vw; scroll-snap-align: start; }
+  .shell-chev { display: none; }
+  .shell-motto { margin-left: 0; white-space: normal; }
+}
+@media (max-height: 560px) {
+  .shell-tagline, .shell-rule { display: none; }
+  .shell-card { height: 84px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-title .shell-rv, .shell-title .shell-pillars, .shell-title .shell-overview { animation-duration: 0.01s !important; transition-duration: 0.01s !important; }
+}

@@ -1,0 +1,252 @@
+/*
+ * World map modal (19_world_map.png): dark relief map with diamond pins,
+ * brand top-left, compass + scale bottom-left, legend panel on the right
+ * with "Snel reizen".
+ */
+.modal.shell-map {
+  width: min(1500px, calc(100vw - 28px));
+  height: min(920px, calc(100vh - 28px));
+  max-width: none; max-height: none;
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(250px, 23%, 340px);
+  padding: 0; overflow: hidden;
+  background: #070a0f;
+  border-color: rgba(236, 230, 220, 0.14);
+}
+
+/* ---------------------------------------------------------------- stage */
+.shell-map-stage { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
+.shell-map-viewport {
+  position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none;
+  background: radial-gradient(ellipse at 50% 42%, #142230 0%, #0a1018 55%, #06080c 100%);
+}
+.shell-map-viewport.is-dragging { cursor: grabbing; }
+.shell-map-canvas-host { position: absolute; inset: 0; }
+.shell-map-img {
+  position: absolute; left: 0; top: 0; display: block;
+  transform-origin: 0 0; will-change: transform;
+  filter: saturate(1.08) contrast(1.04);
+  animation: shell-map-in 0.7s var(--ease);
+}
+@keyframes shell-map-in { from { opacity: 0; } to { opacity: 1; } }
+/* terrain preview while the detailed map is still being baked */
+.shell-map-img.is-preview { filter: saturate(0.95) brightness(0.9) contrast(1.05); image-rendering: auto; }
+.shell-map-refine {
+  position: absolute; left: 50%; top: 22px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px 6px 10px;
+  border-radius: 999px; background: rgba(10, 13, 18, 0.72); border: 1px solid var(--line);
+  font-size: 12px; letter-spacing: 0.04em; color: var(--ink-2); pointer-events: none;
+}
+.shell-map-refine .shell-spinner { width: 14px; height: 14px; }
+.shell-map-shade {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(6, 8, 12, 0) 52%, rgba(6, 8, 12, 0.6) 100%),
+    linear-gradient(180deg, rgba(6, 8, 12, 0.55) 0%, rgba(6, 8, 12, 0) 20%),
+    linear-gradient(0deg, rgba(6, 8, 12, 0.5) 0%, rgba(6, 8, 12, 0) 22%);
+}
+.shell-map-loading {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 12px;
+  color: var(--ink-2); font-size: 14px; letter-spacing: 0.06em;
+}
+
+/* ----------------------------------------------------------------- pins */
+.shell-map-pins { position: absolute; inset: 0; pointer-events: none; }
+.shell-pin {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; margin: 0;
+  border: 0; background: none; color: var(--ink); cursor: pointer; pointer-events: auto;
+  outline: none;
+}
+.shell-pin-gem {
+  position: absolute; left: -16px; top: -16px; width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.25s var(--ease);
+}
+.shell-pin-gem::before {
+  content: ''; position: absolute; inset: 5px; transform: rotate(45deg);
+  background: rgba(10, 13, 18, 0.88);
+  border: 1.5px solid rgba(236, 230, 220, 0.95);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.shell-pin-icon { position: relative; display: flex; color: #fff; }
+.shell-pin-gem::after {
+  /* little stem below the diamond, like a map pin */
+  content: ''; position: absolute; left: 50%; top: 31px; width: 1px; height: 9px;
+  background: linear-gradient(180deg, rgba(236, 230, 220, 0.8), rgba(236, 230, 220, 0));
+}
+.shell-pin-label {
+  position: absolute; left: 22px; top: 0; transform: translateY(-50%);
+  white-space: nowrap; font-size: 14px; letter-spacing: 0.03em; color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.85);
+  transition: color 0.2s;
+}
+.shell-pin:hover .shell-pin-gem, .shell-pin:focus-visible .shell-pin-gem { transform: scale(1.12); }
+.shell-pin:hover .shell-pin-gem::before { border-color: var(--cyan); }
+.shell-pin.is-home .shell-pin-gem::before { border-color: var(--cyan); box-shadow: 0 0 14px rgba(127, 224, 255, 0.55); }
+.shell-pin.is-home .shell-pin-icon { color: var(--cyan); }
+.shell-pin.is-unknown .shell-pin-gem { opacity: 0.6; }
+.shell-pin.is-unknown .shell-pin-label { color: var(--ink-2); }
+.shell-pin.is-selected .shell-pin-gem::before { border-color: var(--cyan); box-shadow: 0 0 16px rgba(127, 224, 255, 0.7); }
+.shell-pin.is-selected .shell-pin-label { color: var(--cyan); }
+.shell-pin.is-selected::before {
+  /* corner brackets around the selected pin */
+  content: ''; position: absolute; left: -26px; top: -26px; width: 52px; height: 52px; pointer-events: none;
+  --c: rgba(127, 224, 255, 0.95);
+  background:
+    linear-gradient(var(--c), var(--c)) left top / 11px 1.5px no-repeat,
+    linear-gradient(var(--c), var(--c)) left top / 1.5px 11px no-repeat,
+    linear-gradient(var(--c), var(--c)) right top / 11px 1.5px no-repeat,
+    linear-gradient(var(--c), var(--c)) right top / 1.5px 11px no-repeat,
+    linear-gradient(var(--c), var(--c)) left bottom / 11px 1.5px no-repeat,
+    linear-gradient(var(--c), var(--c)) left bottom / 1.5px 11px no-repeat,
+    linear-gradient(var(--c), var(--c)) right bottom / 11px 1.5px no-repeat,
+    linear-gradient(var(--c), var(--c)) right bottom / 1.5px 11px no-repeat;
+  animation: shell-bracket 0.35s var(--ease);
+}
+@keyframes shell-bracket { from { transform: scale(1.35); opacity: 0; } to { transform: none; opacity: 1; } }
+.shell-pin.is-region .shell-pin-label {
+  left: 0; transform: translate(-50%, -50%);
+  font-size: 12px; letter-spacing: 0.42em; text-transform: uppercase; color: rgba(236, 230, 220, 0.62);
+  margin-right: -0.42em;
+}
+.shell-pin.is-region:hover .shell-pin-label, .shell-pin.is-region.is-selected .shell-pin-label { color: var(--cyan); }
+.shell-pin.is-region.is-selected::before { display: none; }
+
+/* player + quests */
+.shell-map-player { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.shell-map-player::before {
+  content: ''; position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%;
+  border: 1.5px solid rgba(127, 224, 255, 0.8);
+  animation: shell-ping 2s ease-out infinite;
+}
+.shell-map-player-arrow {
+  position: absolute; left: -8px; top: -11px; width: 16px; height: 21px;
+  background: #fff;
+  clip-path: polygon(50% 0, 100% 100%, 50% 74%, 0 100%);
+  filter: drop-shadow(0 0 5px rgba(127, 224, 255, 0.9));
+}
+@keyframes shell-ping { from { transform: scale(0.45); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.shell-map-quests { position: absolute; inset: 0; }
+.shell-map-quest { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.shell-map-quest-gem {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; transform: rotate(45deg);
+  border: 2px solid var(--cyan); background: rgba(8, 18, 26, 0.85);
+  box-shadow: 0 0 12px rgba(127, 224, 255, 0.85);
+  animation: shell-gem-pulse 2.2s ease-in-out infinite;
+}
+.shell-map-quest-label {
+  position: absolute; left: 14px; top: 0; transform: translateY(-50%); white-space: nowrap;
+  font-size: 12.5px; color: var(--cyan); text-shadow: 0 1px 3px #000, 0 0 10px rgba(0, 0, 0, 0.8);
+}
+/* quest target on a named place: a pulsing cyan ring around that pin */
+.shell-map-quest.is-on-pin .shell-map-quest-label { display: none; }
+.shell-map-quest.is-on-pin .shell-map-quest-gem {
+  left: -17px; top: -17px; width: 34px; height: 34px;
+  background: transparent; border-width: 1.5px;
+}
+.shell-pin.is-quest .shell-pin-gem::before { border-color: var(--cyan); }
+.shell-pin.is-quest .shell-pin-label { color: #e9fbff; }
+
+/* --------------------------------------------------------- stage chrome */
+.shell-map-brand { position: absolute; left: 28px; top: 24px; pointer-events: none; color: var(--ink); }
+.shell-map-brand-row { display: flex; align-items: center; gap: 14px; }
+.shell-map-brand-word { font-size: 26px; font-weight: 300; letter-spacing: 0.46em; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7); }
+.shell-map-brand-sub {
+  display: inline-block; margin: 6px 0 0 48px; padding-bottom: 8px;
+  font-size: 12px; letter-spacing: 0.52em; text-transform: uppercase; color: var(--ink-2);
+  border-bottom: 1px solid rgba(127, 224, 255, 0.6);
+}
+.shell-map-compass { position: absolute; left: 22px; bottom: 64px; width: 112px; height: 112px; pointer-events: none; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.8)); }
+.shell-map-compass svg { width: 100%; height: 100%; }
+.shell-map-scale { position: absolute; left: 30px; bottom: 22px; pointer-events: none; }
+.shell-map-scale-bar { display: flex; height: 7px; border: 1px solid rgba(236, 230, 220, 0.75); border-top: 0; }
+.shell-map-scale-bar i { flex: 1; border-right: 1px solid rgba(236, 230, 220, 0.55); }
+.shell-map-scale-bar i:last-child { border-right: 0; }
+.shell-map-scale-labels {
+  display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000;
+}
+.shell-map-scale-labels span:first-child { transform: translateX(-35%); }
+.shell-map-scale-labels span:last-child { transform: translateX(45%); white-space: nowrap; }
+.shell-map-zoom { position: absolute; right: 18px; top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.shell-map-zbtn {
+  display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+  background: rgba(10, 13, 18, 0.76); border: 1px solid var(--line-2); color: var(--ink);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: border-color 0.2s, background 0.2s;
+}
+.shell-map-zbtn:hover { border-color: var(--cyan); background: rgba(127, 224, 255, 0.12); }
+.shell-map-hint {
+  position: absolute; right: 18px; bottom: 16px; pointer-events: none;
+  font-size: 12px; color: var(--ink-3); letter-spacing: 0.03em; text-shadow: 0 1px 3px #000;
+}
+
+/* --------------------------------------------------------------- legend */
+.shell-map-legend {
+  display: flex; flex-direction: column; min-height: 0;
+  padding: 26px 22px 22px;
+  background: linear-gradient(180deg, rgba(15, 19, 27, 0.98), rgba(9, 12, 17, 0.99));
+  border-left: 1px solid var(--line);
+}
+.shell-map-legend-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px 16px; border-bottom: 1px solid var(--line-2); }
+.shell-map-legend-title { margin: 0; font-size: 24px; font-weight: 300; letter-spacing: 0.44em; text-transform: uppercase; }
+.shell-legend-list { flex: 1; min-height: 0; overflow: auto; margin: 8px -6px 10px; padding: 0 6px; }
+.shell-legend-item {
+  display: flex; align-items: center; gap: 15px; width: 100%;
+  padding: 9px 6px; border: 0; border-bottom: 1px solid rgba(236, 230, 220, 0.07);
+  background: none; color: var(--ink-2); cursor: pointer; text-align: left;
+  font-size: 15px; letter-spacing: 0.07em;
+  transition: color 0.2s, background 0.2s;
+  outline: none;
+}
+.shell-legend-item:hover, .shell-legend-item:focus-visible { color: #fff; background: rgba(255, 255, 255, 0.04); }
+.shell-legend-gem { position: relative; flex: none; display: grid; place-items: center; width: 34px; height: 34px; color: #fff; }
+.shell-legend-gem::before {
+  content: ''; position: absolute; inset: 6px; transform: rotate(45deg);
+  border: 1.5px solid rgba(236, 230, 220, 0.9); background: rgba(10, 13, 18, 0.9);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.shell-legend-gem span { position: relative; display: flex; }
+.shell-legend-label { flex: 1; min-width: 0; }
+.shell-legend-state { display: flex; color: var(--cyan); opacity: 0.8; }
+.shell-legend-item.is-selected { color: var(--cyan); }
+.shell-legend-item.is-selected .shell-legend-gem { color: var(--cyan); }
+.shell-legend-item.is-selected .shell-legend-gem::before { border-color: var(--cyan); box-shadow: 0 0 14px rgba(127, 224, 255, 0.6); }
+.shell-legend-item.is-unknown { color: var(--ink-3); }
+.shell-legend-item.is-unknown .shell-legend-gem { opacity: 0.55; }
+.shell-legend-item.is-region .shell-legend-gem::before { border-style: dashed; }
+
+.shell-map-detail { padding: 14px 4px 14px; border-top: 1px solid var(--line-2); min-height: 116px; }
+.shell-map-detail-name { display: flex; align-items: center; gap: 10px; font-size: 18px; color: #fff; letter-spacing: 0.03em; }
+.shell-map-detail-name span { display: flex; color: var(--cyan); }
+.shell-map-detail-desc { margin: 6px 0 10px; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.shell-map-detail-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.shell-map-detail-status { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); }
+.shell-map-detail-status.is-known { color: var(--cyan); }
+
+.shell-map-travel {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  height: 56px; border-radius: 10px; cursor: pointer;
+  border: 1px solid rgba(127, 224, 255, 0.6);
+  background: linear-gradient(180deg, rgba(127, 224, 255, 0.12), rgba(127, 224, 255, 0.05));
+  color: #fff; font-size: 17px; letter-spacing: 0.26em;
+  box-shadow: inset 0 0 22px rgba(127, 224, 255, 0.08);
+  transition: background 0.2s, box-shadow 0.25s, opacity 0.2s;
+}
+.shell-map-travel span:first-child { display: flex; color: var(--cyan); }
+.shell-map-travel:hover:not(:disabled) { background: rgba(127, 224, 255, 0.2); box-shadow: 0 0 26px rgba(127, 224, 255, 0.28), inset 0 0 22px rgba(127, 224, 255, 0.12); }
+.shell-map-travel:disabled { opacity: 0.38; cursor: default; }
+.shell-map-travel:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* ----------------------------------------------------------- responsive */
+@media (max-width: 860px) {
+  .modal.shell-map { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .shell-map-legend { border-left: 0; border-top: 1px solid var(--line); padding: 12px 16px 14px; }
+  .shell-legend-list { display: none; }
+  .shell-map-legend-head { padding: 0 0 8px; }
+  .shell-map-legend-title { font-size: 16px; }
+  .shell-map-detail { min-height: 0; padding: 8px 2px; border-top: 0; }
+  .shell-map-travel { height: 46px; font-size: 15px; }
+  .shell-map-hint, .shell-map-compass { display: none; }
+  .shell-map-brand-word { font-size: 20px; }
+}
