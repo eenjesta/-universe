@@ -30,7 +30,7 @@ export function defaultState() {
   return {
     version: 1,
     createdAt: 0,
-    profile: { name: 'Reiziger', created: false, appearance: { ...DEFAULT_APPEARANCE } },
+    profile: { name: 'Traveler', created: false, appearance: { ...DEFAULT_APPEARANCE } },
     credits: 1250,
     resources: { metal: 124, stone: 380, wood: 215, energy: 98 },
     player: { zone: 'spawn', position: null, heading: 0, vehicle: null },
@@ -43,6 +43,7 @@ export function defaultState() {
     stats: { distance: 0, built: 0, harvested: 0, playtime: 0, kills: 0 },
     settings: {
       quality: 'high',
+      language: 'en', // 'en' | 'nl' (core/i18n.js)
       volume: 0.7,
       music: 0.5,
       sfx: 0.8,

@@ -22,6 +22,7 @@
  */
 import * as THREE from 'three';
 import { ZONES } from '../../world/layout.js';
+import { t } from '../../core/i18n.js';
 import { playerPos, groundY, zoneRadius, rewardText } from '../shared/util.js';
 
 const MARKER_ID = 'sys-quest';
@@ -171,7 +172,7 @@ export function createQuestEngine(ctx, { sys, notify, rewards, defs }) {
       notify.show({
         kind: 'quest',
         icon: 'sys-diamond',
-        title: `Nieuwe missie: ${def.title}`,
+        title: t({ en: 'New mission: {title}', nl: 'Nieuwe missie: {title}' }, { title: def.title }),
         sub: first ? objText(first, all[id]) : '',
         sound: 'quest.update',
         duration: 3600,
@@ -222,7 +223,7 @@ export function createQuestEngine(ctx, { sys, notify, rewards, defs }) {
     notify.show({
       kind: 'complete',
       icon: 'sys-diamond-check',
-      title: `Missie voltooid: ${def.title}`,
+      title: t({ en: 'Mission complete: {title}', nl: 'Missie voltooid: {title}' }, { title: def.title }),
       sub: rewardText(r),
       sound: 'quest.complete',
       duration: 4400,
@@ -250,7 +251,7 @@ export function createQuestEngine(ctx, { sys, notify, rewards, defs }) {
     else delete all[id];
     save();
     if (state.get('quests.active') === id) state.set('quests.active', bestNext(id));
-    if (!silent) notify.show({ kind: 'fail', icon: 'sys-diamond', title: `Missie verlopen: ${byId.get(id)?.title || id}`, sound: 'ui.error' });
+    if (!silent) notify.show({ kind: 'fail', icon: 'sys-diamond', title: t({ en: 'Mission expired: {title}', nl: 'Missie verlopen: {title}' }, { title: byId.get(id)?.title || id }), sound: 'ui.error' });
     sys.emit('quests:changed', { id, reason: 'abandon' });
     refreshMarker(true);
     return true;

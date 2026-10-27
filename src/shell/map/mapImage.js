@@ -344,7 +344,7 @@ export class MapImage {
       g.stroke();
     }
 
-    // plaza: paved circle with rings (Nexus-plein)
+    // plaza: paved circle with rings (Nexus Plaza)
     const pz = ZONES.plaza;
     if (pz) {
       const R = (pz.radius || 78) * k;

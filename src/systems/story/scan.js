@@ -1,27 +1,31 @@
 /**
  * Ruins scanning (generated/11_ancient_ruins.png). Hold [E] at the ruins:
  *  - the great Ø relief (ruins.relief; interaction at ruins.scanPoints[0],
- *    fallback: the ruins zone) → "Onbekende inscriptie — 64% gescand" while
+ *    fallback: the ruins zone) → "Unknown inscription — 64% scanned" while
  *    ruins.setScanProgress(p) makes the carving glow; on completion
  *    ruins.setScanned(true), flag ruinsScanned, 'scan:complete' {target: 'ruins'},
- *    XP and the lore entry "De inscriptie".
+ *    XP and the lore entry "The Inscription".
  *  - the rune stones (ruins.scanPoints[1…]) → short optional scans
  *    ('scan:complete' {target: 'rune', index}), XP each and the lore entry
- *    "De runenstenen" once all of them are read.
+ *    "The Rune Stones" once all of them are read.
  * A scan bracket (corner brackets, grid, sweep line, label + progress bar)
  * tracks the target on screen; while holding, the camera eases to frame it.
  */
 import * as THREE from 'three';
 import { ZONES } from '../../world/layout.js';
 import { damp, dampAngle } from '../../core/math.js';
+import { t, pick } from '../../core/i18n.js';
 import { groundY, playerPos, headingTo } from '../shared/util.js';
 
 const MAIN_ID = 'sys-scan-ruins';
 const RUNE_PREFIX = 'sys-scan-rune-';
 const MAIN_HOLD = 3;
 const RUNE_HOLD = 1.6;
-const INSCRIPTION = '“Wie de cirkel volgt, keert terug naar het begin. Wie hem doorbreekt, vindt de sterren.”';
-const RUNE_SIGNS = ['de cirkel', 'de lijn', 'de ster', 'de golf'];
+const INSCRIPTION = {
+  en: '“Whoever follows the circle returns to the beginning. Whoever breaks it finds the stars.”',
+  nl: '“Wie de cirkel volgt, keert terug naar het begin. Wie hem doorbreekt, vindt de sterren.”',
+};
+const RUNE_SIGNS = { en: ['the circle', 'the line', 'the star', 'the wave'], nl: ['de cirkel', 'de lijn', 'de ster', 'de golf'] };
 const RANGE_AHEAD = 7; // m in front of the relief wall
 const RANGE_R = 12; // interaction radius around that spot (scan from ~1–19 m)
 // where the camera assist puts the relief centre while scanning (NDC: right of centre, a bit high)
@@ -116,20 +120,20 @@ export function createRuinsScan(ctx, { rewards, progress }) {
     ids.forEach((id) => ctx.interactions.remove(id));
     ids.length = 0;
     buildTargets();
-    for (const t of targets) {
-      ids.push(t.id);
-      const main = t.kind === 'main';
+    for (const tg of targets) {
+      ids.push(tg.id);
+      const main = tg.kind === 'main';
       ctx.interactions.add({
-        id: t.id,
+        id: tg.id,
         scope: 'world',
-        position: main ? t.spot : t.stand,
+        position: main ? tg.spot : tg.stand,
         radius: main ? RANGE_R : 3.4,
-        label: main ? 'Scan inscriptie' : 'Scan runensteen',
-        hold: t.hold,
+        label: main ? t({ en: 'Scan inscription', nl: 'Scan inscriptie' }) : t({ en: 'Scan rune stone', nl: 'Scan runensteen' }),
+        hold: tg.hold,
         priority: 2,
         anchor: false,
-        enabled: () => !isDone(t) && ctx.modes.is('explore') && (!main || inView(t)),
-        onInteract: () => complete(t),
+        enabled: () => !isDone(tg) && ctx.modes.is('explore') && (!main || inView(tg)),
+        onInteract: () => complete(tg),
       });
     }
   }
@@ -138,14 +142,15 @@ export function createRuinsScan(ctx, { rewards, progress }) {
   let doneTimer = 0;
   let lastDone = null;
 
-  function complete(t = targets[0]) {
-    if (!t || isDone(t)) return;
-    lastDone = t;
-    doneTimer = t.kind === 'main' ? 6.5 : 3.6;
-    quote.textContent = t.kind === 'main' ? INSCRIPTION : `Teken ontcijferd: ${RUNE_SIGNS[(t.index - 1) % RUNE_SIGNS.length]}`;
+  function complete(target = targets[0]) {
+    if (!target || isDone(target)) return;
+    lastDone = target;
+    doneTimer = target.kind === 'main' ? 6.5 : 3.6;
+    const signs = pick(RUNE_SIGNS);
+    quote.textContent = target.kind === 'main' ? t(INSCRIPTION) : t({ en: 'Sign deciphered: {sign}', nl: 'Teken ontcijferd: {sign}' }, { sign: signs[(target.index - 1) % signs.length] });
     stopLoop();
     ctx.audio.play('quest.update');
-    if (t.kind === 'main') {
+    if (target.kind === 'main') {
       rewards.setFlag('ruinsScanned');
       try {
         ruins()?.setScanned?.(true);
@@ -157,14 +162,14 @@ export function createRuinsScan(ctx, { rewards, progress }) {
       ctx.events.emit('scan:complete', { target: 'ruins' });
       return;
     }
-    const read = [...runesRead(), t.index];
+    const read = [...runesRead(), target.index];
     state.set('systems.runes', read);
     progress.addXP(40, 'scan');
     state.add('credits', 25);
     const n = read.length;
     const total = runeCount();
-    ui.toast({ title: 'Runensteen ontcijferd', text: `+40 XP · +25 Ø-credits · ${n}/${total}`, icon: 'scan', kind: 'quest', duration: 2800 });
-    ctx.events.emit('scan:complete', { target: 'rune', index: t.index, count: n, total });
+    ui.toast({ title: t({ en: 'Rune stone deciphered', nl: 'Runensteen ontcijferd' }), text: `+40 XP · +25 Ø-credits · ${n}/${total}`, icon: 'scan', kind: 'quest', duration: 2800 });
+    ctx.events.emit('scan:complete', { target: 'rune', index: target.index, count: n, total });
     if (n >= total) rewards.unlockLore('runes');
   }
 
@@ -218,10 +223,10 @@ export function createRuinsScan(ctx, { rewards, progress }) {
     loopHandle = null;
   }
 
-  function setText(t, p) {
-    if (t !== lastText) {
-      label.textContent = t;
-      lastText = t;
+  function setText(text, p) {
+    if (text !== lastText) {
+      label.textContent = text;
+      lastText = text;
     }
     if (p !== lastP) {
       pct.textContent = `${Math.round(p * 100)}%`;
@@ -250,8 +255,16 @@ export function createRuinsScan(ctx, { rewards, progress }) {
   }
 
   const LABELS = {
-    main: { idle: 'Onbekende inscriptie', scan: (n) => `Onbekende inscriptie — ${n}% gescand`, done: 'Inscriptie ontcijferd — 100% gescand' },
-    rune: { idle: 'Runensteen', scan: (n) => `Runensteen — ${n}% gescand`, done: 'Runensteen ontcijferd — 100% gescand' },
+    main: {
+      idle: t({ en: 'Unknown inscription', nl: 'Onbekende inscriptie' }),
+      scan: (n) => t({ en: 'Unknown inscription — {n}% scanned', nl: 'Onbekende inscriptie — {n}% gescand' }, { n }),
+      done: t({ en: 'Inscription deciphered — 100% scanned', nl: 'Inscriptie ontcijferd — 100% gescand' }),
+    },
+    rune: {
+      idle: t({ en: 'Rune stone', nl: 'Runensteen' }),
+      scan: (n) => t({ en: 'Rune stone — {n}% scanned', nl: 'Runensteen — {n}% gescand' }, { n }),
+      done: t({ en: 'Rune stone deciphered — 100% scanned', nl: 'Runensteen ontcijferd — 100% gescand' }),
+    },
   };
 
   function update(dt) {

@@ -4,6 +4,7 @@
  */
 import { icon } from '../ui/icons.js';
 import { formatDistance, formatNumber } from '../core/math.js';
+import { t } from '../core/i18n.js';
 
 export { formatDistance, formatNumber };
 
@@ -48,35 +49,37 @@ export function logoMarkSVG({ size = 64, stroke = 4.2, className = 'shell-mark' 
 
 // --------------------------------------------------------------- key caps
 const MOUSE_GLYPHS = {
-  '@muis': { icon: 'mouse', label: 'Muis' },
-  '@scroll': { icon: 'shell-wheel', label: 'Scrollwiel' },
-  '@klik': { icon: 'shell-lmb', label: 'Linkermuisknop' },
-  '@rechts': { icon: 'shell-rmb', label: 'Rechtermuisknop' },
+  '@mouse': { icon: 'mouse', label: { en: 'Mouse', nl: 'Muis' } },
+  '@scroll': { icon: 'shell-wheel', label: { en: 'Scroll wheel', nl: 'Scrollwiel' } },
+  '@click': { icon: 'shell-lmb', label: { en: 'Left mouse button', nl: 'Linkermuisknop' } },
+  '@right': { icon: 'shell-rmb', label: { en: 'Right mouse button', nl: 'Rechtermuisknop' } },
 };
-const SEPARATORS = new Set(['/', '–', 'of']);
+const SEPARATORS = new Set(['/', '–']);
+const OR_WORDS = new Set(['or', 'of']); // "A / D or Q / E" — shown as the active language's word
 
-/** Renders a token string ('W A S D / ↑ ← ↓ →', 'X / @rechts') into key caps. */
+/** Renders a token string ('W A S D / ↑ ← ↓ →', 'X / @right', or { en, nl } of those) into key caps. */
 export function renderKeys(h, tokens) {
   const out = h('span', { class: 'shell-keys' });
-  for (const tok of String(tokens).split(/\s+/).filter(Boolean)) {
+  for (const tok of t(tokens).split(/\s+/).filter(Boolean)) {
     if (SEPARATORS.has(tok)) out.appendChild(h('span', { class: 'shell-keys-sep', text: tok }));
+    else if (OR_WORDS.has(tok)) out.appendChild(h('span', { class: 'shell-keys-sep', text: t({ en: 'or', nl: 'of' }) }));
     else if (MOUSE_GLYPHS[tok]) {
       const g = MOUSE_GLYPHS[tok];
-      out.appendChild(h('span', { class: 'kbd shell-kbd shell-kbd-mouse', title: g.label, html: icon(g.icon, 16) }));
+      out.appendChild(h('span', { class: 'kbd shell-kbd shell-kbd-mouse', title: t(g.label), html: icon(g.icon, 16) }));
     } else out.appendChild(h('span', { class: `kbd shell-kbd${tok.length > 2 ? ' shell-kbd-wide' : ''}`, text: tok }));
   }
   return out;
 }
 
 // ------------------------------------------------------------------ misc
-/** Formats seconds as "3 u 12 min" / "12 min" / "< 1 min". */
+/** Formats seconds as "3 h 12 min" (nl "3 u 12 min") / "12 min" / "< 1 min". */
 export function formatDuration(seconds) {
   const s = Math.max(0, Math.round(seconds || 0));
   if (s < 60) return '< 1 min';
   const m = Math.floor(s / 60);
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
-  return `${h} u ${m % 60} min`;
+  return t({ en: '{h} h {m} min', nl: '{h} u {m} min' }, { h, m: m % 60 });
 }
 
 /** Resolves a world position from a vehicle-ish object (APIs vary per module). */

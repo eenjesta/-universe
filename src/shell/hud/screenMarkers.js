@@ -1,10 +1,11 @@
 /**
  * On-screen world markers (explore/drive): a diamond at the target with a
- * thin stem up to "label + distance" (16_vtol_flight.png: "Aurora-stad
- * 1,2 km"). Quest/tracked markers clamp to the screen edges with an arrow;
+ * thin stem up to "label + distance" (16_vtol_flight.png: "Aurora City
+ * 1.2 km"). Quest/tracked markers clamp to the screen edges with an arrow;
  * POIs only show while in view and in range. DOM pool, no per-frame allocs.
  */
 import * as THREE from 'three';
+import { t } from '../../core/i18n.js';
 import { formatDistance } from '../util.js';
 
 const EDGE = 54; // px margin for clamped markers
@@ -106,7 +107,7 @@ export class ScreenMarkers {
       }
 
       const it = this._item(used++);
-      const label = m.label || '';
+      const label = t(m.label); // strings pass through; { en, nl } just in case
       if (it.labelText !== label) {
         it.label.textContent = it.labelText = label;
         it.label.hidden = !label;

@@ -5,6 +5,7 @@
  * cheap, throttled occlusion test against physics boxes. No allocations per frame.
  */
 import * as THREE from 'three';
+import { t } from '../core/i18n.js';
 
 const _v = new THREE.Vector3();
 const _cam = new THREE.Vector3();
@@ -19,9 +20,9 @@ export class Labels {
     this.visibleModes = ['explore', 'drive'];
   }
 
-  /** Registers a label for an NPC-like object { headTop(out), id, name }. */
+  /** Registers a label for an NPC-like object { headTop(out), id, name }. `name`: string or bilingual {en, nl}. */
   add(owner, name, { kind = 'npc' } = {}) {
-    const tag = this.ctx.ui.h('div', { class: `chr-tag chr-tag-${kind}` }, this.ctx.ui.h('span', { class: 'chr-tag-name', text: name }), this.ctx.ui.h('i', { class: 'chr-tag-arrow' }));
+    const tag = this.ctx.ui.h('div', { class: `chr-tag chr-tag-${kind}` }, this.ctx.ui.h('span', { class: 'chr-tag-name', text: t(name) }), this.ctx.ui.h('i', { class: 'chr-tag-arrow' }));
     const bubble = this.ctx.ui.h('div', { class: 'chr-bubble' }, this.ctx.ui.h('span', { class: 'chr-bubble-text' }));
     const wrap = this.ctx.ui.h('div', { class: 'chr-label', style: { display: 'none' } }, bubble, tag);
     this.root.appendChild(wrap);
@@ -36,9 +37,10 @@ export class Labels {
     item.wrap.remove();
   }
 
+  /** Shows a speech bubble; `text`: string or bilingual {en, nl}. */
   say(item, text, seconds = 4) {
     if (!item) return;
-    item.text.textContent = text;
+    item.text.textContent = t(text);
     item.sayUntil = this.ctx.loop.realTime + seconds;
     item.bubble.classList.add('show');
   }

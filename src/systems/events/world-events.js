@@ -1,6 +1,6 @@
 /**
  * Dynamic world events (ctx.worldEvents):
- *  - starfall: "Live Event: Starfall Festival" on the Nexus-plein (each night,
+ *  - starfall: "Live Event: Starfall Festival" on Nexus Plaza (each night,
  *    ?event=starfall or from the journal) → plaza.setShow(true), festival quest,
  *    sparkles + violet shooting stars, characters gather on 'event:start'.
  *  - meteors: night-time meteor shower; some meteors impact near the player and
@@ -12,7 +12,8 @@
  */
 import * as THREE from 'three';
 import { ZONES, ISLANDS, WATERFALLS } from '../../world/layout.js';
-import { fmt, fmtClock, groundY, isNight, hourOf, playerPos } from '../shared/util.js';
+import { t } from '../../core/i18n.js';
+import { fmt, fmtClock, groundY, isNight, hourOf, playerPos, resourceWord } from '../shared/util.js';
 import { SkyStreaks, Fragments, EchoPillar, Sparkles } from './fx.js';
 
 const BANNER_PRIORITY = ['starfall', 'meteors', 'echo'];
@@ -40,6 +41,7 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
   };
 
   // ================================================================== definitions
+  // (text is resolved here, at install: the language only changes with a page reload)
   const DEFS = {
     starfall: {
       id: 'starfall',
@@ -47,13 +49,16 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
       banner: 'Live Event: Starfall Festival',
       icon: 'sys-music',
       kind: 'starfall',
-      where: 'Nexus-plein',
-      when: 'Elke nacht',
+      where: ZONES.plaza.label,
+      when: t({ en: 'Every night', nl: 'Elke nacht' }),
       canStart: true,
       duration: 540,
       quest: 'starfall',
       rewards: { xp: 500, credits: 300 },
-      desc: 'Eén keer per nacht verandert het Nexus-plein in een zee van licht en muziek: een holografisch podium onder de Levensboom, vallende sterren en iedereen samen. Ontmoet andere spelers en geniet van de show.',
+      desc: t({
+        en: 'Once every night, Nexus Plaza turns into a sea of light and music: a holographic stage under the Tree of Life, shooting stars and everyone together. Meet other players and enjoy the show.',
+        nl: 'Eén keer per nacht verandert het Nexus-plein in een zee van licht en muziek: een holografisch podium onder de Levensboom, vallende sterren en iedereen samen. Ontmoet andere spelers en geniet van de show.',
+      }),
       start(ev) {
         try {
           ctx.landmarks?.plaza?.setShow?.(true);
@@ -68,15 +73,15 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
           f.sparkles.show(new THREE.Vector3(ZONES.plaza.x, groundY(ctx, ZONES.plaza.x, ZONES.plaza.z), ZONES.plaza.z));
         }
         state.add('systems.festivals', 1);
-        refs.chat?.system?.('Live Event: het Starfall Festival is begonnen op het Nexus-plein!');
-        later(1.6, () => refs.chat?.say?.('luna', 'Het Starfall Festival begint! Kom naar het podium! 🎶'));
+        refs.chat?.system?.(t({ en: 'Live Event: the Starfall Festival has begun at Nexus Plaza!', nl: 'Live Event: het Starfall Festival is begonnen op het Nexus-plein!' }));
+        later(1.6, () => refs.chat?.say?.('luna', t({ en: 'The Starfall Festival is starting! Come to the stage! 🎶', nl: 'Het Starfall Festival begint! Kom naar het podium! 🎶' })));
         const p = playerPos(ctx);
         const near = p && Math.hypot(p.x - ZONES.plaza.x, p.z - ZONES.plaza.z) < 400;
         quests.start('starfall', { restart: true, track: ev.opts.from === 'journal' || ev.opts.from === 'url' || near, silent: true });
         rewards.unlockLore('festival', { silent: true });
       },
       sub(ev) {
-        return `Nexus-plein · nog ${fmtClock(ev.duration - ev.t)}`;
+        return t({ en: '{place} · {time} left', nl: '{place} · nog {time}' }, { place: ZONES.plaza.label, time: fmtClock(ev.duration - ev.t) });
       },
       end() {
         try {
@@ -86,27 +91,30 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
         }
         fx?.streaks.modes.delete('festival');
         fx?.sparkles.hide();
-        refs.chat?.system?.('Het Starfall Festival is afgelopen. Tot de volgende nacht!');
+        refs.chat?.system?.(t({ en: 'The Starfall Festival is over. See you next night!', nl: 'Het Starfall Festival is afgelopen. Tot de volgende nacht!' }));
       },
     },
     meteors: {
       id: 'meteors',
-      name: 'Meteorenregen',
-      banner: 'Meteorenregen',
+      name: t({ en: 'Meteor Shower', nl: 'Meteorenregen' }),
+      banner: t({ en: 'Meteor Shower', nl: 'Meteorenregen' }),
       icon: 'sys-meteor',
       kind: 'meteors',
-      where: 'Overal in de nachtlucht',
-      when: '’s Nachts, onaangekondigd',
+      where: t({ en: 'All across the night sky', nl: 'Overal in de nachtlucht' }),
+      when: t({ en: 'At night, unannounced', nl: '’s Nachts, onaangekondigd' }),
       canStart: false,
       duration: 180,
       quest: 'meteorshower',
       rewards: { xp: 300, credits: 150 },
-      desc: 'Vallende sterren kleuren de nachtlucht. Sommige brokstukken bereiken de grond: gloeiende meteorietfragmenten vol metaal en energie. Houd [E] ingedrukt om ze te oogsten.',
+      desc: t({
+        en: 'Shooting stars streak across the night sky. Some of the debris reaches the ground: glowing meteorite fragments full of metal and energy. Hold [E] to harvest them.',
+        nl: 'Vallende sterren kleuren de nachtlucht. Sommige brokstukken bereiken de grond: gloeiende meteorietfragmenten vol metaal en energie. Houd [E] ingedrukt om ze te oogsten.',
+      }),
       start(ev) {
         const f = ensureFx();
         f?.streaks.modes.add('meteors');
         ev.data.nextImpact = 5;
-        refs.chat?.system?.('Meteorenregen! Kijk omhoog — fragmenten vallen in de buurt.');
+        refs.chat?.system?.(t({ en: 'Meteor shower! Look up — fragments are falling nearby.', nl: 'Meteorenregen! Kijk omhoog — fragmenten vallen in de buurt.' }));
         quests.start('meteorshower', { restart: true, track: true, silent: true });
       },
       update(ev, dt) {
@@ -119,7 +127,7 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
       sub(ev) {
         const q = quests.get('meteorshower');
         const o = q?.objectives?.[0];
-        return `Oogst fragmenten · ${o ? `${o.progress}/${o.count}` : ''} · ${fmtClock(ev.duration - ev.t)}`;
+        return t({ en: 'Harvest fragments · {n} · {time}', nl: 'Oogst fragmenten · {n} · {time}' }, { n: o ? `${o.progress}/${o.count}` : '', time: fmtClock(ev.duration - ev.t) });
       },
       end() {
         fx?.streaks.modes.delete('meteors');
@@ -131,17 +139,20 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
     },
     echo: {
       id: 'echo',
-      name: 'Signaal-echo',
-      banner: 'Signaal-echo gedetecteerd',
+      name: t({ en: 'Signal Echo', nl: 'Signaal-echo' }),
+      banner: t({ en: 'Signal Echo detected', nl: 'Signaal-echo gedetecteerd' }),
       icon: 'signal',
       kind: 'echo',
-      where: 'Ergens rond het meer',
-      when: 'Na de ontdekking van het signaal',
+      where: t({ en: 'Somewhere around the lake', nl: 'Ergens rond het meer' }),
+      when: t({ en: 'After the Signal has been found', nl: 'Na de ontdekking van het signaal' }),
       canStart: false,
       duration: 240,
       quest: 'echo',
       rewards: { xp: 200, resources: { energy: 25 } },
-      desc: 'Soms zendt het baken een echo uit die ergens anders in de wereld weerkaatst. Wie hem op tijd vindt, hoort een fragment van een oude boodschap.',
+      desc: t({
+        en: 'Sometimes the beacon sends out an echo that bounces back somewhere else in the world. Whoever finds it in time hears a fragment of an ancient message.',
+        nl: 'Soms zendt het baken een echo uit die ergens anders in de wereld weerkaatst. Wie hem op tijd vindt, hoort een fragment van een oude boodschap.',
+      }),
       start(ev) {
         const spot = pickEchoSpot();
         ev.data.pos = spot;
@@ -152,10 +163,10 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
           /* optional */
         }
         quests.start('echo', { restart: true, track: true, silent: true });
-        refs.chat?.system?.('Het baken zendt een echo uit… volg de lichtzuil!');
+        refs.chat?.system?.(t({ en: 'The beacon is sending out an echo… follow the pillar of light!', nl: 'Het baken zendt een echo uit… volg de lichtzuil!' }));
       },
       sub(ev) {
-        return `Volg de lichtzuil · ${fmtClock(ev.duration - ev.t)}`;
+        return t({ en: 'Follow the pillar of light · {time}', nl: 'Volg de lichtzuil · {time}' }, { time: fmtClock(ev.duration - ev.t) });
       },
       end(ev, reason) {
         fx?.echo.hide();
@@ -291,13 +302,13 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
       scope: 'world',
       position: ipos,
       radius: 4.2,
-      label: 'Meteorietfragment oogsten',
+      label: t({ en: 'Harvest meteorite fragment', nl: 'Meteorietfragment oogsten' }),
       hold: 1.2,
       priority: 2,
       onInteract: () => harvest(site.id),
     });
     const mid = `sys-frag-${site.id}`;
-    ctx.markers?.set(mid, { position: ipos.clone().setY(ipos.y + 2), label: 'Meteorietfragment', kind: 'poi', icon: 'sys-meteor', color: '#ffb36b', scope: 'world', screen: true, compass: true });
+    ctx.markers?.set(mid, { position: ipos.clone().setY(ipos.y + 2), label: t({ en: 'Meteorite fragment', nl: 'Meteorietfragment' }), kind: 'poi', icon: 'sys-meteor', color: '#ffb36b', scope: 'world', screen: true, compass: true });
     sites.set(site.id, { site, iid, mid });
   }
 
@@ -309,7 +320,7 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
     state.gain({ metal, energy });
     state.add('stats.harvested', 1);
     ctx.audio.play('harvest');
-    ui.toast({ title: 'Meteorietfragment', text: `+${metal} metaal · +${energy} energie`, icon: 'sys-meteor', kind: 'reward', duration: 2400 });
+    ui.toast({ title: t({ en: 'Meteorite fragment', nl: 'Meteorietfragment' }), text: `+${metal} ${resourceWord('metal')} · +${energy} ${resourceWord('energy')}`, icon: 'sys-meteor', kind: 'reward', duration: 2400 });
     events.emit('harvest', { resource: 'metal', amount: metal, source: 'meteor', extra: { energy } });
     removeSite(siteId);
   }
@@ -408,7 +419,7 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
   // ================================================================== update
   ctx.loop.add(
     'sys-events',
-    (dt, t) => {
+    (dt, time) => {
       for (let i = timers.length - 1; i >= 0; i--) {
         if (timers[i].at <= ctx.loop.time) {
           const job = timers.splice(i, 1)[0];
@@ -437,9 +448,9 @@ export function createWorldEvents(ctx, { quests, rewards, notify, refs }) {
       }
       if (fx && ctx.modes.is('explore', 'drive', 'title')) {
         fx.streaks.update(dt, ctx.engine.camera);
-        fx.frags.update(dt, t);
-        fx.echo.update(dt, t);
-        fx.sparkles.update(dt, t);
+        fx.frags.update(dt, time);
+        fx.echo.update(dt, time);
+        fx.sparkles.update(dt, time);
       }
     },
     { order: 36 },

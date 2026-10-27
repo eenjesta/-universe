@@ -1,6 +1,6 @@
 /**
  * Game-start wiring + URL hooks for the systems module:
- *   first explore entry → start "Verken de Horizon"
+ *   first explore entry → start "Explore the Horizon"
  *   ?dialogue=aria|oran|luna|…   ?quest=<id>   ?market   ?journal   ?event=starfall|meteors|echo
  * Hooks that need the open world switch from the title screen to explore
  * (unless ?mode=title was given explicitly) and place the player sensibly.

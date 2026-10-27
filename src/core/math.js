@@ -1,3 +1,4 @@
+import { locale } from './i18n.js';
 /**
  * Small math helpers shared by every module. Pure functions only.
  */
@@ -99,8 +100,10 @@ export class Rng {
 export const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
 
 /** Formats a number with Dutch thousands separator: 12500 → "12.500". */
-export const formatNumber = (n) => Math.round(n).toLocaleString('nl-NL');
+export const formatNumber = (n) => Math.round(n).toLocaleString(locale());
 
-/** Formats a distance in meters: 840 → "840 m", 2300 → "2,3 km". */
+/** Formats a distance in meters: 840 → "840 m", 2300 → "2.3 km" (nl: "2,3 km"). */
 export const formatDistance = (m) =>
-  m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1).replace('.', ',')} km`;
+  m < 1000
+    ? `${Math.round(m)} m`
+    : `${(m / 1000).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;

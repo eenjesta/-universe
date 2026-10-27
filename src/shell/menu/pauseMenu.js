@@ -1,17 +1,30 @@
 /**
  * Pause / settings menu (modal 'shell-pause'). In-game ('game' context, from
- * explore/drive/space) it pauses the loop and offers: Hervatten, Instellingen,
- * Besturing, Over Ø Universe, Wereldkaart, Terug naar titelscherm, Voortgang
- * wissen. From the title screen ('title' context) it is the settings dialog.
- * Emits `pause` {open} for the in-game variant.
+ * explore/drive/space) it pauses the loop and offers: Resume, Overview,
+ * Settings, Controls, About Ø Universe, World map, Back to title screen,
+ * Reset progress. From the title screen ('title' context) it is the settings
+ * dialog. Emits `pause` {open} for the in-game variant.
  */
 import { icon } from '../../ui/icons.js';
+import { t } from '../../core/i18n.js';
 import { ZONES } from '../../world/layout.js';
 import { place } from '../data.js';
 import { logoMarkSVG, formatDuration, formatDistance, formatNumber, uiSound } from '../util.js';
 import { settingsPanel, controlsPanel, aboutPanel } from './panels.js';
 
 const MODAL_ID = 'shell-pause';
+
+/** Labels used in more than one place (menu items, tab titles, buttons). */
+const TXT = {
+  resume: { en: 'Resume', nl: 'Hervatten' },
+  overview: { en: 'Overview', nl: 'Overzicht' },
+  settings: { en: 'Settings', nl: 'Instellingen' },
+  controls: { en: 'Controls', nl: 'Besturing' },
+  about: { en: 'About Ø Universe', nl: 'Over Ø Universe' },
+  map: { en: 'World map', nl: 'Wereldkaart' },
+  reset: { en: 'Reset progress', nl: 'Voortgang wissen' },
+  close: { en: 'Close', nl: 'Sluiten' },
+};
 
 export class PauseMenu {
   constructor(ctx, shell) {
@@ -119,36 +132,36 @@ export class PauseMenu {
     const inSpace = ctx.modes.is('space');
     const items = game
       ? [
-          { id: 'resume', label: 'Hervatten', icon: 'play', primary: true },
-          { id: 'overview', label: 'Overzicht', icon: 'shell-route' },
-          { id: 'settings', label: 'Instellingen', icon: 'settings' },
-          { id: 'controls', label: 'Besturing', icon: 'keyboard' },
-          { id: 'about', label: 'Over Ø Universe', icon: 'info' },
-          inSpace ? null : { id: 'map', label: 'Wereldkaart', icon: 'map' },
+          { id: 'resume', label: TXT.resume, icon: 'play', primary: true },
+          { id: 'overview', label: TXT.overview, icon: 'shell-route' },
+          { id: 'settings', label: TXT.settings, icon: 'settings' },
+          { id: 'controls', label: TXT.controls, icon: 'keyboard' },
+          { id: 'about', label: TXT.about, icon: 'info' },
+          inSpace ? null : { id: 'map', label: TXT.map, icon: 'map' },
           { sep: true },
-          { id: 'title', label: 'Terug naar titelscherm', icon: 'shell-exit' },
-          { id: 'reset', label: 'Voortgang wissen', icon: 'trash', danger: true },
+          { id: 'title', label: { en: 'Back to title screen', nl: 'Terug naar titelscherm' }, icon: 'shell-exit' },
+          { id: 'reset', label: TXT.reset, icon: 'trash', danger: true },
         ]
       : [
-          { id: 'settings', label: 'Instellingen', icon: 'settings' },
-          { id: 'controls', label: 'Besturing', icon: 'keyboard' },
-          { id: 'about', label: 'Over Ø Universe', icon: 'info' },
+          { id: 'settings', label: TXT.settings, icon: 'settings' },
+          { id: 'controls', label: TXT.controls, icon: 'keyboard' },
+          { id: 'about', label: TXT.about, icon: 'info' },
           { sep: true },
-          { id: 'reset', label: 'Voortgang wissen', icon: 'trash', danger: true },
-          { id: 'close', label: 'Sluiten', icon: 'close' },
+          { id: 'reset', label: TXT.reset, icon: 'trash', danger: true },
+          { id: 'close', label: TXT.close, icon: 'close' },
         ];
 
     this.content = h('div', { class: 'shell-menu-content scroll' });
     const nav = h(
       'nav',
-      { class: 'shell-menu-nav', 'aria-label': game ? 'Pauzemenu' : 'Instellingen' },
+      { class: 'shell-menu-nav', 'aria-label': game ? t({ en: 'Pause menu', nl: 'Pauzemenu' }) : t(TXT.settings) },
       h(
         'div',
         { class: 'shell-menu-brand' },
         h('span', { html: logoMarkSVG({ size: 30, stroke: 5 }) }),
         h('span', { class: 'shell-menu-brand-word', text: 'UNIVERSE' }),
       ),
-      h('div', { class: 'shell-menu-caption', text: game ? 'Gepauzeerd' : 'Menu' }),
+      h('div', { class: 'shell-menu-caption', text: game ? t({ en: 'Paused', nl: 'Gepauzeerd' }) : t({ en: 'Menu', nl: 'Menu' }) }),
       h(
         'div',
         { class: 'shell-menu-items' },
@@ -165,13 +178,13 @@ export class PauseMenu {
                   onmouseenter: () => uiSound(ctx, 'ui.hover'),
                 },
                 h('span', { class: 'shell-nav-icon', html: icon(it.icon, 18) }),
-                h('span', { class: 'shell-nav-label', text: it.label }),
+                h('span', { class: 'shell-nav-label', text: t(it.label) }),
               ),
         ),
       ),
-      h('div', { class: 'shell-menu-foot' }, h('span', { class: 'kbd shell-kbd', text: 'Esc' }), h('span', { text: game ? 'Verder spelen' : 'Sluiten' })),
+      h('div', { class: 'shell-menu-foot' }, h('span', { class: 'kbd shell-kbd', text: 'Esc' }), h('span', { text: game ? t({ en: 'Keep playing', nl: 'Verder spelen' }) : t(TXT.close) })),
     );
-    this.el = h('div', { class: `shell-menu is-${this.context}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': game ? 'Pauze' : 'Instellingen' }, nav, this.content);
+    this.el = h('div', { class: `shell-menu is-${this.context}`, role: 'dialog', 'aria-modal': 'true', 'aria-label': game ? t({ en: 'Pause', nl: 'Pauze' }) : t(TXT.settings) }, nav, this.content);
   }
 
   _select(id) {
@@ -208,26 +221,26 @@ export class PauseMenu {
     let head = null;
     let body = null;
     if (tab === 'settings') {
-      head = ['Instellingen', 'Beeld, geluid, besturing en spel. Wijzigingen worden direct toegepast en bewaard.'];
+      head = [TXT.settings, { en: 'Language, graphics, sound, controls and game. Changes are applied and saved right away.', nl: 'Taal, beeld, geluid, besturing en spel. Wijzigingen worden direct toegepast en bewaard.' }];
       this._settings = settingsPanel(ctx, this.shell.settings);
       body = this._settings.el;
     } else if (tab === 'controls') {
-      head = ['Besturing', 'Alle toetsen op een rij. Druk in het spel op H voor deze hulp.'];
+      head = [TXT.controls, { en: 'Every key at a glance. Press H in the game to open this help.', nl: 'Alle toetsen op een rij. Druk in het spel op H voor deze hulp.' }];
       body = controlsPanel(ctx, { mode: ctx.modes.is('title') ? null : ctx.modes.name });
     } else if (tab === 'about') {
-      head = ['Over Ø Universe', 'Volledige vrijheid in een dynamische, online wereld.'];
+      head = [TXT.about, { en: 'Complete freedom in a dynamic, online world.', nl: 'Volledige vrijheid in een dynamische, online wereld.' }];
       body = aboutPanel(ctx);
     } else if (tab === 'reset') {
-      head = ['Voortgang wissen', 'Begin helemaal opnieuw.'];
+      head = [TXT.reset, { en: 'Start over from scratch.', nl: 'Begin helemaal opnieuw.' }];
       body = this._resetPanel();
     } else {
-      head = ['Overzicht', 'Je avontuur tot nu toe.'];
+      head = [TXT.overview, { en: 'Your adventure so far.', nl: 'Je avontuur tot nu toe.' }];
       body = this._overview();
     }
     const view = h(
       'div',
       { class: 'shell-tab', dataset: { tab } },
-      h('header', { class: 'shell-tab-head' }, h('h2', { class: 'shell-tab-title', text: head[0] }), h('p', { class: 'shell-tab-sub', text: head[1] })),
+      h('header', { class: 'shell-tab-head' }, h('h2', { class: 'shell-tab-title', text: t(head[0]) }), h('p', { class: 'shell-tab-sub', text: t(head[1]) })),
       body,
     );
     this.content.replaceChildren(view);
@@ -242,20 +255,23 @@ export class PauseMenu {
     const zoneId = this.shell.currentZone?.() || st.get('player.zone');
     const here = place(zoneId);
     const inSpace = ctx.modes.is('space');
-    const where = inSpace ? 'In de ruimte' : here?.label || 'Onderweg';
-    const desc = inSpace ? 'Je vliegt tussen de sterren boven de planeet.' : here?.desc || 'Ergens in de open wereld van Ø.';
+    const where = inSpace ? t({ en: 'In space', nl: 'In de ruimte' }) : here?.label || t({ en: 'Out exploring', nl: 'Onderweg' });
+    const desc = inSpace
+      ? t({ en: 'You are flying among the stars above the planet.', nl: 'Je vliegt tussen de sterren boven de planeet.' })
+      : here?.desc || t({ en: 'Somewhere in the open world of Ø.', nl: 'Ergens in de open wereld van Ø.' });
 
     let questTitle = null;
     try {
       const a = ctx.quests?.active;
       const q = typeof a === 'string' ? ctx.quests?.get?.(a) : a;
-      questTitle = q?.title || q?.name || (typeof a === 'string' ? a : null);
+      // t(): quest titles are strings, but resolve { en, nl } too, just in case
+      questTitle = t(q?.title || q?.name || (typeof a === 'string' ? a : '')) || null;
     } catch {
       questTitle = null;
     }
 
     const stat = (iconName, label, value) =>
-      h('div', { class: 'shell-stat' }, h('span', { class: 'shell-stat-icon', html: icon(iconName, 18) }), h('div', null, h('div', { class: 'shell-stat-value num', text: value }), h('div', { class: 'shell-stat-label', text: label })));
+      h('div', { class: 'shell-stat' }, h('span', { class: 'shell-stat-icon', html: icon(iconName, 18) }), h('div', null, h('div', { class: 'shell-stat-value num', text: value }), h('div', { class: 'shell-stat-label', text: t(label) })));
 
     const level = st.get('progress.level', 1);
     const xp = st.get('progress.xp', 0);
@@ -268,26 +284,26 @@ export class PauseMenu {
         'div',
         { class: 'shell-ov-here' },
         h('div', { class: 'shell-ov-here-icon', html: icon(inSpace ? 'rocket' : 'pin', 22) }),
-        h('div', null, h('div', { class: 'shell-ov-here-k', text: 'Huidige locatie' }), h('div', { class: 'shell-ov-here-name', text: where }), h('p', { class: 'shell-ov-here-desc', text: desc })),
+        h('div', null, h('div', { class: 'shell-ov-here-k', text: t({ en: 'Current location', nl: 'Huidige locatie' }) }), h('div', { class: 'shell-ov-here-name', text: where }), h('p', { class: 'shell-ov-here-desc', text: desc })),
       ),
       questTitle
-        ? h('div', { class: 'shell-ov-quest' }, h('span', { html: icon('quest', 18) }), h('span', { class: 'shell-ov-quest-k', text: 'Actieve missie' }), h('span', { class: 'shell-ov-quest-name', text: questTitle }))
+        ? h('div', { class: 'shell-ov-quest' }, h('span', { html: icon('quest', 18) }), h('span', { class: 'shell-ov-quest-k', text: t({ en: 'Active mission', nl: 'Actieve missie' }) }), h('span', { class: 'shell-ov-quest-name', text: questTitle }))
         : null,
       h(
         'div',
         { class: 'shell-stats' },
-        stat('star', 'Niveau', `${level}`),
-        stat('sparkle', 'Ervaring', `${formatNumber(xp)} XP`),
+        stat('star', { en: 'Level', nl: 'Niveau' }, `${level}`),
+        stat('sparkle', { en: 'Experience', nl: 'Ervaring' }, `${formatNumber(xp)} XP`),
         stat('coin', 'Ø-credits', formatNumber(st.get('credits', 0))),
-        stat('shell-clock', 'Speeltijd', formatDuration(st.get('stats.playtime', 0) + (ctx._playtime || 0))),
-        stat('shell-route', 'Afgelegd', formatDistance(st.get('stats.distance', 0))),
-        stat('pin', 'Ontdekt', `${discovered} / ${zonesTotal}`),
+        stat('shell-clock', { en: 'Playtime', nl: 'Speeltijd' }, formatDuration(st.get('stats.playtime', 0) + (ctx._playtime || 0))),
+        stat('shell-route', { en: 'Distance travelled', nl: 'Afgelegd' }, formatDistance(st.get('stats.distance', 0))),
+        stat('pin', { en: 'Discovered', nl: 'Ontdekt' }, `${discovered} / ${zonesTotal}`),
       ),
       h(
         'div',
         { class: 'shell-ov-actions' },
-        h('button', { class: 'btn btn-primary', type: 'button', onclick: () => this.close({ resume: true }) }, h('span', { html: icon('play', 16) }), 'Hervatten'),
-        inSpace ? null : h('button', { class: 'btn', type: 'button', onclick: () => this.shell.map?.open({ from: 'pause' }) }, h('span', { html: icon('map', 16) }), 'Wereldkaart'),
+        h('button', { class: 'btn btn-primary', type: 'button', onclick: () => this.close({ resume: true }) }, h('span', { html: icon('play', 16) }), t(TXT.resume)),
+        inSpace ? null : h('button', { class: 'btn', type: 'button', onclick: () => this.shell.map?.open({ from: 'pause' }) }, h('span', { html: icon('map', 16) }), t(TXT.map)),
       ),
     );
   }
@@ -300,13 +316,19 @@ export class PauseMenu {
       'div',
       { class: 'shell-reset' },
       h('div', { class: 'shell-reset-icon', html: icon('trash', 30) }),
-      h('p', { class: 'shell-reset-text', text: 'Weet je het zeker? Al je voortgang wordt definitief gewist: missies, ontdekte locaties, gebouwen, grondstoffen, Ø-credits, je personage en je instellingen.' }),
-      h('p', { class: 'shell-reset-note', text: 'Dit kan niet ongedaan worden gemaakt. Het spel start daarna opnieuw op.' }),
+      h('p', {
+        class: 'shell-reset-text',
+        text: t({
+          en: 'Are you sure? All your progress will be erased for good: missions, discovered locations, buildings, resources, Ø-credits, your character and your settings.',
+          nl: 'Weet je het zeker? Al je voortgang wordt definitief gewist: missies, ontdekte locaties, gebouwen, grondstoffen, Ø-credits, je personage en je instellingen.',
+        }),
+      }),
+      h('p', { class: 'shell-reset-note', text: t({ en: 'This cannot be undone. The game will restart afterwards.', nl: 'Dit kan niet ongedaan worden gemaakt. Het spel start daarna opnieuw op.' }) }),
       h(
         'div',
         { class: 'shell-reset-actions' },
-        h('button', { class: 'btn', type: 'button', onclick: () => this.show(this.context === 'game' ? 'overview' : 'settings') }, 'Annuleren'),
-        h('button', { class: 'btn shell-btn-danger', type: 'button', onclick: () => this.shell.wipeProgress() }, h('span', { html: icon('trash', 16) }), 'Ja, wis alles'),
+        h('button', { class: 'btn', type: 'button', onclick: () => this.show(this.context === 'game' ? 'overview' : 'settings') }, t({ en: 'Cancel', nl: 'Annuleren' })),
+        h('button', { class: 'btn shell-btn-danger', type: 'button', onclick: () => this.shell.wipeProgress() }, h('span', { html: icon('trash', 16) }), t({ en: 'Yes, erase everything', nl: 'Ja, wis alles' })),
       ),
     );
   }

@@ -1,7 +1,8 @@
 /**
- * Landmarks — points of interest on ctx.markers (kind 'poi', Dutch labels)
- * plus a few line icons registered on the shared icon set. Only the city
- * gets an on-screen marker (like "Aurora-stad 1,2 km"); the rest show on the
+ * Landmarks — points of interest on ctx.markers (kind 'poi'; labels are the
+ * ZONES[id].label strings in the active language, resolved at install) plus a
+ * few line icons registered on the shared icon set. Only the city gets an
+ * on-screen marker (like "Aurora City 1.2 km"); the rest show on the
  * compass strip / minimap / map.
  */
 import * as THREE from 'three';

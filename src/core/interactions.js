@@ -3,7 +3,7 @@ import * as THREE from 'three';
 const UP = new THREE.Vector3(0, 1.7, 0);
 
 /**
- * Proximity interactions ("[E] Praat met Aria", "[E] Scan ruïnes" (hold), …).
+ * Proximity interactions ("[E] Talk to Aria", "[E] Scan ruins" (hold), …).
  *
  *   const id = ctx.interactions.add({
  *     id: 'aria-talk',            // optional stable id

@@ -1,22 +1,23 @@
 /**
- * Journal modal (J): "Missies & verhalen" — active / completed quests with
- * objectives and rewards (track a quest with "Volgen"), unlocked lore, live
+ * Journal modal (J): "Missions & Stories" — active / completed quests with
+ * objectives and rewards (track a quest with "Track"), unlocked lore, live
  * world events (start the Starfall Festival from here), level + XP bar and
  * discovery stats.
  */
 import '../css/journal.css';
 import { TRAVEL } from '../../world/layout.js';
-import { fmt, RESOURCE_LABELS } from '../shared/util.js';
-import { QUEST_TYPE_LABEL } from './data.js';
+import { t } from '../../core/i18n.js';
+import { fmt, resourceLabel } from '../shared/util.js';
+import { questTypeLabel } from './data.js';
 import { LORE, LORE_ORDER } from '../story/lore.js';
 import { ITEM } from '../economy/items.js';
 
 const MODAL = 'journal';
 const TABS = [
-  { id: 'active', label: 'Actief', icon: 'sys-diamond' },
-  { id: 'done', label: 'Voltooid', icon: 'check-circle' },
-  { id: 'lore', label: 'Verhalen', icon: 'book' },
-  { id: 'events', label: 'Evenementen', icon: 'sys-flag' },
+  { id: 'active', label: { en: 'Active', nl: 'Actief' }, icon: 'sys-diamond' },
+  { id: 'done', label: { en: 'Completed', nl: 'Voltooid' }, icon: 'check-circle' },
+  { id: 'lore', label: { en: 'Stories', nl: 'Verhalen' }, icon: 'book' },
+  { id: 'events', label: { en: 'Events', nl: 'Evenementen' }, icon: 'sys-flag' },
 ];
 
 export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
@@ -34,17 +35,23 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
     o.detail = ui.h('div', { class: 'sys-jrn-detail scroll' });
     o.el = ui.h(
       'div',
-      { class: 'sys-jrn', role: 'dialog', 'aria-label': 'Journaal' },
+      { class: 'sys-jrn', role: 'dialog', 'aria-label': t({ en: 'Journal', nl: 'Journaal' }) },
       ui.h(
         'div',
         { class: 'sys-jrn-head' },
-        ui.h('div', { class: 'sys-jrn-title' }, ui.h('span', { class: 'sys-jrn-ticon', html: ui.icon('book', 22) }), ui.h('div', {}, ui.h('div', { class: 'title-md', text: 'Missies & verhalen' }), ui.h('div', { class: 'sys-jrn-subtitle', text: 'Maak je eigen verhaal' }))),
+        ui.h('div', { class: 'sys-jrn-title' }, ui.h('span', { class: 'sys-jrn-ticon', html: ui.icon('book', 22) }), ui.h('div', {}, ui.h('div', { class: 'title-md', text: t({ en: 'Missions & Stories', nl: 'Missies & verhalen' }) }), ui.h('div', { class: 'sys-jrn-subtitle', text: t({ en: 'Create your own story', nl: 'Maak je eigen verhaal' }) }))),
         o.level,
         o.stats,
-        ui.h('button', { class: 'modal-close', title: 'Sluiten (Esc)', html: ui.icon('close', 18), onclick: () => close() }),
+        ui.h('button', { class: 'modal-close', title: t({ en: 'Close (Esc)', nl: 'Sluiten (Esc)' }), html: ui.icon('close', 18), onclick: () => close() }),
       ),
       ui.h('div', { class: 'sys-jrn-main' }, o.nav, o.list, o.detail),
-      ui.h('div', { class: 'sys-jrn-foot', html: '<span class="kbd">J</span> sluiten &nbsp;·&nbsp; <span class="kbd">Esc</span> terug naar het spel' }),
+      ui.h('div', {
+        class: 'sys-jrn-foot',
+        html: t({
+          en: '<span class="kbd">J</span> close &nbsp;·&nbsp; <span class="kbd">Esc</span> back to the game',
+          nl: '<span class="kbd">J</span> sluiten &nbsp;·&nbsp; <span class="kbd">Esc</span> terug naar het spel',
+        }),
+      }),
     );
     return o;
   }
@@ -64,13 +71,14 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
   function render() {
     if (!r) return;
     const info = progress.levelInfo();
+    const levelText = t({ en: 'Level {n}', nl: 'Niveau {n}' }, { n: info.level });
     r.level.innerHTML = '';
     r.level.append(
-      ui.h('div', { class: 'sys-jrn-lvl', title: `Niveau ${info.level}` }, ui.h('span', { class: 'sys-jrn-lvl-n', text: String(info.level) })),
+      ui.h('div', { class: 'sys-jrn-lvl', title: levelText }, ui.h('span', { class: 'sys-jrn-lvl-n', text: String(info.level) })),
       ui.h(
         'div',
         { class: 'sys-jrn-xp' },
-        ui.h('div', { class: 'sys-jrn-xp-h' }, ui.h('span', { text: `Niveau ${info.level}` }), ui.h('span', { class: 'sys-jrn-xp-t', text: `${fmt(info.xp)} / ${fmt(info.to)} XP` })),
+        ui.h('div', { class: 'sys-jrn-xp-h' }, ui.h('span', { text: levelText }), ui.h('span', { class: 'sys-jrn-xp-t', text: `${fmt(info.xp)} / ${fmt(info.to)} XP` })),
         ui.h('div', { class: 'bar' }, ui.h('i')),
       ),
     );
@@ -78,29 +86,29 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
     const disc = TRAVEL.concat(['city']).filter((z) => progress.isDiscovered(z)).length;
     r.stats.innerHTML = '';
     r.stats.append(
-      ui.h('span', { class: 'chip', html: `${ui.icon('pin', 14)}<span>${disc}/${TRAVEL.length + 1} locaties</span>` }),
+      ui.h('span', { class: 'chip', html: `${ui.icon('pin', 14)}<span>${t({ en: '{n}/{total} locations', nl: '{n}/{total} locaties' }, { n: disc, total: TRAVEL.length + 1 })}</span>` }),
       ui.h('span', { class: 'chip sys-jrn-gold', html: `${ui.icon('sys-credit', 14)}<span>${fmt(state.get('credits') || 0)}</span>` }),
     );
 
     const L = lists();
     const counts = { active: L.active.length, done: L.done.length, lore: unlockedLore().length, events: refs.events?.list?.().filter((e) => e.active).length || 0 };
     r.nav.textContent = '';
-    for (const t of TABS) {
+    for (const tb of TABS) {
       r.nav.appendChild(
         ui.h(
           'button',
           {
-            class: `sys-jrn-tab${tab === t.id ? ' active' : ''}`,
+            class: `sys-jrn-tab${tab === tb.id ? ' active' : ''}`,
             onclick: () => {
-              tab = t.id;
+              tab = tb.id;
               sel = null;
               ctx.audio.play('ui.click');
               render();
             },
           },
-          ui.h('span', { class: 'sys-jrn-tic', html: ui.icon(t.icon, 16) }),
-          ui.h('span', { text: t.label }),
-          counts[t.id] ? ui.h('b', { text: String(counts[t.id]) }) : null,
+          ui.h('span', { class: 'sys-jrn-tic', html: ui.icon(tb.icon, 16) }),
+          ui.h('span', { text: t(tb.label) }),
+          counts[tb.id] ? ui.h('b', { text: String(counts[tb.id]) }) : null,
         ),
       );
     }
@@ -113,7 +121,11 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
 
   function renderQuests(items) {
     if (!items.length) {
-      r.list.appendChild(ui.h('div', { class: 'sys-jrn-empty', text: tab === 'active' ? 'Geen actieve missies. Verken de wereld of praat met mensen op het Nexus-plein.' : 'Nog geen voltooide missies.' }));
+      const empty =
+        tab === 'active'
+          ? t({ en: 'No active missions. Explore the world or talk to the people at Nexus Plaza.', nl: 'Geen actieve missies. Verken de wereld of praat met mensen op het Nexus-plein.' })
+          : t({ en: 'No completed missions yet.', nl: 'Nog geen voltooide missies.' });
+      r.list.appendChild(ui.h('div', { class: 'sys-jrn-empty', text: empty }));
       r.detail.textContent = '';
       return;
     }
@@ -138,9 +150,9 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
             'span',
             { class: 'sys-jrn-itext' },
             ui.h('span', { class: 'sys-jrn-iname', text: q.title }),
-            ui.h('span', { class: 'sys-jrn-imeta', text: `${QUEST_TYPE_LABEL[q.type] || ''}${q.status === 'active' ? ` · ${done}/${req.length}` : ''}` }),
+            ui.h('span', { class: 'sys-jrn-imeta', text: `${questTypeLabel(q.type)}${q.status === 'active' ? ` · ${done}/${req.length}` : ''}` }),
           ),
-          q.id === quests.activeId ? ui.h('span', { class: 'sys-jrn-badge', text: 'Gevolgd' }) : null,
+          q.id === quests.activeId ? ui.h('span', { class: 'sys-jrn-badge', text: t({ en: 'Tracked', nl: 'Gevolgd' }) }) : null,
         ),
       );
     }
@@ -151,7 +163,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
     const chips = [];
     if (rw.xp) chips.push(ui.h('span', { class: 'sys-jrn-rw xp', html: `${ui.icon('sparkle', 14)}<span>+${fmt(rw.xp)} XP</span>` }));
     if (rw.credits) chips.push(ui.h('span', { class: 'sys-jrn-rw cr', html: `${ui.icon('sys-credit', 14)}<span>+${fmt(rw.credits)} Ø-credits</span>` }));
-    for (const [k, v] of Object.entries(rw.resources || {})) chips.push(ui.h('span', { class: 'sys-jrn-rw res', html: `${ui.icon(k, 14)}<span>+${fmt(v)} ${RESOURCE_LABELS[k] || k}</span>` }));
+    for (const [k, v] of Object.entries(rw.resources || {})) chips.push(ui.h('span', { class: 'sys-jrn-rw res', html: `${ui.icon(k, 14)}<span>+${fmt(v)} ${resourceLabel(k)}</span>` }));
     for (const id of rw.items || []) chips.push(ui.h('span', { class: 'sys-jrn-rw item', html: `${ui.icon('gift', 14)}<span>${ITEM[id]?.name || id}</span>` }));
     for (const id of rw.lore || []) chips.push(ui.h('span', { class: 'sys-jrn-rw lore', html: `${ui.icon('book', 14)}<span>${LORE[id]?.title || id}</span>` }));
     return chips;
@@ -180,7 +192,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
         ui.h('button', {
           class: `btn btn-sm${tracked ? '' : ' btn-primary'}`,
           disabled: tracked ? true : null,
-          html: tracked ? `${ui.icon('check', 14)}<span>Gevolgd</span>` : `${ui.icon('target', 14)}<span>Volgen</span>`,
+          html: tracked ? `${ui.icon('check', 14)}<span>${t({ en: 'Tracked', nl: 'Gevolgd' })}</span>` : `${ui.icon('target', 14)}<span>${t({ en: 'Track', nl: 'Volgen' })}</span>`,
           onclick: () => {
             quests.track(q.id);
             ctx.audio.play('ui.click');
@@ -190,7 +202,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
       );
     }
     r.detail.append(
-      ui.h('div', { class: 'sys-jrn-dtype', dataset: { type: q.type } }, ui.h('span', { text: QUEST_TYPE_LABEL[q.type] || '' }), q.status === 'done' ? ui.h('span', { class: 'sys-jrn-done', html: `${ui.icon('check', 13)}<span>Voltooid</span>` }) : null),
+      ui.h('div', { class: 'sys-jrn-dtype', dataset: { type: q.type } }, ui.h('span', { text: questTypeLabel(q.type) }), q.status === 'done' ? ui.h('span', { class: 'sys-jrn-done', html: `${ui.icon('check', 13)}<span>${t({ en: 'Completed', nl: 'Voltooid' })}</span>` }) : null),
       ui.h('h2', { class: 'sys-jrn-dtitle', text: q.title }),
       ui.h(
         'div',
@@ -199,9 +211,9 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
         q.giver ? ui.h('span', { html: `${ui.icon('user', 13)}<span>${q.giver}</span>` }) : null,
       ),
       ui.h('p', { class: 'sys-jrn-summary', text: q.summary }),
-      ui.h('div', { class: 'sys-jrn-h', text: 'Doelen' }),
+      ui.h('div', { class: 'sys-jrn-h', text: t({ en: 'Objectives', nl: 'Doelen' }) }),
       objs,
-      ui.h('div', { class: 'sys-jrn-h', text: 'Beloningen' }),
+      ui.h('div', { class: 'sys-jrn-h', text: t({ en: 'Rewards', nl: 'Beloningen' }) }),
       ui.h('div', { class: 'sys-jrn-rws' }, rewardChips(q.rewards)),
       actions,
     );
@@ -225,7 +237,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
             },
           },
           ui.h('span', { class: 'sys-jrn-iic', html: ui.icon(known ? 'sys-scroll' : 'sys-lock', 17) }),
-          ui.h('span', { class: 'sys-jrn-itext' }, ui.h('span', { class: 'sys-jrn-iname', text: known ? LORE[id].title : 'Onbekend verhaal' }), ui.h('span', { class: 'sys-jrn-imeta', text: known ? LORE[id].tag : '???' })),
+          ui.h('span', { class: 'sys-jrn-itext' }, ui.h('span', { class: 'sys-jrn-iname', text: known ? LORE[id].title : t({ en: 'Unknown story', nl: 'Onbekend verhaal' }) }), ui.h('span', { class: 'sys-jrn-imeta', text: known ? LORE[id].tag : '???' })),
         ),
       );
     }
@@ -256,7 +268,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
             },
           },
           ui.h('span', { class: 'sys-jrn-iic', html: ui.icon(e.icon || 'sys-flag', 17) }),
-          ui.h('span', { class: 'sys-jrn-itext' }, ui.h('span', { class: 'sys-jrn-iname', text: e.name }), ui.h('span', { class: 'sys-jrn-imeta', text: e.active ? 'Nu live' : e.when })),
+          ui.h('span', { class: 'sys-jrn-itext' }, ui.h('span', { class: 'sys-jrn-iname', text: e.name }), ui.h('span', { class: 'sys-jrn-imeta', text: e.active ? t({ en: 'Live now', nl: 'Nu live' }) : e.when })),
           e.active ? ui.h('span', { class: 'sys-jrn-live', text: 'Live' }) : null,
         ),
       );
@@ -269,7 +281,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
       actions.appendChild(
         ui.h('button', {
           class: 'btn btn-sm btn-primary',
-          html: `${ui.icon('play', 14)}<span>Nu starten</span>`,
+          html: `${ui.icon('play', 14)}<span>${t({ en: 'Start now', nl: 'Nu starten' })}</span>`,
           onclick: () => {
             refs.events.start(e.id, { from: 'journal' });
             close();
@@ -281,7 +293,7 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
       actions.appendChild(
         ui.h('button', {
           class: 'btn btn-sm',
-          html: `${ui.icon('pin', 14)}<span>Volg het festival</span>`,
+          html: `${ui.icon('pin', 14)}<span>${t({ en: 'Follow the festival', nl: 'Volg het festival' })}</span>`,
           onclick: () => {
             quests.track('starfall');
             close();
@@ -290,11 +302,11 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
       );
     }
     r.detail.append(
-      ui.h('div', { class: 'sys-jrn-dtype', dataset: { type: 'event' } }, ui.h('span', { text: 'Live evenement' }), e.active ? ui.h('span', { class: 'sys-jrn-live', text: 'Live' }) : null),
+      ui.h('div', { class: 'sys-jrn-dtype', dataset: { type: 'event' } }, ui.h('span', { text: t({ en: 'Live event', nl: 'Live evenement' }) }), e.active ? ui.h('span', { class: 'sys-jrn-live', text: 'Live' }) : null),
       ui.h('h2', { class: 'sys-jrn-dtitle', text: e.name }),
       ui.h('div', { class: 'sys-jrn-dmeta' }, ui.h('span', { html: `${ui.icon('pin', 13)}<span>${e.where}</span>` }), ui.h('span', { html: `${ui.icon('sys-clock', 13)}<span>${e.when}</span>` })),
       ui.h('p', { class: 'sys-jrn-summary', text: e.desc }),
-      e.rewards ? ui.h('div', { class: 'sys-jrn-h', text: 'Beloningen' }) : null,
+      e.rewards ? ui.h('div', { class: 'sys-jrn-h', text: t({ en: 'Rewards', nl: 'Beloningen' }) }) : null,
       e.rewards ? ui.h('div', { class: 'sys-jrn-rws' }, rewardChips(e.rewards)) : null,
       actions,
     );
@@ -303,8 +315,8 @@ export function createJournal(ctx, { quests, progress, rewards, refs, sys }) {
   // ---------------------------------------------------------------- open / close
   let keyHandler = null;
   const offs = [];
-  function open(t = null, id = null) {
-    if (t) tab = TABS.some((x) => x.id === t) ? t : 'active';
+  function open(which = null, id = null) {
+    if (which) tab = TABS.some((x) => x.id === which) ? which : 'active';
     if (id) sel = id;
     if (!r || !ui.isModalOpen(MODAL)) {
       r = build();

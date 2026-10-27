@@ -70,7 +70,7 @@ loop.render = (dt, t) => engine.render(dt, t);
 loop.start();
 
 const t0 = performance.now();
-const world = await installWorld(ctx, { progress: (p) => (info.textContent = `laden ${Math.round(p * 100)}%`) });
+const world = await installWorld(ctx, { progress: (p) => (info.textContent = `loading ${Math.round(p * 100)}%`) });
 ctx.world = world;
 if (q.lm === '1') {
   try {
@@ -164,5 +164,5 @@ function setCustom(v) {
 ctx.lab = { setView, setCustom, views: VIEWS, title, player };
 await frames(2);
 ctx.ready = true;
-info.textContent = `lab klaar in ${Math.round(performance.now() - t0)} ms`;
+info.textContent = `lab ready in ${Math.round(performance.now() - t0)} ms`;
 console.log(`[atmo-lab] ready in ${Math.round(performance.now() - t0)} ms`);

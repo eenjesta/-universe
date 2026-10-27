@@ -1,14 +1,15 @@
 /**
  * Economy + marketplace modal (K, or the holographic terminal on the
- * Nexus-plein at ZONES.plaza.market). Holographic glass window with tabs
- * Kopen / Verkopen / Mijn items, item cards with thumbnails, prices in
+ * Nexus Plaza at ZONES.plaza.market). Holographic glass window with tabs
+ * Buy / Sell / My Items (Kopen / Verkopen / Mijn items), item cards with thumbnails, prices in
  * Ø-credits and favourite hearts (14_marketplace.png).
  * Emits market:buy {item, price} and market:sell {item, amount, credits}.
  */
 import * as THREE from 'three';
 import '../css/market.css';
 import { ZONES } from '../../world/layout.js';
-import { fmt, groundY, RESOURCE_LABELS } from '../shared/util.js';
+import { t } from '../../core/i18n.js';
+import { fmt, groundY, resourceLabel } from '../shared/util.js';
 import { ITEMS, ITEM, SELL_PRICES, FILTERS } from './items.js';
 import { thumbnail } from './thumbs.js';
 
@@ -41,7 +42,7 @@ export function createMarket(ctx, { rewards }) {
     if (it.kind !== 'consumable' && owns(id)) return false;
     if (credits() < it.price) {
       ctx.audio.play('ui.error');
-      flash(id, 'Niet genoeg Ø-credits');
+      flash(id, t({ en: 'Not enough Ø-credits', nl: 'Niet genoeg Ø-credits' }));
       return false;
     }
     state.add('credits', -it.price);
@@ -49,8 +50,8 @@ export function createMarket(ctx, { rewards }) {
     else rewards.grantItem(id);
     ctx.audio.play('reward');
     ctx.events.emit('market:buy', { item: id, price: it.price });
-    toastOutsideModal(`Gekocht: ${it.name}`, it.kind === 'consumable' ? 'Toegevoegd aan je grondstoffen' : hintFor(it));
-    flash(id, it.kind === 'consumable' ? 'Toegevoegd!' : 'Gekocht!', 'ok');
+    toastOutsideModal(t({ en: 'Purchased: {name}', nl: 'Gekocht: {name}' }, { name: it.name }), it.kind === 'consumable' ? t({ en: 'Added to your resources', nl: 'Toegevoegd aan je grondstoffen' }) : hintFor(it));
+    flash(id, it.kind === 'consumable' ? t({ en: 'Added!', nl: 'Toegevoegd!' }) : t({ en: 'Purchased!', nl: 'Gekocht!' }), 'ok');
     render();
     return true;
   }
@@ -100,9 +101,9 @@ export function createMarket(ctx, { rewards }) {
   }
 
   function hintFor(it) {
-    if (it.kind === 'outfit') return 'Aantrekken via Mijn items of de karakter-editor [C]';
-    if (it.kind === 'skin') return 'Beschikbaar in je garage [G]';
-    if (it.kind === 'blueprint') return 'Beschikbaar in de bouwmodus [B]';
+    if (it.kind === 'outfit') return t({ en: 'Wear it via My Items or the character editor [C]', nl: 'Aantrekken via Mijn items of de karakter-editor [C]' });
+    if (it.kind === 'skin') return t({ en: 'Available in your garage [G]', nl: 'Beschikbaar in je garage [G]' });
+    if (it.kind === 'blueprint') return t({ en: 'Available in build mode [B]', nl: 'Beschikbaar in de bouwmodus [B]' });
     return '';
   }
 
@@ -121,28 +122,28 @@ export function createMarket(ctx, { rewards }) {
       'div',
       { class: 'sys-mkt-head' },
       ui.h('div', { class: 'sys-mkt-title', html: `${ui.icon('cube', 22)}<span>Marketplace</span>` }),
-      ui.h('div', { class: 'sys-mkt-credits', title: 'Jouw saldo' }, ui.h('span', { html: ui.icon('sys-credit', 16) }), r.credits, ui.h('span', { class: 'sys-mkt-unit', text: 'Ø-credits' })),
-      ui.h('button', { class: 'modal-close', title: 'Sluiten (Esc)', html: ui.icon('close', 18), onclick: () => close() }),
+      ui.h('div', { class: 'sys-mkt-credits', title: t({ en: 'Your balance', nl: 'Jouw saldo' }) }, ui.h('span', { html: ui.icon('sys-credit', 16) }), r.credits, ui.h('span', { class: 'sys-mkt-unit', text: 'Ø-credits' })),
+      ui.h('button', { class: 'modal-close', title: t({ en: 'Close (Esc)', nl: 'Sluiten (Esc)' }), html: ui.icon('close', 18), onclick: () => close() }),
     );
     for (const [id, label] of [
-      ['buy', 'Kopen'],
-      ['sell', 'Verkopen'],
-      ['mine', 'Mijn items'],
+      ['buy', t({ en: 'Buy', nl: 'Kopen' })],
+      ['sell', t({ en: 'Sell', nl: 'Verkopen' })],
+      ['mine', t({ en: 'My Items', nl: 'Mijn items' })],
     ]) {
       r.tabs.appendChild(ui.h('button', { class: 'sys-mkt-tab', dataset: { tab: id }, role: 'tab', text: label, onclick: () => setTab(id) }));
     }
     const foot = ui.h(
       'div',
       { class: 'sys-mkt-foot' },
-      ui.h('span', { text: 'Verdien Ø-credits met missies, ontdekkingen en de verkoop van grondstoffen.' }),
-      ui.h('span', { class: 'sys-mkt-keys', html: '<span class="kbd">K</span> sluiten' }),
+      ui.h('span', { text: t({ en: 'Earn Ø-credits through missions, discoveries and selling resources.', nl: 'Verdien Ø-credits met missies, ontdekkingen en de verkoop van grondstoffen.' }) }),
+      ui.h('span', { class: 'sys-mkt-keys', html: `<span class="kbd">K</span> ${t({ en: 'close', nl: 'sluiten' })}` }),
     );
     r.el = ui.h('div', { class: 'sys-mkt', role: 'dialog', 'aria-label': 'Marketplace' }, ui.h('i', { class: 'sys-mkt-scan' }), head, r.tabs, r.filters, r.body, foot);
     return r;
   }
 
-  function setTab(t) {
-    tab = t;
+  function setTab(id) {
+    tab = id;
     ctx.audio.play('ui.click');
     render();
   }
@@ -158,7 +159,7 @@ export function createMarket(ctx, { rewards }) {
         refs.filters.appendChild(
           ui.h('button', {
             class: `sys-mkt-filter${filter === f.id ? ' active' : ''}`,
-            text: f.label,
+            text: t(f.label),
             onclick: () => {
               filter = f.id;
               ctx.audio.play('ui.click');
@@ -191,7 +192,7 @@ export function createMarket(ctx, { rewards }) {
         ui.h('img', { src: thumbnail(it), alt: it.name, draggable: 'false' }),
         ui.h('button', {
           class: `sys-mkt-fav${fav ? ' on' : ''}`,
-          title: fav ? 'Verwijder uit favorieten' : 'Favoriet',
+          title: fav ? t({ en: 'Remove from favorites', nl: 'Verwijder uit favorieten' }) : t({ en: 'Favorite', nl: 'Favoriet' }),
           html: ui.icon(fav ? 'sys-heart-fill' : 'sys-heart', 17),
           onclick: (e) => {
             e.stopPropagation();
@@ -211,7 +212,11 @@ export function createMarket(ctx, { rewards }) {
     if (filter === 'fav') list = ITEMS.filter((i) => isFav(i.id));
     else if (filter !== 'all') list = ITEMS.filter((i) => i.kind === filter);
     if (!list.length) {
-      refs.body.appendChild(ui.h('div', { class: 'sys-mkt-empty', text: filter === 'fav' ? 'Nog geen favorieten. Tik op een hartje om een item te bewaren.' : 'Geen items in deze categorie.' }));
+      const empty =
+        filter === 'fav'
+          ? t({ en: 'No favorites yet. Tap a heart to save an item.', nl: 'Nog geen favorieten. Tik op een hartje om een item te bewaren.' })
+          : t({ en: 'No items in this category.', nl: 'Geen items in deze categorie.' });
+      refs.body.appendChild(ui.h('div', { class: 'sys-mkt-empty', text: empty }));
       return;
     }
     const grid = ui.h('div', { class: 'sys-mkt-grid' });
@@ -221,7 +226,7 @@ export function createMarket(ctx, { rewards }) {
       const btn = ui.h('button', {
         class: `sys-mkt-btn${owned ? ' owned' : ''}${poor && !owned ? ' poor' : ''}`,
         disabled: owned ? true : null,
-        html: owned ? `${ui.icon('check', 15)}<span>In bezit</span>` : '<span>Kopen</span>',
+        html: owned ? `${ui.icon('check', 15)}<span>${t({ en: 'Owned', nl: 'In bezit' })}</span>` : `<span>${t({ en: 'Buy', nl: 'Kopen' })}</span>`,
         onclick: () => buy(it.id),
       });
       grid.appendChild(card(it, ui.h('div', { class: 'sys-mkt-act' }, priceRow(it.price, poor && !owned ? 'poor' : ''), btn)));
@@ -231,7 +236,7 @@ export function createMarket(ctx, { rewards }) {
 
   function renderSell() {
     const wrap = ui.h('div', { class: 'sys-mkt-sell' });
-    wrap.appendChild(ui.h('div', { class: 'sys-mkt-sub', text: 'Grondstoffen' }));
+    wrap.appendChild(ui.h('div', { class: 'sys-mkt-sub', text: t({ en: 'Resources', nl: 'Grondstoffen' }) }));
     for (const res of Object.keys(SELL_PRICES)) {
       const have = Math.floor(state.get(`resources.${res}`) || 0);
       const btn = (n, label) =>
@@ -246,15 +251,15 @@ export function createMarket(ctx, { rewards }) {
           'div',
           { class: 'sys-mkt-row' },
           ui.h('span', { class: 'sys-mkt-ric', html: ui.icon(RES_ICON[res], 22) }),
-          ui.h('div', { class: 'sys-mkt-rname' }, ui.h('div', { text: RESOURCE_LABELS[res] }), ui.h('div', { class: 'sys-mkt-rhave', text: `${fmt(have)} in voorraad` })),
-          ui.h('div', { class: 'sys-mkt-rprice' }, priceRow(SELL_PRICES[res]), ui.h('div', { class: 'sys-mkt-rhave', text: 'per stuk' })),
-          ui.h('div', { class: 'sys-mkt-rbtns' }, btn(10, '10'), btn(50, '50'), btn('all', 'Alles')),
+          ui.h('div', { class: 'sys-mkt-rname' }, ui.h('div', { text: resourceLabel(res) }), ui.h('div', { class: 'sys-mkt-rhave', text: t({ en: '{n} in stock', nl: '{n} in voorraad' }, { n: fmt(have) }) })),
+          ui.h('div', { class: 'sys-mkt-rprice' }, priceRow(SELL_PRICES[res]), ui.h('div', { class: 'sys-mkt-rhave', text: t({ en: 'each', nl: 'per stuk' }) })),
+          ui.h('div', { class: 'sys-mkt-rbtns' }, btn(10, '10'), btn(50, '50'), btn('all', t({ en: 'All', nl: 'Alles' }))),
         ),
       );
     }
     const owned = ITEMS.filter((i) => i.kind !== 'consumable' && owns(i.id));
     if (owned.length) {
-      wrap.appendChild(ui.h('div', { class: 'sys-mkt-sub', text: 'Jouw items (50% van de prijs)' }));
+      wrap.appendChild(ui.h('div', { class: 'sys-mkt-sub', text: t({ en: 'Your items (50% of the price)', nl: 'Jouw items (50% van de prijs)' }) }));
       for (const it of owned) {
         wrap.appendChild(
           ui.h(
@@ -263,7 +268,7 @@ export function createMarket(ctx, { rewards }) {
             ui.h('img', { class: 'sys-mkt-rthumb', src: thumbnail(it), alt: '' }),
             ui.h('div', { class: 'sys-mkt-rname' }, ui.h('div', { text: it.name }), ui.h('div', { class: 'sys-mkt-rhave', text: it.cat })),
             ui.h('div', { class: 'sys-mkt-rprice' }, priceRow(Math.round(it.price * 0.5))),
-            ui.h('div', { class: 'sys-mkt-rbtns' }, ui.h('button', { class: 'sys-mkt-btn sm', text: 'Verkopen', onclick: () => sell(it.id) })),
+            ui.h('div', { class: 'sys-mkt-rbtns' }, ui.h('button', { class: 'sys-mkt-btn sm', text: t({ en: 'Sell', nl: 'Verkopen' }), onclick: () => sell(it.id) })),
           ),
         );
       }
@@ -278,8 +283,8 @@ export function createMarket(ctx, { rewards }) {
         ui.h(
           'div',
           { class: 'sys-mkt-empty' },
-          ui.h('div', { text: 'Je hebt nog geen items.' }),
-          ui.h('button', { class: 'btn btn-sm', text: 'Bekijk het aanbod', onclick: () => setTab('buy') }),
+          ui.h('div', { text: t({ en: "You don't have any items yet.", nl: 'Je hebt nog geen items.' }) }),
+          ui.h('button', { class: 'btn btn-sm', text: t({ en: 'Browse the catalog', nl: 'Bekijk het aanbod' }), onclick: () => setTab('buy') }),
         ),
       );
       return;
@@ -293,7 +298,7 @@ export function createMarket(ctx, { rewards }) {
         action = ui.h('button', {
           class: `sys-mkt-btn${on ? ' owned' : ''}`,
           disabled: on ? true : null,
-          html: on ? `${ui.icon('check', 15)}<span>Gedragen</span>` : '<span>Aantrekken</span>',
+          html: on ? `${ui.icon('check', 15)}<span>${t({ en: 'Wearing', nl: 'Gedragen' })}</span>` : `<span>${t({ en: 'Wear', nl: 'Aantrekken' })}</span>`,
           onclick: () => equip(it.id),
         });
       } else action = ui.h('div', { class: 'sys-mkt-note', text: hintFor(it) });
@@ -316,8 +321,8 @@ export function createMarket(ctx, { rewards }) {
   // ---------------------------------------------------------------- open / close
   let keyHandler = null;
   let unsub = null;
-  function open(t = null) {
-    if (t) tab = t === 'sell' || t === 'mine' ? t : 'buy';
+  function open(which = null) {
+    if (which) tab = which === 'sell' || which === 'mine' ? which : 'buy';
     if (refs && ui.isModalOpen(MODAL)) {
       render();
       return true;
@@ -362,15 +367,15 @@ export function createMarket(ctx, { rewards }) {
   const M = ZONES.plaza.market;
   // the landmarks terminal position when available, else the layout spot
   const terminal = (lift, out = termPos) => {
-    const t = ctx.landmarks?.plaza?.market;
-    return t?.isVector3 ? out.set(t.x, t.y + lift, t.z) : out.set(M.x, groundY(ctx, M.x, M.z) + lift, M.z);
+    const term = ctx.landmarks?.plaza?.market;
+    return term?.isVector3 ? out.set(term.x, term.y + lift, term.z) : out.set(M.x, groundY(ctx, M.x, M.z) + lift, M.z);
   };
   ctx.interactions.add({
     id: 'sys-market-terminal',
     scope: 'world',
     position: () => terminal(1.1),
     radius: 4,
-    label: 'Marketplace openen',
+    label: t({ en: 'Open Marketplace', nl: 'Marketplace openen' }),
     priority: 1,
     onInteract: () => open('buy'),
   });

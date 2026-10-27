@@ -2,7 +2,7 @@
 
 Ø Universe is a ThreeJS (r186, WebGL2) browser game prototype that recreates the
 concept poster `reference/concept.png` ("Ø UNIVERSE — EXPLORE · CREATE · CONNECT").
-All in-game text is **Dutch** (as on the poster); code/comments are English.
+All in-game text is **English by default**, with **Dutch** as the second language (settings → Language, or `?lang=nl`). Every player-facing string is written bilingually with `t({ en: '…', nl: '…' })` from `src/core/i18n.js` (see §3 `ctx.i18n`); code/comments are English.
 Everything is procedural: no downloaded models, images or audio files.
 
 Poster crops for reference (read them!):
@@ -126,6 +126,7 @@ src/shell/        'title' mode + title screen, pause/settings/help/map, minimap,
 | `ctx.modes` | `register(name, mode)`, `go(name, params, {fade})`, `is(...names)`, `name`, `previous`, `transitioning` |
 | `ctx.ui` | `h(tag, attrs, ...children)`, `addWidget(slot, el, {modes, order})`, `removeWidget`, `setVisible(el, bool)`, `toast({title, text, icon, kind, duration})`, `prompt.show(channel, {key, text, hold, progress, anchor})` / `prompt.hide(channel)` (with `anchor` = world Vector3 the prompt floats next to that point, like "[E] Praten" beside Aria; interactions do this automatically — option `anchor` on `interactions.add`), `fade(toBlack, ms)`, `openModal(id, el, {onClose, closeOnEsc, closeOnBackdrop, className})`, `closeModal(id)`, `isModalOpen(id?)`, `showScreen(id, el)`, `hideScreen(id)`, `pushEscape(fn) → pop`, `icon(name, size)`, `layers` |
 | `ctx.audio` | `play(name, {volume, position, pitch})`, `loop(name, opts) → {set(params), stop(fade)}`, `register(name, recipe, {loop, bus})`, `setVolumes({master, music, sfx})`, `setListener(camera)` |
+| `ctx.i18n` | `t({en, nl}, vars)` → text in the active language (`{placeholders}`; plain strings pass through), `pick({en, nl})` → raw variant (arrays/objects), `lang()` → `'en'`/`'nl'`, `locale()`, `setLanguage(id, state)` (saves + reloads), `LANGUAGES`. Also importable: `import { t, pick } from '../core/i18n.js'`. English is the default; `en` is required in every text, `nl` expected. Resolve text when you build UI (the language never changes without a reload). `formatNumber`/`formatDistance` in core/math follow the language |
 | `ctx.params` | parsed URL query |
 | `ctx.debug` | `teleport(zone \| {x,z}, heading)`, `go(mode, params)`, `setTime(h)`, `simulate(...)`, `frames(n)`, `info()` |
 
@@ -362,7 +363,7 @@ slot. Give every widget a `modes` list. Style per the poster: dark glass panels
 cyan for interactive/quest state, gold for rewards, violet for social.
 Modals (pause, journal, market, garage, map, dialogue) use `ui.openModal`.
 
-## 9. Controls (Dutch labels in help screens)
+## 9. Controls (labels in help screens: English, Dutch in brackets)
 
 On foot: WASD/pijltjes lopen · Shift sprinten · Spatie springen · muis
 rondkijken (klik om de muis te vangen, Esc om los te laten) · scroll zoom ·
@@ -435,11 +436,14 @@ ships/VTOLs flying in the sky; violet bioluminescent accents; dark techwear
 characters with a big white Ø on the backpack and an Ø shoulder patch; wet,
 reflective surfaces at dusk; thin elegant HUD (dark glass, cyan accents).
 
-**Dutch HUD wording:** compass N/O/Z/W; build bar Structuur, Muur, Vloer, Dak,
-Decor, Energie; resources panel "Grondstoffen" (Metaal, Steen, Hout,
-Energie); vehicle HUD "180 km/u" + "HOOGTE 24 m"; space "120 m/s", Schild,
-Romp, Lasers, Boost, Raketten; notifications "Locatie ontdekt: …" + "+250 XP";
-prompts "[E] Praten", "[F] Instappen — Ruimteschip".
+**HUD wording (en / nl):** compass N/E/S/W (nl N/O/Z/W); build bar Structure,
+Wall, Floor, Roof, Decor, Power (Structuur, Muur, Vloer, Dak, Decor, Energie);
+resources panel "Resources" (Metal, Stone, Wood, Energy) / "Grondstoffen"
+(Metaal, Steen, Hout, Energie); vehicle HUD "180 km/h" + "ALTITUDE 24 m"
+("180 km/u", "HOOGTE 24 m"); space "120 m/s", Shield, Hull, Lasers, Boost,
+Missiles (Schild, Romp, Lasers, Boost, Raketten); notifications "Location
+discovered: …" + "+250 XP" ("Locatie ontdekt: …"); prompts "[E] Talk",
+"[F] Board — Spaceship" ("[E] Praten", "[F] Instappen — Ruimteschip").
 
 **Later wave (not now unless your brief says so):** Lumen-jungle flora +
 species scanning, hoverbike + canyon race, Kepler-Ø 7 colony landing.

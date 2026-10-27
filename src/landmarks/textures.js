@@ -1,10 +1,37 @@
 /**
  * Landmarks — procedural canvas textures (no image files). Each generator is
  * memoised so materials shared between landmarks reuse one GPU texture.
+ * Sign text is resolved in the active language when a texture is drawn
+ * (core/i18n.js; a language switch reloads the page).
  */
 import * as THREE from 'three';
 import { canvasTexture, drawEmblem } from '../core/textures.js';
-import { Rng } from '../core/math.js';
+import { Rng, formatNumber } from '../core/math.js';
+import { t } from '../core/i18n.js';
+
+/**
+ * Sets `g.font` (and letter spacing) for a single line of text, shrinking the
+ * size until it fits `maxWidth` — keeps signs working with longer/shorter words.
+ */
+function fitFont(g, text, { weight = 500, size, spacing = 0, maxWidth, family = 'Jost, sans-serif' }) {
+  const hasSpacing = 'letterSpacing' in g;
+  const apply = (s) => {
+    g.font = `${weight} ${Math.round(s)}px ${family}`;
+    if (hasSpacing) g.letterSpacing = '0px';
+    const sp = hasSpacing ? (spacing * s) / size : 0;
+    const width = g.measureText(text).width + text.length * sp;
+    if (hasSpacing) g.letterSpacing = `${Math.round(sp)}px`;
+    return width;
+  };
+  let s = size;
+  for (let i = 0; i < 6; i++) {
+    const width = apply(s);
+    if (width <= maxWidth) return s;
+    s *= Math.max(0.5, (maxWidth / width) * 0.98);
+  }
+  apply(s);
+  return s;
+}
 
 const cache = new Map();
 function memo(key, fn) {
@@ -774,11 +801,16 @@ export function holoTexture(kind) {
         g.font = `500 ${Math.round(h * 0.09)}px Jost, sans-serif`;
         g.fillText('Marketplace', w * 0.08, h * 0.16);
         g.font = `400 ${Math.round(h * 0.06)}px Jost, sans-serif`;
-        ['Kopen', 'Verkopen', 'Mijn items'].forEach((t, i) => {
+        const tabs = [
+          { en: 'Buy', nl: 'Kopen' },
+          { en: 'Sell', nl: 'Verkopen' },
+          { en: 'My Items', nl: 'Mijn items' },
+        ];
+        tabs.forEach((label, i) => {
           g.fillStyle = i === 0 ? 'rgba(127,224,255,0.35)' : 'rgba(127,224,255,0.1)';
           g.fillRect(w * 0.06 + i * w * 0.3, h * 0.22, w * 0.27, h * 0.1);
           g.fillStyle = '#dff6ff';
-          g.fillText(t, w * 0.1 + i * w * 0.3, h * 0.29);
+          g.fillText(t(label), w * 0.1 + i * w * 0.3, h * 0.29);
         });
         for (let i = 0; i < 3; i++) {
           const x = w * 0.06 + i * w * 0.3;
@@ -787,19 +819,19 @@ export function holoTexture(kind) {
           g.fillStyle = 'rgba(127,224,255,0.18)';
           g.fillRect(x + 8, h * 0.42, w * 0.27 - 16, h * 0.25);
           g.fillStyle = '#dff6ff';
-          g.fillText(['750', '1.200', '950'][i] + ' Ø', x + 10, h * 0.76);
+          g.fillText(`${formatNumber([750, 1200, 950][i])} Ø`, x + 10, h * 0.76);
           g.fillStyle = 'rgba(127,224,255,0.4)';
           g.fillRect(x + 10, h * 0.8, w * 0.27 - 20, h * 0.07);
         }
       } else if (kind === 'nachtmarkt') {
-        g.font = `500 ${Math.round(h * 0.56)}px Jost, sans-serif`;
+        const text = t({ en: 'NIGHT MARKET', nl: 'NACHTMARKT' });
+        fitFont(g, text, { weight: 500, size: h * 0.56, spacing: h * 0.12, maxWidth: w * 0.94 });
         g.textAlign = 'center';
         g.textBaseline = 'middle';
-        if ('letterSpacing' in g) g.letterSpacing = `${Math.round(h * 0.12)}px`;
         g.shadowColor = 'rgba(255,90,220,1)';
         g.shadowBlur = 18;
         g.fillStyle = '#ffd6f6';
-        g.fillText('NACHTMARKT', w / 2, h / 2);
+        g.fillText(text, w / 2, h / 2);
         g.shadowBlur = 0;
       } else if (kind === 'planet') {
         // equirect-ish banded planet surface for hologram spheres
@@ -903,15 +935,29 @@ export function holoTexture(kind) {
   });
 }
 
-/** Text sign texture (single line). Returns { texture, aspect }. */
+/** Canvas width of a sign texture for `text` (see signTexture). */
+function signWidth(text, height, weight) {
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = `${weight} ${Math.round(height * 0.6)}px Jost, sans-serif`;
+  const tw = probe.measureText(text).width + text.length * height * 0.08;
+  return Math.min(2048, Math.ceil(tw + height * 0.8));
+}
+
+/**
+ * Aspect (width / height) a sign texture for `text` would get, without making
+ * one. Lets a sign keep the letter height designed for a reference word when the
+ * translated word is longer or shorter.
+ */
+export function signAspect(text, { height = 128, weight = 500 } = {}) {
+  return signWidth(text, height, weight) / height;
+}
+
+/** Text sign texture (single line). Returns a texture with userData.aspect (width / height). */
 export function signTexture(text, { color = '#ffe2b8', glow = 'rgba(255,170,90,1)', bg = null, height = 128, weight = 500 } = {}) {
   const key = `sign:${text}:${color}:${bg}`;
   return memo(key, () => {
-    const probe = document.createElement('canvas').getContext('2d');
     const font = `${weight} ${Math.round(height * 0.6)}px Jost, sans-serif`;
-    probe.font = font;
-    const tw = probe.measureText(text).width + text.length * height * 0.08;
-    const w = Math.min(2048, Math.ceil(tw + height * 0.8));
+    const w = signWidth(text, height, weight);
     const tex = canvasTexture(w, height, (g) => {
       if (bg) {
         g.fillStyle = bg;

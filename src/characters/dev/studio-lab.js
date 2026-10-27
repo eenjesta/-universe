@@ -40,7 +40,7 @@ ctx.portraits = createPortraits(ctx, { resolveAppearance: (id) => normalizeAppea
 const studio = createStudio(ctx);
 const creator = createCreator(ctx, { studio, onConfirm: () => {}, onCancel: () => {} });
 const app = normalizeAppearance(q.app ? JSON.parse(q.app) : {});
-creator.open(app, 'Reiziger', { tab: q.tab || 'outfit' });
+creator.open(app, null, { tab: q.tab || 'outfit' }); // null → localized default name
 engine.setView(studio.scene, studio.camera);
 const frames = +(q.frames || 30);
 let f = 0;

@@ -1,9 +1,10 @@
 /**
  * Player progression: XP, levels and zone discovery (state.progress
  * {xp, level, discovered}). Discovering a zone for the first time shows the
- * poster banner "Locatie ontdekt: Uitkijkpost" + "+250 XP".
+ * poster banner "Location discovered: Lookout" + "+250 XP".
  */
 import { ZONES } from '../world/layout.js';
+import { t } from '../core/i18n.js';
 import { fmt } from './shared/util.js';
 
 /** XP granted for discovering each zone. */
@@ -37,7 +38,7 @@ export function createProgress(ctx, { notify }) {
       notify.show({
         kind: 'level',
         icon: 'sys-level',
-        title: `Niveau ${level} bereikt`,
+        title: t({ en: 'Level {level} reached', nl: 'Niveau {level} bereikt' }, { level }),
         sub: `+${fmt(bonus)} Ø-credits`,
         sound: 'reward',
         duration: 4200,
@@ -60,7 +61,7 @@ export function createProgress(ctx, { notify }) {
       notify.show({
         kind: 'discovery',
         icon: 'sys-hex',
-        title: `Locatie ontdekt: ${zone.label}`,
+        title: t({ en: 'Location discovered: {zone}', nl: 'Locatie ontdekt: {zone}' }, { zone: zone.label }),
         sub: `+${fmt(xp)} XP`,
         sound: 'quest.update',
         duration: 4200,

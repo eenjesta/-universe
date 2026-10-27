@@ -1,6 +1,6 @@
 /**
  * Cinematic title camera: just behind the player on the spawn ridge, looking
- * past them over the lake toward Aurora-stad and the sunset (crop_hero.png /
+ * past them over the lake toward Aurora City and the sunset (crop_hero.png /
  * 09_key_art_poster.png): the character slightly left of the centre of the
  * visible scene, the city to the right with the sun setting just left of the
  * pillars panel, the lake below the far shore. A crane-down intro, a slow

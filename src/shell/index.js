@@ -191,12 +191,15 @@ export async function install(ctx, { progress = () => {} } = {}) {
       console.error('[shell] reset failed', err);
     }
     // nothing may write a (default) save before the reload, or the fresh
-    // start would look like an existing save ("Doorgaan" instead of "Speel")
+    // start would look like an existing save ("Continue" instead of "Play")
     state.persist = false;
     clearTimeout(state._saveTimer);
     ui.fade(true, 500).then(() => {
       const keep = new URLSearchParams();
       for (const k of ['nosave', 'quality', 'debug']) if (k in ctx.params) keep.set(k, ctx.params[k] === true ? '' : ctx.params[k]);
+      // the wiped save also held the language: keep playing in the same one
+      const lang = ctx.i18n?.lang?.();
+      if (lang && (lang !== 'en' || 'lang' in ctx.params)) keep.set('lang', lang);
       const qs = keep.toString().replace(/=(&|$)/g, '$1');
       location.replace(`${location.pathname}${qs ? `?${qs}` : ''}`);
     });

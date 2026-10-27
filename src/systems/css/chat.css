@@ -55,7 +55,8 @@
 .sys-chat-lic { flex: none; display: inline-flex; margin-top: 2px; color: var(--violet); }
 .sys-chat-line.k-system { color: rgba(127, 224, 255, .92); font-size: 12.5px; letter-spacing: .02em; }
 .sys-chat-line.k-system .sys-chat-lic { color: var(--cyan); }
-.sys-chat-line.k-party .sys-chat-name::before { content: 'Groep · '; color: var(--violet); font-weight: 400; }
+.sys-chat-line.k-party .sys-chat-name::before { content: 'Party · '; color: var(--violet); font-weight: 400; }
+:lang(nl) .sys-chat-line.k-party .sys-chat-name::before { content: 'Groep · '; }
 .sys-chat-line.k-typing { color: var(--ink-3); font-size: 12.5px; }
 .sys-chat-line.k-typing .sys-chat-name { font-weight: 400; opacity: .8; }
 .sys-chat-dots { display: inline-flex; gap: 3px; vertical-align: middle; }

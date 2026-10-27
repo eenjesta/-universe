@@ -1,7 +1,7 @@
 /*
  * World map modal (19_world_map.png): dark relief map with diamond pins,
  * brand top-left, compass + scale bottom-left, legend panel on the right
- * with "Snel reizen".
+ * with "Fast travel".
  */
 .modal.shell-map {
   width: min(1500px, calc(100vw - 28px));

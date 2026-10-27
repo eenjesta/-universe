@@ -1,5 +1,6 @@
 /**
- * Graphics diagnostics panel ("Grafische diagnose"). Opens with `?gfx` in the
+ * Graphics diagnostics panel ("Graphics diagnostics" / nl "Grafische
+ * diagnose"; text resolved with t() when it renders). Opens with `?gfx` in the
  * URL or the ` key (Backquote), and shows up by itself while switches are
  * stored. Lets the player switch every rendering feature on/off live — post
  * chain, NaN protection, bloom, colour grade, MSAA, shadows, environment
@@ -8,6 +9,8 @@
  * ('o-universe-gfx') and are applied right after the engine is created, so
  * they also hold during boot.
  */
+
+import { t, locale } from './i18n.js';
 
 const KEY = 'o-universe-gfx';
 
@@ -163,7 +166,7 @@ function createPanel(ctx, flags, hidden, { open = false } = {}) {
       root.append(h('h3', { textContent: Object.keys(flags).length ? 'GFX ●' : 'GFX' }));
       return;
     }
-    const close = h('button', { className: 'x', textContent: '–', title: 'Inklappen' });
+    const close = h('button', { className: 'x', textContent: '–', title: t({ en: 'Collapse', nl: 'Inklappen' }) });
     close.addEventListener('click', (ev) => {
       ev.stopPropagation();
       minimized = true;
@@ -190,34 +193,40 @@ function createPanel(ctx, flags, hidden, { open = false } = {}) {
         o.children.length ? `${o.children.length}` : o.type === 'Mesh' ? '' : o.type,
       );
     });
-    const reset = h('button', { textContent: 'Alles herstellen' });
+    const reset = h('button', { textContent: t({ en: 'Reset everything', nl: 'Alles herstellen' }) });
     reset.addEventListener('click', () => {
       saveGfx({});
       location.reload();
     });
-    const refresh = h('button', { textContent: 'Lijst verversen' });
+    const refresh = h('button', { textContent: t({ en: 'Refresh list', nl: 'Lijst verversen' }) });
     refresh.addEventListener('click', render);
 
     root.append(
-      h('div', { className: 'hd' }, h('h3', { textContent: 'Grafische diagnose' }), close),
-      h('div', { className: 'info', textContent: `GPU: ${gpu} · kwaliteit ${q.id}` }),
+      h('div', { className: 'hd' }, h('h3', { textContent: t({ en: 'Graphics diagnostics', nl: 'Grafische diagnose' }) }), close),
+      h('div', { className: 'info', textContent: t({ en: 'GPU: {gpu} · quality {q}', nl: 'GPU: {gpu} · kwaliteit {q}' }, { gpu, q: q.id }) }),
       statsEl,
-      h('div', { className: 'sec', textContent: 'Nabewerking' }),
-      check('Post-processing (alles hieronder)', engine.postEnabled, (v) => set('post', v)),
-      check('NaN-bescherming', engine.sanitize?.enabled, (v) => set('sanitize', v)),
-      check('Bloom (gloed)', engine.bloom.enabled, (v) => set('bloom', v)),
-      check('Kleurcorrectie', engine.grade.enabled, (v) => set('grade', v)),
-      seg('Anti-aliasing', [[0, 'uit'], [2, '2×'], [4, '4×']], comp.renderTarget1.samples, (v) => set('msaa', v)),
-      h('div', { className: 'sec', textContent: 'Licht & lucht' }),
-      check('Schaduwen', engine.renderer.shadowMap.enabled, (v) => set('shadows', v)),
-      check('Omgevingslicht (env map)', !engine.hideEnv, (v) => set('env', v)),
-      check('Mist', !engine.hideFog, (v) => set('fog', v)),
-      refl ? check('Waterreflectie', refl.enabled, (v) => set('reflection', v)) : null,
-      seg('Resolutie', [[0.5, '0.5'], [0.75, '0.75'], [1, '1'], [1.5, '1.5'], [2, '2']], pr, (v) => set('pixelRatio', v)),
-      h('div', { className: 'sec', textContent: 'Objecten in beeld' }),
+      h('div', { className: 'sec', textContent: t({ en: 'Post-processing', nl: 'Nabewerking' }) }),
+      check(t({ en: 'Post-processing (everything below)', nl: 'Post-processing (alles hieronder)' }), engine.postEnabled, (v) => set('post', v)),
+      check(t({ en: 'NaN protection', nl: 'NaN-bescherming' }), engine.sanitize?.enabled, (v) => set('sanitize', v)),
+      check(t({ en: 'Bloom (glow)', nl: 'Bloom (gloed)' }), engine.bloom.enabled, (v) => set('bloom', v)),
+      check(t({ en: 'Colour grading', nl: 'Kleurcorrectie' }), engine.grade.enabled, (v) => set('grade', v)),
+      seg('Anti-aliasing', [[0, t({ en: 'off', nl: 'uit' })], [2, '2×'], [4, '4×']], comp.renderTarget1.samples, (v) => set('msaa', v)),
+      h('div', { className: 'sec', textContent: t({ en: 'Light & sky', nl: 'Licht & lucht' }) }),
+      check(t({ en: 'Shadows', nl: 'Schaduwen' }), engine.renderer.shadowMap.enabled, (v) => set('shadows', v)),
+      check(t({ en: 'Environment light (env map)', nl: 'Omgevingslicht (env map)' }), !engine.hideEnv, (v) => set('env', v)),
+      check(t({ en: 'Fog', nl: 'Mist' }), !engine.hideFog, (v) => set('fog', v)),
+      refl ? check(t({ en: 'Water reflection', nl: 'Waterreflectie' }), refl.enabled, (v) => set('reflection', v)) : '', // '' — root.append(null) would print "null"
+      seg(t({ en: 'Resolution', nl: 'Resolutie' }), [[0.5, '0.5'], [0.75, '0.75'], [1, '1'], [1.5, '1.5'], [2, '2']], pr, (v) => set('pixelRatio', v)),
+      h('div', { className: 'sec', textContent: t({ en: 'Objects in the scene', nl: 'Objecten in beeld' }) }),
       h('div', { className: 'objs' }, objs),
       h('div', { className: 'row' }, refresh, reset),
-      h('div', { className: 'tip', textContent: 'Zet één ding tegelijk uit en kijk of het zwart/flikkeren verdwijnt. Instellingen blijven bewaard; open dit paneel met de `-toets.' }),
+      h('div', {
+        className: 'tip',
+        textContent: t({
+          en: 'Switch off one thing at a time and check whether the black screen or flickering goes away. Settings are kept; open this panel with the ` key.',
+          nl: 'Zet één ding tegelijk uit en kijk of het zwart/flikkeren verdwijnt. Instellingen blijven bewaard; open dit paneel met de `-toets.',
+        }),
+      }),
     );
     updateStats();
   }
@@ -225,7 +234,8 @@ function createPanel(ctx, flags, hidden, { open = false } = {}) {
   function updateStats() {
     if (!statsEl || minimized) return;
     const info = engine.renderer.info.render;
-    statsEl.textContent = `${Math.round(loop.fps)} fps · ${info.calls} draw calls · ${(info.triangles / 1e6).toFixed(2)} M driehoeken`;
+    const tris = (info.triangles / 1e6).toLocaleString(locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    statsEl.textContent = t({ en: '{fps} fps · {calls} draw calls · {tris} M triangles', nl: '{fps} fps · {calls} draw calls · {tris} M driehoeken' }, { fps: Math.round(loop.fps), calls: info.calls, tris });
   }
   setInterval(updateStats, 500);
 
@@ -240,7 +250,7 @@ function createPanel(ctx, flags, hidden, { open = false } = {}) {
     render();
   });
   // keep the panel's own clicks/keys away from the game
-  for (const t of ['mousedown', 'pointerdown', 'wheel']) root.addEventListener(t, (e) => e.stopPropagation());
+  for (const type of ['mousedown', 'pointerdown', 'wheel']) root.addEventListener(type, (e) => e.stopPropagation());
 
   render();
   return { flags, render, open: () => ((minimized = false), render()) };

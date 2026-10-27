@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { ZONES } from '../../world/layout.js';
 import { formatNumber, formatDistance } from '../../core/math.js';
+import { t } from '../../core/i18n.js';
 
 export const fmt = formatNumber;
 export const fmtDist = formatDistance;
@@ -25,13 +26,24 @@ export function isNight(ctx) {
   return h >= NIGHT_START || h < NIGHT_END;
 }
 
-/** Dutch part of day: 'ochtend' | 'middag' | 'avond' | 'nacht'. */
+/** Part of day id: 'morning' | 'afternoon' | 'evening' | 'night' (stable, language-neutral). */
 export function partOfDay(ctx) {
   const h = hourOf(ctx);
-  if (h >= 5.2 && h < 12) return 'ochtend';
-  if (h >= 12 && h < 17) return 'middag';
-  if (h >= 17 && h < 21.5) return 'avond';
-  return 'nacht';
+  if (h >= 5.2 && h < 12) return 'morning';
+  if (h >= 12 && h < 17) return 'afternoon';
+  if (h >= 17 && h < 21.5) return 'evening';
+  return 'night';
+}
+
+const PART_OF_DAY = {
+  morning: { en: 'morning', nl: 'ochtend' },
+  afternoon: { en: 'afternoon', nl: 'middag' },
+  evening: { en: 'evening', nl: 'avond' },
+  night: { en: 'night', nl: 'nacht' },
+};
+/** The part of day as a word in the active language ("evening" / "avond") for {daypart} templates. */
+export function partOfDayText(ctx, id = partOfDay(ctx)) {
+  return t(PART_OF_DAY[id] || PART_OF_DAY.evening);
 }
 
 // ------------------------------------------------------------- position
@@ -93,20 +105,21 @@ export function zoneLabel(id) {
   return ZONES[id]?.label || id || '';
 }
 
-/** Dutch locative per zone ("op het Nexus-plein", "in de ruimtehaven"). */
+/** Locative per zone ("at Nexus Plaza" / "op het Nexus-plein"). */
 const ZONE_AT = {
-  spawn: 'op het uitzichtpunt',
-  lookout: 'bij de uitkijkpost',
-  ruins: 'bij de oude ruïnes',
-  signal: 'bij het signaal',
-  waterfall: 'bij de waterval',
-  base: 'bij je basis',
-  plaza: 'op het Nexus-plein',
-  spaceport: 'in de ruimtehaven',
-  city: 'in Aurora-stad',
+  spawn: { en: 'at the Overlook', nl: 'op het uitzichtpunt' },
+  lookout: { en: 'at the Lookout', nl: 'bij de uitkijkpost' },
+  ruins: { en: 'at the Ancient Ruins', nl: 'bij de oude ruïnes' },
+  signal: { en: 'at the Signal', nl: 'bij het signaal' },
+  waterfall: { en: 'at the Waterfall', nl: 'bij de waterval' },
+  base: { en: 'at your base', nl: 'bij je basis' },
+  plaza: { en: 'at Nexus Plaza', nl: 'op het Nexus-plein' },
+  spaceport: { en: 'at the Spaceport', nl: 'in de ruimtehaven' },
+  city: { en: 'in Aurora City', nl: 'in Aurora-stad' },
 };
 export function zoneAtText(id) {
-  return ZONE_AT[id] || (ZONES[id] ? `bij ${ZONES[id].label}` : '');
+  if (ZONE_AT[id]) return t(ZONE_AT[id]);
+  return ZONES[id] ? t({ en: 'at {zone}', nl: 'bij {zone}' }, { zone: ZONES[id].label }) : '';
 }
 
 /** Ground-level position of a zone centre (new Vector3 unless `out` given). */
@@ -140,18 +153,27 @@ export function fmtClock(seconds) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** Reward summary like "+500 XP · +300 Ø-credits · +20 metaal". */
+/** Resource names, capitalised (labels) and lower case (inside a sentence: "+20 metal"). */
+const RESOURCES = {
+  metal: { en: 'Metal', nl: 'Metaal' },
+  stone: { en: 'Stone', nl: 'Steen' },
+  wood: { en: 'Wood', nl: 'Hout' },
+  energy: { en: 'Energy', nl: 'Energie' },
+};
+/** "Metal" / "Metaal" in the active language. */
+export const resourceLabel = (k) => (RESOURCES[k] ? t(RESOURCES[k]) : k);
+/** "metal" / "metaal" (lower case, for running text). */
+export const resourceWord = (k) => resourceLabel(k).toLowerCase();
+
+/** Reward summary like "+500 XP · +300 Ø-credits · +20 metal". */
 export function rewardText(r = {}) {
   const parts = [];
   if (r.xp) parts.push(`+${fmt(r.xp)} XP`);
   if (r.credits) parts.push(`+${fmt(r.credits)} Ø-credits`);
-  const names = { metal: 'metaal', stone: 'steen', wood: 'hout', energy: 'energie' };
-  for (const [k, v] of Object.entries(r.resources || {})) if (v) parts.push(`+${fmt(v)} ${names[k] || k}`);
-  if (r.items?.length) parts.push(`${r.items.length === 1 ? '1 item' : `${r.items.length} items`}`);
+  for (const [k, v] of Object.entries(r.resources || {})) if (v) parts.push(`+${fmt(v)} ${resourceWord(k)}`);
+  if (r.items?.length) parts.push(r.items.length === 1 ? t({ en: '1 item', nl: '1 item' }) : t({ en: '{n} items', nl: '{n} items' }, { n: r.items.length }));
   return parts.join(' · ');
 }
-
-export const RESOURCE_LABELS = { metal: 'Metaal', stone: 'Steen', wood: 'Hout', energy: 'Energie' };
 
 /** Fires `fn` once after `ms`, unless cancelled; returns cancel(). */
 export function later(ms, fn) {

@@ -30,7 +30,7 @@ import { createNpcs } from './npcs.js';
 import { createDrones } from './drones.js';
 import { Labels } from './labels.js';
 import { createStudio } from './studio.js';
-import { createCreator } from './creator.js';
+import { createCreator, defaultName, isDefaultName } from './creator.js';
 import { NAMED } from './npc-roster.js';
 import { normalizeAppearance, appearanceKey, randomAppearance, OUTFITS, HAIR_STYLES, SKIN_TONES, OUTFIT_COLORS } from './appearance.js';
 
@@ -54,8 +54,10 @@ export async function install(ctx, { progress = () => {} } = {}) {
   const worldMat = createCharacterMaterial({ rim: 1, name: 'chr-world' });
 
   // ---------------------------------------------------------------- profile
-  const profile = state.ensure('profile', { name: 'Reiziger', created: false, appearance: normalizeAppearance({}) });
+  const profile = state.ensure('profile', { name: defaultName(), created: false, appearance: normalizeAppearance({}) });
   if (!profile.appearance) state.set('profile.appearance', normalizeAppearance({}));
+  // An untouched default name ('Traveler' / 'Reiziger') follows the active language.
+  if (!profile.created && isDefaultName(profile.name) && profile.name !== defaultName()) state.set('profile.name', defaultName());
   progress(0.05);
 
   // ------------------------------------------------------------ rig + player
@@ -144,7 +146,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
 
   // -------------------------------------------------------------- customize
   const studio = createStudio(ctx);
-  let returnTo = 'explore'; // after Bevestigen (params.returnTo, default explore)
+  let returnTo = 'explore'; // after Confirm (params.returnTo, default explore)
   let cancelTo = 'explore'; // after Esc (params.returnTo, else the previous mode)
   let returnParams = {};
   let popEsc = null;
@@ -172,7 +174,8 @@ export async function install(ctx, { progress = () => {} } = {}) {
       returnParams = params.returnParams || (returnTo === 'explore' && from !== 'explore' ? { resume: true } : {});
       if (!studio.captureVista()) studio.usePaintedVista();
       const prof = state.get('profile') || {};
-      creator.open(prof.appearance || player.appearance, prof.name || 'Reiziger', { tab: params.tab });
+      const shownName = !prof.created && isDefaultName(prof.name) ? defaultName() : prof.name;
+      creator.open(prof.appearance || player.appearance, shownName || defaultName(), { tab: params.tab });
       popEsc = ui.pushEscape(() => creator.cancel());
     },
     exit() {
@@ -190,7 +193,11 @@ export async function install(ctx, { progress = () => {} } = {}) {
     const a = state.get('profile.appearance');
     if (a && appearanceKey(a) !== appearanceKey(player.appearance)) player.setAppearance(a);
   });
-  events.on('state:reset', () => player.setAppearance(state.get('profile.appearance')));
+  events.on('state:reset', () => {
+    const p = state.get('profile') || {};
+    if (!p.created && isDefaultName(p.name) && p.name !== defaultName()) state.set('profile.name', defaultName());
+    player.setAppearance(state.get('profile.appearance'));
+  });
 
   player.teleport('spawn', 0);
   progress(1);

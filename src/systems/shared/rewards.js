@@ -2,6 +2,7 @@
  * Granting rewards (credits, resources, XP, items, lore) and the small
  * systems-owned save key `state.systems` {lore, party, favorites, echoes}.
  */
+import { t } from '../../core/i18n.js';
 import { LORE } from '../story/lore.js';
 
 export const SYSTEMS_DEFAULT = () => ({ lore: ['world'], party: [], favorites: [], echoes: 0, festivals: 0, consumed: {} });
@@ -55,7 +56,13 @@ export function createRewards(ctx, { progress, notify }) {
     if (!LORE[id] || hasLore(id)) return false;
     st.set('systems.lore', [...(st.get('systems.lore') || []), id]);
     if (!silent) {
-      notify?.show({ kind: 'lore', icon: 'book', title: `Nieuw verhaal: ${LORE[id].title}`, sub: 'Toegevoegd aan je journaal [J]', duration: 3200 });
+      notify?.show({
+        kind: 'lore',
+        icon: 'book',
+        title: t({ en: 'New story: {title}', nl: 'Nieuw verhaal: {title}' }, { title: LORE[id].title }),
+        sub: t({ en: 'Added to your journal [J]', nl: 'Toegevoegd aan je journaal [J]' }),
+        duration: 3200,
+      });
     }
     ctx.events.emit('lore:unlock', { id });
     return true;

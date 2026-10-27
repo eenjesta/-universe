@@ -1,5 +1,6 @@
 import { ZONES } from '../world/layout.js';
 import { icon } from '../ui/icons.js';
+import { t } from '../core/i18n.js';
 
 /** FALLBACK shell (do not edit): minimal title screen + Esc → title. */
 export function install(ctx) {
@@ -18,7 +19,7 @@ export function install(ctx) {
         { style: { position: 'absolute', left: '6vw', top: '12vh' } },
         ui.h('div', { class: 'row', style: { gap: '24px' } }, ui.h('div', { html: icon('emblem', 84) }), ui.h('div', { class: 'title-xl', text: 'UNIVERSE' })),
         ui.h('div', { class: 'caps muted', style: { margin: '18px 0 40px 110px', letterSpacing: '.5em' }, text: 'Explore · Create · Connect' }),
-        ui.h('button', { class: 'btn btn-primary', onclick: () => modes.go('explore', { zone: 'spawn' }) }, 'Speel'),
+        ui.h('button', { class: 'btn btn-primary', onclick: () => modes.go('explore', { zone: 'spawn' }) }, t({ en: 'Play', nl: 'Speel' })),
       );
       ui.showScreen('title', el);
       t0 = 0;

@@ -6,12 +6,13 @@
  * player is close to her (or after a few seconds).
  */
 import { ZONES } from '../../world/layout.js';
+import { t } from '../../core/i18n.js';
 import { playerPos } from '../shared/util.js';
 import { ShockPulse } from '../events/fx.js';
 
 export function createSignal(ctx, { sys, rewards, refs }) {
   let pending = 0; // > 0 while waiting to open Aria's dialogue
-  let startIn = -1; // ≥ 0: seconds until "Het signaal" starts (after Horizon's completion beat)
+  let startIn = -1; // ≥ 0: seconds until "The Signal" starts (after Horizon's completion beat)
   let pulse = null;
 
   const found = () => rewards.flag('signalFound');
@@ -53,7 +54,7 @@ export function createSignal(ctx, { sys, rewards, refs }) {
     startIn = !wasDone && q?.isDone?.('horizon') ? 2.8 : 0;
     if (startIn === 0) startSignalQuest();
     try {
-      ctx.npcs?.get?.('aria')?.say?.('Je hebt het ook gevoeld, hè?', 4);
+      ctx.npcs?.get?.('aria')?.say?.(t({ en: "You felt it too, didn't you?", nl: 'Je hebt het ook gevoeld, hè?' }), 4);
     } catch {
       /* optional NPC API */
     }

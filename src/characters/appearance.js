@@ -12,6 +12,7 @@
  */
 import { DEFAULT_APPEARANCE } from '../core/state.js';
 import { Rng } from '../core/math.js';
+import { t } from '../core/i18n.js';
 
 export const SKIN_TONES = ['#f2c9a8', '#d9a47c', '#c68e67', '#9c6b4b', '#6e4630', '#8d9098', '#9db59a'];
 export const OUTFIT_COLORS = ['#15171b', '#5d6066', '#d8cdb8', '#4f5634', '#7a5238', '#1f2a44', '#4a2f73', '#7a2a2a'];
@@ -19,63 +20,77 @@ export const HAIR_COLORS = ['#1a1412', '#2a1d15', '#4a3122', '#6b4a2f', '#a8743f
 export const ACCENT_COLORS = ['#d8d2c6', '#7fe0ff', '#f0b46a', '#ff8a3d', '#c64a3e', '#b48cff', '#8fe3a8', '#15171b'];
 export const EYE_COLORS = ['#4a3020', '#6b4a2a', '#3d5a3a', '#3c5f7d', '#5d6670', '#2a1c14'];
 
-/** Hair styles shown in the creator (id → Dutch label). */
-export const HAIR_STYLES = [
-  { id: 'swept', label: 'Geveegd' },
-  { id: 'short', label: 'Kort' },
-  { id: 'buzz', label: 'Gemillimeterd' },
-  { id: 'curly', label: 'Krullen' },
-  { id: 'long', label: 'Lang' },
-  { id: 'ponytail', label: 'Paardenstaart' },
-  { id: 'bun', label: 'Knot' },
-  { id: 'none', label: 'Kaal' },
-];
+/**
+ * Catalog texts are bilingual ({en, nl} in `text`); `label` / `desc` are getters
+ * that return the active language (core/i18n.js), so `item.label` stays a string
+ * for every consumer (creator, ctx.characters.catalog).
+ */
+function localise(list) {
+  for (const item of list) {
+    for (const key of Object.keys(item.text || {})) {
+      Object.defineProperty(item, key, { get: () => t(item.text[key]), enumerable: true });
+    }
+  }
+  return list;
+}
 
-export const FACES = [
-  { id: 0, label: 'Klassiek' },
-  { id: 1, label: 'Hoekig' },
-  { id: 2, label: 'Zacht' },
-  { id: 3, label: 'Krachtig' },
-  { id: 4, label: 'Smal' },
-  { id: 5, label: 'Fijn' },
-];
+/** Hair styles shown in the creator. */
+export const HAIR_STYLES = localise([
+  { id: 'swept', text: { label: { en: 'Swept', nl: 'Geveegd' } } },
+  { id: 'short', text: { label: { en: 'Short', nl: 'Kort' } } },
+  { id: 'buzz', text: { label: { en: 'Buzz Cut', nl: 'Gemillimeterd' } } },
+  { id: 'curly', text: { label: { en: 'Curly', nl: 'Krullen' } } },
+  { id: 'long', text: { label: { en: 'Long', nl: 'Lang' } } },
+  { id: 'ponytail', text: { label: { en: 'Ponytail', nl: 'Paardenstaart' } } },
+  { id: 'bun', text: { label: { en: 'Bun', nl: 'Knot' } } },
+  { id: 'none', text: { label: { en: 'Bald', nl: 'Kaal' } } },
+]);
 
-export const BEARDS = [
-  { id: 'none', label: 'Geen' },
-  { id: 'stubble', label: 'Stoppels' },
-  { id: 'full', label: 'Baard' },
-];
+export const FACES = localise([
+  { id: 0, text: { label: { en: 'Classic', nl: 'Klassiek' } } },
+  { id: 1, text: { label: { en: 'Angular', nl: 'Hoekig' } } },
+  { id: 2, text: { label: { en: 'Soft', nl: 'Zacht' } } },
+  { id: 3, text: { label: { en: 'Strong', nl: 'Krachtig' } } },
+  { id: 4, text: { label: { en: 'Narrow', nl: 'Smal' } } },
+  { id: 5, text: { label: { en: 'Delicate', nl: 'Fijn' } } },
+]);
+
+export const BEARDS = localise([
+  { id: 'none', text: { label: { en: 'None', nl: 'Geen' } } },
+  { id: 'stubble', text: { label: { en: 'Stubble', nl: 'Stoppels' } } },
+  { id: 'full', text: { label: { en: 'Full Beard', nl: 'Baard' } } },
+]);
 
 /**
  * Outfits. `player: true` ones appear in the creator; `unlock` is the market
  * item id that must be in state.owned.items; `price` is only a hint (the
  * economy module owns real prices).
  */
-export const OUTFITS = [
-  { id: 'pathfinder', label: 'Pathfinder', desc: 'Techwear jas met capuchon en Ø-rugzak', color: '#1c1f25', accent: '#d8d2c6', player: true },
-  { id: 'scout', label: 'Scout', desc: 'Licht utility-pak met harnas', color: '#d8cdb8', accent: '#15171b', player: true },
-  { id: 'ranger', label: 'Ranger', desc: 'Bruine veldjas vol zakken', color: '#7a5238', accent: '#d8d2c6', player: true },
-  { id: 'nomad', label: 'Nomade', desc: 'Olijfbruine poncho met kap', color: '#4f5634', accent: '#d8d2c6', player: true, unlock: 'outfit-nomad', price: 450 },
-  { id: 'vanguard', label: 'Vanguard', desc: 'Gepantserd pak met cyaan naden', color: '#1f2a44', accent: '#7fe0ff', player: true, unlock: 'outfit-vanguard', price: 900 },
-  { id: 'drifter', label: 'Drifter', desc: 'Lange donkere jas', color: '#15171b', accent: '#d8d2c6', player: true, unlock: 'outfit-drifter', price: 650 },
+export const OUTFITS = localise([
+  { id: 'pathfinder', text: { label: 'Pathfinder', desc: { en: 'Hooded techwear jacket with Ø backpack', nl: 'Techwear jas met capuchon en Ø-rugzak' } }, color: '#1c1f25', accent: '#d8d2c6', player: true },
+  { id: 'scout', text: { label: 'Scout', desc: { en: 'Light utility suit with harness', nl: 'Licht utility-pak met harnas' } }, color: '#d8cdb8', accent: '#15171b', player: true },
+  { id: 'ranger', text: { label: 'Ranger', desc: { en: 'Brown field jacket full of pockets', nl: 'Bruine veldjas vol zakken' } }, color: '#7a5238', accent: '#d8d2c6', player: true },
+  { id: 'nomad', text: { label: { en: 'Nomad', nl: 'Nomade' }, desc: { en: 'Olive-brown hooded poncho', nl: 'Olijfbruine poncho met kap' } }, color: '#4f5634', accent: '#d8d2c6', player: true, unlock: 'outfit-nomad', price: 450 },
+  { id: 'vanguard', text: { label: 'Vanguard', desc: { en: 'Armored suit with cyan seams', nl: 'Gepantserd pak met cyaan naden' } }, color: '#1f2a44', accent: '#7fe0ff', player: true, unlock: 'outfit-vanguard', price: 900 },
+  { id: 'drifter', text: { label: 'Drifter', desc: { en: 'Long dark coat', nl: 'Lange donkere jas' } }, color: '#15171b', accent: '#d8d2c6', player: true, unlock: 'outfit-drifter', price: 650 },
   // NPC-only outfits
-  { id: 'robe', label: 'Gewaad', color: '#5a3424', accent: '#c9a25a' },
-  { id: 'tech', label: 'Technicus', color: '#3a3f47', accent: '#ff9a4a' },
-];
+  { id: 'robe', text: { label: { en: 'Robe', nl: 'Gewaad' } }, color: '#5a3424', accent: '#c9a25a' },
+  { id: 'tech', text: { label: { en: 'Technician', nl: 'Technicus' } }, color: '#3a3f47', accent: '#ff9a4a' },
+]);
 export const OUTFIT_MAP = Object.fromEntries(OUTFITS.map((o) => [o.id, o]));
 export const PLAYER_OUTFITS = OUTFITS.filter((o) => o.player);
 
-export const BACKPACKS = [
-  { id: 'tech', label: 'Ø-rugzak' },
-  { id: 'pack', label: 'Compact' },
-  { id: 'none', label: 'Geen' },
-];
-export const EYEWEAR = [
-  { id: 'none', label: 'Geen' },
-  { id: 'glasses', label: 'Bril' },
-  { id: 'shades', label: 'Zonnebril' },
-  { id: 'visor', label: 'Vizier' },
-];
+export const BACKPACKS = localise([
+  { id: 'tech', text: { label: { en: 'Ø Backpack', nl: 'Ø-rugzak' } } },
+  { id: 'pack', text: { label: { en: 'Compact', nl: 'Compact' } } },
+  { id: 'none', text: { label: { en: 'None', nl: 'Geen' } } },
+]);
+export const EYEWEAR = localise([
+  { id: 'none', text: { label: { en: 'None', nl: 'Geen' } } },
+  { id: 'glasses', text: { label: { en: 'Glasses', nl: 'Bril' } } },
+  { id: 'shades', text: { label: { en: 'Shades', nl: 'Zonnebril' } } },
+  { id: 'visor', text: { label: { en: 'Visor', nl: 'Vizier' } } },
+]);
 
 const HAIR_IDS = new Set(HAIR_STYLES.map((h) => h.id));
 const pickIn = (v, list, def) => (list.includes(v) ? v : def);

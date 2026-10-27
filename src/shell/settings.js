@@ -3,6 +3,8 @@
  * application to engine / audio / input and a tiny change API for the
  * settings panel. Applied once at install and again whenever the state
  * changes (another module toggling creative mode, a state reset…).
+ * The language (`settings.language`) is not handled here: it is read by the
+ * game at boot and switched with ctx.i18n.setLanguage() (saves + reloads).
  */
 export const SETTINGS_DEFAULTS = {
   quality: 'high',
@@ -16,10 +18,11 @@ export const SETTINGS_DEFAULTS = {
   creative: false,
 };
 
+/** Graphics quality presets; `label` is { en, nl } — resolve with t() where shown. */
 export const QUALITY_OPTIONS = [
-  { id: 'low', label: 'Laag' },
-  { id: 'medium', label: 'Middel' },
-  { id: 'high', label: 'Hoog' },
+  { id: 'low', label: { en: 'Low', nl: 'Laag' } },
+  { id: 'medium', label: { en: 'Medium', nl: 'Middel' } },
+  { id: 'high', label: { en: 'High', nl: 'Hoog' } },
 ];
 
 export function createSettings(ctx) {

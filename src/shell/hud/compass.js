@@ -1,18 +1,21 @@
 /**
  * Compass strip (top-center, explore/drive): cardinal + intercardinal letters
- * (N, NO, O, ZO, Z, ZW, W, NW), tick marks every 15°, a centre caret, marker
- * ticks at their bearing and the distance of the tracked quest marker
- * (clamped to the strip ends with an arrow when it is behind you).
+ * (N, NE, E, SE, S, SW, W, NW; Dutch N, NO, O, ZO, Z, ZW, W, NW), tick marks
+ * every 15°, a centre caret, marker ticks at their bearing and the distance
+ * of the tracked quest marker (clamped to the strip ends with an arrow when
+ * it is behind you).
  */
+import { t } from '../../core/i18n.js';
 import { degDiff, formatDistance } from '../util.js';
 
+/** Compass points; `t` = letter(s) per language, resolved when the strip is built. */
 const DIRS = [
   { b: 0, t: 'N', major: true },
-  { b: 45, t: 'NO' },
-  { b: 90, t: 'O', major: true },
-  { b: 135, t: 'ZO' },
-  { b: 180, t: 'Z', major: true },
-  { b: 225, t: 'ZW' },
+  { b: 45, t: { en: 'NE', nl: 'NO' } },
+  { b: 90, t: { en: 'E', nl: 'O' }, major: true },
+  { b: 135, t: { en: 'SE', nl: 'ZO' } },
+  { b: 180, t: { en: 'S', nl: 'Z' }, major: true },
+  { b: 225, t: { en: 'SW', nl: 'ZW' } },
   { b: 270, t: 'W', major: true },
   { b: 315, t: 'NW' },
 ];
@@ -24,7 +27,8 @@ export class Compass {
     this.frame = frame;
     const h = ctx.ui.h;
     this.canvas = h('canvas', { class: 'shell-compass-canvas', 'aria-hidden': 'true' });
-    this.el = h('div', { class: 'shell-compass', role: 'img', 'aria-label': 'Kompas' }, this.canvas);
+    this.el = h('div', { class: 'shell-compass', role: 'img', 'aria-label': t({ en: 'Compass', nl: 'Kompas' }) }, this.canvas);
+    this.dirs = DIRS.map((d) => ({ b: d.b, major: !!d.major, north: d.b === 0, text: t(d.t) }));
     ctx.ui.addWidget('top-center', this.el, { modes: ['explore', 'drive'], order: 10 });
     this.g = this.canvas.getContext('2d');
     this.w = 0;
@@ -97,15 +101,15 @@ export class Compass {
     g.textBaseline = 'alphabetic';
     g.shadowColor = 'rgba(0, 0, 0, 0.75)';
     g.shadowBlur = 4;
-    for (const d of DIRS) {
+    for (const d of this.dirs) {
       const diff = degDiff(f.bearing, d.b);
       if (Math.abs(diff) > SPAN) continue;
       const x = cx + diff * ppd;
       const fade = 1 - Math.max(0, (Math.abs(diff) - SPAN * 0.7) / (SPAN * 0.3));
       g.globalAlpha = fade;
       g.font = d.major ? '500 14px Jost, system-ui, sans-serif' : '400 11px Jost, system-ui, sans-serif';
-      g.fillStyle = d.t === 'N' ? '#ffffff' : d.major ? 'rgba(236, 230, 220, 0.92)' : 'rgba(236, 230, 220, 0.6)';
-      g.fillText(d.t, x, lineY - 10);
+      g.fillStyle = d.north ? '#ffffff' : d.major ? 'rgba(236, 230, 220, 0.92)' : 'rgba(236, 230, 220, 0.6)';
+      g.fillText(d.text, x, lineY - 10);
     }
     g.globalAlpha = 1;
 

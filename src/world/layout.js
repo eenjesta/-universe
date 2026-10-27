@@ -11,6 +11,20 @@
  * content at zone x/z and query the ground height with world.getHeightAt().
  */
 
+import { t } from '../core/i18n.js';
+
+/**
+ * Zone/region texts are bilingual ({en, nl} in `text`); `label` and `desc` are
+ * getters that return the active language, so `zone.label` keeps working.
+ */
+function localise(list) {
+  for (const z of Object.values(list)) {
+    Object.defineProperty(z, 'label', { get: () => t(z.text.label), enumerable: true });
+    Object.defineProperty(z, 'desc', { get: () => t(z.text.desc), enumerable: true });
+  }
+  return list;
+}
+
 export const WORLD = {
   seed: 'o-universe',
   size: 2400, // terrain square side, centred on the origin
@@ -23,39 +37,32 @@ export const WORLD = {
  * Zones. `elevation` is the intended ground height of the flat pad (terrain
  * target), `radius` the flattened radius, `heading` the nice default facing.
  */
-export const ZONES = {
+export const ZONES = localise({
   spawn: {
-    id: 'spawn', label: 'Uitzichtpunt', x: 0, z: 150, elevation: 46, radius: 18, heading: 0,
-    desc: 'Een rotsachtige richel met uitzicht over het meer en de stad.',
+    id: 'spawn', text: { label: { en: 'Overlook', nl: 'Uitzichtpunt' }, desc: { en: 'A rocky ledge overlooking the lake and the city.', nl: 'Een rotsachtige richel met uitzicht over het meer en de stad.' } }, x: 0, z: 150, elevation: 46, radius: 18, heading: 0,
   },
   lookout: {
-    id: 'lookout', label: 'Uitkijkpost', x: -280, z: 30, elevation: 92, radius: 14, heading: 0.6,
-    desc: 'Een oude uitkijktoren op de hoogste top van de westelijke heuvels.',
+    id: 'lookout', text: { label: { en: 'Lookout', nl: 'Uitkijkpost' }, desc: { en: 'An old watchtower on the highest peak of the western hills.', nl: 'Een oude uitkijktoren op de hoogste top van de westelijke heuvels.' } }, x: -280, z: 30, elevation: 92, radius: 14, heading: 0.6,
   },
   ruins: {
-    id: 'ruins', label: 'Oude ruïnes', x: 250, z: 95, elevation: 28, radius: 32, heading: -0.4,
-    desc: 'Overblijfselen van een beschaving die het Ø-symbool al kende.',
+    id: 'ruins', text: { label: { en: 'Ancient Ruins', nl: 'Oude ruïnes' }, desc: { en: 'Remains of a civilisation that already knew the Ø symbol.', nl: 'Overblijfselen van een beschaving die het Ø-symbool al kende.' } }, x: 250, z: 95, elevation: 28, radius: 32, heading: -0.4,
   },
   signal: {
-    id: 'signal', label: 'Het signaal', x: -120, z: -140, elevation: 4, radius: 18, heading: 0.3,
-    desc: 'Een pulserend baken aan de oever van het meer. Aria wacht hier.',
+    id: 'signal', text: { label: { en: 'The Signal', nl: 'Het signaal' }, desc: { en: 'A pulsing beacon on the lakeshore. Aria is waiting here.', nl: 'Een pulserend baken aan de oever van het meer. Aria wacht hier.' } }, x: -120, z: -140, elevation: 4, radius: 18, heading: 0.3,
   },
   waterfall: {
-    id: 'waterfall', label: 'Waterval', x: -330, z: -205, elevation: 40, radius: 20, heading: 0.9,
-    desc: 'Een rivier stort zich hier in het meer.',
+    id: 'waterfall', text: { label: { en: 'Waterfall', nl: 'Waterval' }, desc: { en: 'A river plunges into the lake here.', nl: 'Een rivier stort zich hier in het meer.' } }, x: -330, z: -205, elevation: 40, radius: 20, heading: 0.9,
     // the lip of the fall; water drops to the lake at `bottom`
     lip: { x: -322, z: -228 }, bottom: { x: -300, z: -262 },
   },
   base: {
-    id: 'base', label: 'Jouw basis', x: -230, z: 330, elevation: 22, radius: 62, heading: -1.2,
-    desc: 'Een open plek in het bos. Bouw hier je eigen basis.',
+    id: 'base', text: { label: { en: 'Your Base', nl: 'Jouw basis' }, desc: { en: 'A clearing in the forest. Build your own base here.', nl: 'Een open plek in het bos. Bouw hier je eigen basis.' } }, x: -230, z: 330, elevation: 22, radius: 62, heading: -1.2,
     house: { x: -262, z: 342, rotY: -Math.PI / 2 }, // pre-built modern glass house (front faces +X)
     buildArea: { x: -205, z: 318, size: 48 }, // square build plot, grid = 4 m
     landingPad: { x: -186, z: 368 }, // starter landing pad for the VTOL
   },
   plaza: {
-    id: 'plaza', label: 'Nexus-plein', x: 360, z: -150, elevation: 5, radius: 78, heading: 0.4,
-    desc: 'Het sociale hart van Ø Universe, rond de paarse Levensboom.',
+    id: 'plaza', text: { label: { en: 'Nexus Plaza', nl: 'Nexus-plein' }, desc: { en: 'The social heart of Ø Universe, around the purple Tree of Life.', nl: 'Het sociale hart van Ø Universe, rond de paarse Levensboom.' } }, x: 360, z: -150, elevation: 5, radius: 78, heading: 0.4,
     tree: { x: 360, z: -150, trunkRadius: 4.5, canopyRadius: 22, height: 34 },
     market: { x: 392, z: -118 }, // marketplace terminal (holographic)
     stage: { x: 360, z: -196, rotY: 0 }, // Starfall Festival holo stage, front faces south (+Z) toward the crowd
@@ -63,8 +70,7 @@ export const ZONES = {
     oran: { x: 428, z: -132 }, // Oran's stall (old merchant NPC)
   },
   spaceport: {
-    id: 'spaceport', label: 'Ruimtehaven', x: 470, z: 250, elevation: 14, radius: 0, heading: -0.9,
-    desc: 'Lanceerplatforms, hangars en het kolonieschip.',
+    id: 'spaceport', text: { label: { en: 'Spaceport', nl: 'Ruimtehaven' }, desc: { en: 'Launch pads, hangars and the colony ship.', nl: 'Lanceerplatforms, hangars en het kolonieschip.' } }, x: 470, z: 250, elevation: 14, radius: 0, heading: -0.9,
     rect: { minX: 380, maxX: 565, minZ: 175, maxZ: 330 },
     hangar: { x: 528, z: 296, w: 150, d: 96, h: 72, rotY: -0.6 }, // giant hangar that houses the colony ship
     pads: {
@@ -75,26 +81,23 @@ export const ZONES = {
     },
   },
   city: {
-    id: 'city', label: 'Aurora-stad', x: 60, z: -820, elevation: 3, radius: 430, heading: 0,
-    desc: 'De glinsterende torenstad aan de overkant van het meer.',
+    id: 'city', text: { label: { en: 'Aurora City', nl: 'Aurora-stad' }, desc: { en: 'The glittering city of spires across the lake.', nl: 'De glinsterende torenstad aan de overkant van het meer.' } }, x: 60, z: -820, elevation: 3, radius: 430, heading: 0,
   },
-};
+});
 
 /**
  * Wider regions (biomes) shaped by the terrain. The jungle and canyon are
  * shaped + planted now; their special content (bioluminescent flora, species
  * scanning, hoverbike race) arrives in a later wave.
  */
-export const REGIONS = {
+export const REGIONS = localise({
   jungle: {
-    id: 'jungle', label: 'Lumen-jungle', x: -640, z: -40, radius: 260, elevation: 62,
-    desc: 'Een weelderige, oplichtende jungle op het westelijke plateau, doorsneden door de rivier.',
+    id: 'jungle', text: { label: { en: 'Lumen Jungle', nl: 'Lumen-jungle' }, desc: { en: 'A lush, glowing jungle on the western plateau, cut by the river.', nl: 'Een weelderige, oplichtende jungle op het westelijke plateau, doorsneden door de rivier.' } }, x: -640, z: -40, radius: 260, elevation: 62,
   },
   canyon: {
-    id: 'canyon', label: 'Zonnekloof', x: 780, z: 60, radius: 300, elevation: 60,
-    desc: 'Rode zandsteenkloven met bogen en mesa’s — het hoverbike-circuit.',
+    id: 'canyon', text: { label: { en: 'Sunfall Canyon', nl: 'Zonnekloof' }, desc: { en: 'Red sandstone gorges with arches and mesas — the hoverbike circuit.', nl: 'Rode zandsteenkloven met bogen en mesa’s — het hoverbike-circuit.' } }, x: 780, z: 60, radius: 300, elevation: 60,
   },
-};
+});
 
 /** Closed race loop through the canyon (x, z); the terrain carves a 24 m wide canyon floor along it. */
 export const RACE_TRACK = {

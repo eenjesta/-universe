@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import { icon } from '../ui/icons.js';
+import { t } from './i18n.js';
 
 /**
  * DOM UI facade shared by every module. Layers (index.html):
@@ -114,6 +115,9 @@ export class UI {
    * toast({ title, text, icon: 'check', kind: 'info'|'success'|'quest'|'warn'|'error'|'reward', duration })
    */
   toast({ title = '', text = '', icon: iconName = null, kind = 'info', duration = 3600 } = {}) {
+    // text is normally a string; a bilingual { en, nl } is resolved too
+    title = t(title);
+    text = t(text);
     const el = this.h(
       'div',
       { class: `toast toast-${kind}` },
@@ -243,7 +247,7 @@ export class UI {
 }
 
 /**
- * Keyed prompts ("[E] Praten"). By default they stack above the bottom-centre
+ * Keyed prompts ("[E] Talk"). By default they stack above the bottom-centre
  * slot; with `anchor` (a world position) the prompt floats next to that point
  * on screen (falls back to the stack when the point is off-screen).
  */
@@ -274,6 +278,7 @@ class Prompts {
 
   /** show(channel, { key: 'E', text, hold: false, progress: 0..1 | null, anchor: Vector3 | null }) */
   show(channel, { key = 'E', text = '', hold = false, progress = null, anchor = null } = {}) {
+    text = t(text); // strings pass through; a bilingual { en, nl } is resolved
     let it = this.items.get(channel);
     if (!it) {
       const el = this.ui.h(

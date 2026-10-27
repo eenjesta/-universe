@@ -12,6 +12,7 @@ import { UI } from './core/ui.js';
 import { AudioEngine } from './core/audio.js';
 import { ZONES, WORLD } from './world/layout.js';
 import { installGfx } from './core/gfxpanel.js';
+import { i18n, initLanguage, t } from './core/i18n.js';
 
 /**
  * Module manifest. Each module's index.js exports `install(ctx, helpers)`
@@ -21,15 +22,15 @@ import { installGfx } from './core/gfxpanel.js';
  * so the rest of the game keeps working.
  */
 const MODULES = [
-  { name: 'world', label: 'Terrein, water en lucht', load: () => import('./world/index.js'), fallback: () => import('./fallback/world.js') },
-  { name: 'landmarks', label: 'Stad en bezienswaardigheden', load: () => import('./landmarks/index.js'), fallback: () => import('./fallback/landmarks.js') },
-  { name: 'characters', label: 'Personages', load: () => import('./characters/index.js'), fallback: () => import('./fallback/characters.js') },
-  { name: 'vehicles', label: 'Voertuigen', load: () => import('./vehicles/index.js'), fallback: () => import('./fallback/vehicles.js') },
-  { name: 'build', label: 'Bouwsysteem', load: () => import('./build/index.js'), fallback: () => import('./fallback/build.js') },
-  { name: 'space', label: 'Ruimte', load: () => import('./space/index.js'), fallback: () => import('./fallback/space.js') },
-  { name: 'systems', label: 'Missies, verhalen en chat', load: () => import('./systems/index.js'), fallback: () => import('./fallback/systems.js') },
-  { name: 'sound', label: 'Geluid', load: () => import('./audio/index.js'), fallback: () => import('./fallback/audio.js') },
-  { name: 'shell', label: 'Interface', load: () => import('./shell/index.js'), fallback: () => import('./fallback/shell.js') },
+  { name: 'world', label: { en: 'Terrain, water and sky', nl: 'Terrein, water en lucht' }, load: () => import('./world/index.js'), fallback: () => import('./fallback/world.js') },
+  { name: 'landmarks', label: { en: 'City and landmarks', nl: 'Stad en bezienswaardigheden' }, load: () => import('./landmarks/index.js'), fallback: () => import('./fallback/landmarks.js') },
+  { name: 'characters', label: { en: 'Characters', nl: 'Personages' }, load: () => import('./characters/index.js'), fallback: () => import('./fallback/characters.js') },
+  { name: 'vehicles', label: { en: 'Vehicles', nl: 'Voertuigen' }, load: () => import('./vehicles/index.js'), fallback: () => import('./fallback/vehicles.js') },
+  { name: 'build', label: { en: 'Building', nl: 'Bouwsysteem' }, load: () => import('./build/index.js'), fallback: () => import('./fallback/build.js') },
+  { name: 'space', label: { en: 'Space', nl: 'Ruimte' }, load: () => import('./space/index.js'), fallback: () => import('./fallback/space.js') },
+  { name: 'systems', label: { en: 'Missions, stories and chat', nl: 'Missies, verhalen en chat' }, load: () => import('./systems/index.js'), fallback: () => import('./fallback/systems.js') },
+  { name: 'sound', label: { en: 'Sound', nl: 'Geluid' }, load: () => import('./audio/index.js'), fallback: () => import('./fallback/audio.js') },
+  { name: 'shell', label: { en: 'Interface', nl: 'Interface' }, load: () => import('./shell/index.js'), fallback: () => import('./fallback/shell.js') },
 ];
 
 function parseParams() {
@@ -46,6 +47,7 @@ export async function createGame() {
   const state = new State(events, { persist: !params.nosave });
   if (!params.fresh) state.load();
   else state.reset();
+  initLanguage(params.lang || state.get('settings.language') || 'en');
 
   const qualityId = params.quality || state.get('settings.quality') || 'high';
   const engine = new Engine(canvas, qualityId, params);
@@ -75,6 +77,7 @@ export async function createGame() {
     music: state.get('settings.music'),
     sfx: state.get('settings.sfx'),
   });
+  ctx.i18n = i18n;
   ctx.ui = new UI(ctx);
   ctx.gfx = installGfx(ctx); // graphics diagnostics switches + panel (` key / ?gfx)
   ctx.modes = new Modes(ctx);
@@ -109,7 +112,7 @@ export async function createGame() {
   // Install modules sequentially (later modules may use earlier APIs).
   for (let i = 0; i < MODULES.length; i++) {
     const m = MODULES[i];
-    setProgress(i / MODULES.length, `${m.label}…`);
+    setProgress(i / MODULES.length, `${t(m.label)}…`);
     await new Promise((r) => setTimeout(r, 0)); // let the progress bar paint
     const helpers = {
       progress: (p) => setProgress((i + Math.max(0, Math.min(1, p))) / MODULES.length),
@@ -130,7 +133,7 @@ export async function createGame() {
     }
     ctx[m.name] = api ?? ctx[m.name] ?? {};
   }
-  setProgress(1, 'Klaar');
+  setProgress(1, t({ en: 'Ready', nl: 'Klaar' }));
 
   events.emit('game:installed', ctx);
   await startInitialMode(ctx);

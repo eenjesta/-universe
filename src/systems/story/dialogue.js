@@ -1,5 +1,5 @@
 /**
- * Dialogue system ("Maak je eigen verhaal"): bottom-centre panel with the NPC
+ * Dialogue system ("Create your own story" / "Maak je eigen verhaal"): bottom-centre panel with the NPC
  * portrait, speaker name + role, typewriter text and numbered choices
  * (keys 1–9 or click; Space/Enter skips the typewriter). Shown as a modal
  * (ctx.ui.openModal) so gameplay input pauses; the camera frames the NPC over
@@ -10,20 +10,47 @@ import * as THREE from 'three';
 import '../css/dialogue.css';
 import { ZONES, TRAVEL } from '../../world/layout.js';
 import { damp, dampAngle } from '../../core/math.js';
-import { fill, headingTo, isNight, groundY, rewardText, partOfDay } from '../shared/util.js';
+import { t } from '../../core/i18n.js';
+import { fill, headingTo, isNight, groundY, rewardText, partOfDayText } from '../shared/util.js';
 import { buildTrees, genericTree } from './trees.js';
 
 const CPS = 54; // typewriter characters per second
 
 const PLACE_TIPS = {
-  lookout: 'De uitkijkpost op de westelijke heuvels. Vanaf de top zie je het hele meer, de watervallen en Aurora-stad.',
-  ruins: 'De oude ruïnes ten oosten van het uitzichtpunt. Gebroken pilaren, klimop en een inscriptie die oplicht als je hem scant.',
-  signal: 'Het signaal aan de noordoever van het meer. Een obelisk van zwart kristal — en Aria die er altijd lijkt te wachten.',
-  waterfall: 'De grote waterval in het noordwesten. Ga bij zonsondergang: dan hangt er goud in de nevel.',
-  base: 'De open plek in het bos, ten zuidwesten van het uitzichtpunt. Daar staat jouw glazen huis — en ruimte om te bouwen.',
-  plaza: 'Het Nexus-plein rond de paarse Levensboom. Iedereen komt daar samen, zeker ’s nachts.',
-  spaceport: 'De ruimtehaven ten zuiden van het plein. Schepen, een VTOL en het enorme kolonieschip in de hangar.',
+  lookout: {
+    en: 'The Lookout in the western hills. From the top you can see the whole lake, the waterfalls and Aurora City.',
+    nl: 'De uitkijkpost op de westelijke heuvels. Vanaf de top zie je het hele meer, de watervallen en Aurora-stad.',
+  },
+  ruins: {
+    en: 'The Ancient Ruins east of the Overlook. Broken pillars, ivy and an inscription that lights up when you scan it.',
+    nl: 'De oude ruïnes ten oosten van het uitzichtpunt. Gebroken pilaren, klimop en een inscriptie die oplicht als je hem scant.',
+  },
+  signal: {
+    en: 'The Signal on the north shore of the lake. An obelisk of black crystal — and Aria, who always seems to be waiting there.',
+    nl: 'Het signaal aan de noordoever van het meer. Een obelisk van zwart kristal — en Aria die er altijd lijkt te wachten.',
+  },
+  waterfall: {
+    en: 'The great waterfall in the northwest. Go at sunset: that is when there is gold in the mist.',
+    nl: 'De grote waterval in het noordwesten. Ga bij zonsondergang: dan hangt er goud in de nevel.',
+  },
+  base: {
+    en: 'The clearing in the forest, southwest of the Overlook. Your glass house stands there — with room to build.',
+    nl: 'De open plek in het bos, ten zuidwesten van het uitzichtpunt. Daar staat jouw glazen huis — en ruimte om te bouwen.',
+  },
+  plaza: {
+    en: 'Nexus Plaza, around the purple Tree of Life. Everyone gathers there, especially at night.',
+    nl: 'Het Nexus-plein rond de paarse Levensboom. Iedereen komt daar samen, zeker ’s nachts.',
+  },
+  spaceport: {
+    en: 'The Spaceport south of the plaza. Ships, a VTOL and the enormous colony ship in the hangar.',
+    nl: 'De ruimtehaven ten zuiden van het plein. Schepen, een VTOL en het enorme kolonieschip in de hangar.',
+  },
 };
+
+/** Default player name when the profile has none. */
+const TRAVELER = { en: 'Traveler', nl: 'Reiziger' };
+const CHOOSE = { en: 'choose', nl: 'kiezen' };
+const CLOSE = { en: 'close', nl: 'sluiten' };
 
 export function createDialogue(ctx, { refs, rewards, portraits }) {
   const { ui } = ctx;
@@ -46,8 +73,8 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
     if (p?.isVector3) return _npcPos.copy(p);
     const lm = id === 'oran' ? ctx.landmarks?.plaza?.bazaar?.oran : null;
     if (lm?.isVector3) return _npcPos.copy(lm);
-    const t = trees[id];
-    const pt = t?.position || fallbackSpot(id);
+    const tr = trees[id];
+    const pt = tr?.position || fallbackSpot(id);
     return pt ? _npcPos.set(pt.x, groundY(ctx, pt.x, pt.z), pt.z) : null;
   }
   /** Where the player can talk to an NPC that has no character model (Oran: in front of his counter). */
@@ -73,14 +100,14 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
       }, 900);
     });
     refsUI.portrait.appendChild(pic.canvas);
-    refsUI.name = ui.h('span', { class: 'sys-dlg-name', text: tree.name });
-    refsUI.role = ui.h('span', { class: 'sys-dlg-role', text: tree.role || '' });
+    refsUI.name = ui.h('span', { class: 'sys-dlg-name', text: t(tree.name) });
+    refsUI.role = ui.h('span', { class: 'sys-dlg-role', text: t(tree.role) });
     refsUI.shown = ui.h('span', { class: 'sys-dlg-shown' });
     refsUI.rest = ui.h('span', { class: 'sys-dlg-rest' });
     refsUI.text = ui.h('div', { class: 'sys-dlg-text' }, refsUI.shown, refsUI.rest);
     refsUI.hint = ui.h('div', {
       class: 'sys-dlg-hint',
-      html: '<span class="kbd">1</span>–<span class="kbd">3</span> kiezen &nbsp;·&nbsp; <span class="kbd">Esc</span> sluiten',
+      html: `<span class="kbd">1</span>–<span class="kbd">3</span> ${t(CHOOSE)} &nbsp;·&nbsp; <span class="kbd">Esc</span> ${t(CLOSE)}`,
     });
     // little voice meter beside the name while the line types out
     refsUI.voice = ui.h('span', { class: 'sys-dlg-voice', 'aria-hidden': 'true' }, ui.h('i'), ui.h('i'), ui.h('i'), ui.h('i'));
@@ -92,8 +119,8 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
     );
     refsUI.list = ui.h('ol', { class: 'sys-dlg-choices' });
     // the poster's caption for this feature, small above the panel
-    const kicker = ui.h('div', { class: 'sys-dlg-kicker' }, ui.h('span', { class: 'sys-dlg-kicker-ic', html: ui.icon('emblem', 13) }), ui.h('span', { text: 'Maak je eigen verhaal' }));
-    const el = ui.h('div', { class: 'sys-dlg', role: 'dialog', 'aria-label': `Gesprek met ${tree.name}` }, kicker, refsUI.portrait, ui.h('div', { class: 'sys-dlg-main' }, refsUI.box, refsUI.list));
+    const kicker = ui.h('div', { class: 'sys-dlg-kicker' }, ui.h('span', { class: 'sys-dlg-kicker-ic', html: ui.icon('emblem', 13) }), ui.h('span', { text: t({ en: 'Create your own story', nl: 'Maak je eigen verhaal' }) }));
+    const el = ui.h('div', { class: 'sys-dlg', role: 'dialog', 'aria-label': t({ en: 'Conversation with {name}', nl: 'Gesprek met {name}' }, { name: t(tree.name) }) }, kicker, refsUI.portrait, ui.h('div', { class: 'sys-dlg-main' }, refsUI.box, refsUI.list));
     el.style.setProperty('--accent', tree.accent || '#7fe0ff');
     return { el, ...refsUI };
   }
@@ -109,12 +136,12 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
     u.rest.textContent = text;
     u.list.classList.remove('ready');
     u.list.textContent = '';
-    // key hint matches the number of choices ("1–4 kiezen", or Spatie for a single answer)
+    // key hint matches the number of choices ("1–4 choose", or Space for a single answer)
     const n = choices.length;
-    const hint = n > 1 ? `<span class="kbd">1</span>–<span class="kbd">${n}</span> kiezen` : '<span class="kbd">Spatie</span> verder';
+    const hint = n > 1 ? `<span class="kbd">1</span>–<span class="kbd">${n}</span> ${t(CHOOSE)}` : t({ en: '<span class="kbd">Space</span> continue', nl: '<span class="kbd">Spatie</span> verder' });
     if (u.hint.dataset.n !== String(n)) {
       u.hint.dataset.n = String(n);
-      u.hint.innerHTML = `${hint} &nbsp;·&nbsp; <span class="kbd">Esc</span> sluiten`;
+      u.hint.innerHTML = `${hint} &nbsp;·&nbsp; <span class="kbd">Esc</span> ${t(CLOSE)}`;
     }
     choices.forEach((c, i) => {
       const li = ui.h(
@@ -128,8 +155,8 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
           onmouseenter: () => ctx.audio.play('ui.hover'),
         },
         ui.h('span', { class: 'sys-dlg-num', text: String(i + 1) }),
-        ui.h('span', { class: 'sys-dlg-ctext', text: c.text }),
-        c.tag ? ui.h('span', { class: 'sys-dlg-tag', text: c.tag }) : null,
+        ui.h('span', { class: 'sys-dlg-ctext', text: t(c.text) }),
+        c.tag ? ui.h('span', { class: 'sys-dlg-tag', text: t(c.tag) }) : null,
       );
       li.style.setProperty('--i', i);
       u.list.appendChild(li);
@@ -180,10 +207,12 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
     cur.nodeId = nodeId;
     resolve(node.onEnter);
     if (!cur) return; // onEnter may have closed the dialogue
-    const vars = { name: ctx.state.get('profile.name') || 'Reiziger', dagdeel: partOfDay(ctx) };
-    const text = fill(resolve(node.text) || '…', vars);
+    // template variables: {name} (player), {daypart} ("evening" / "avond"; {dagdeel} = old alias)
+    const daypart = partOfDayText(ctx);
+    const vars = { name: ctx.state.get('profile.name') || t(TRAVELER), daypart, dagdeel: daypart };
+    const text = fill(t(resolve(node.text)) || '…', vars);
     let choices = (resolve(node.choices) || []).filter((c) => !c.if || resolve(c.if));
-    if (!choices.length) choices = [{ text: 'Tot ziens.', end: true }];
+    if (!choices.length) choices = [{ text: { en: 'Goodbye.', nl: 'Tot ziens.' }, end: true }];
     cur.choices = choices;
     renderNode(text, choices);
   }
@@ -197,7 +226,7 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
     ctx.audio.play('ui.click');
     const li = cur.ui.list.children[i];
     li?.classList.add('chosen');
-    ctx.events.emit('dialogue:choice', { id: cur.id, node: cur.nodeId, choice: i, text: c.text });
+    ctx.events.emit('dialogue:choice', { id: cur.id, node: cur.nodeId, choice: i, text: t(c.text) });
     resolve(c.do);
     const id = cur.id;
     setTimeout(() => {
@@ -391,21 +420,21 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
   });
 
   // Talk points for story NPCs the characters module doesn't provide.
-  for (const t of Object.values(trees)) {
-    if (!talkSpot(t.id)) continue;
+  for (const tr of Object.values(trees)) {
+    if (!talkSpot(tr.id)) continue;
     const v = new THREE.Vector3();
     ctx.interactions.add({
-      id: `sys-talk-${t.id}`,
+      id: `sys-talk-${tr.id}`,
       scope: 'world',
       position: () => {
-        const spot = talkSpot(t.id);
+        const spot = talkSpot(tr.id);
         return spot.isVector3 ? v.copy(spot) : v.set(spot.x, groundY(ctx, spot.x, spot.z) + 0.9, spot.z);
       },
       radius: 3.4,
-      label: `Praten — ${t.name}`,
+      label: t({ en: 'Talk — {name}', nl: 'Praten — {name}' }, { name: t(tr.name) }),
       priority: 1,
-      enabled: () => !ctx.npcs?.get?.(t.id) && !cur,
-      onInteract: () => open(t.id),
+      enabled: () => !ctx.npcs?.get?.(tr.id) && !cur,
+      onInteract: () => open(tr.id),
     });
   }
 
@@ -455,9 +484,10 @@ function makeHelpers(ctx, refs, rewards) {
     flag: (n) => rewards.flag(n),
     setFlag: (n, v = true) => rewards.setFlag(n, v),
     lore: (id) => rewards.unlockLore(id),
+    /** Grants `r`; `label` ({en, nl} or text) titles the reward toast. */
     reward(r, label) {
       rewards.grant(r);
-      if (label) ctx.ui.toast({ title: label, text: rewardText(r), icon: 'gift', kind: 'reward', duration: 3200 });
+      if (label) ctx.ui.toast({ title: t(label), text: rewardText(r), icon: 'gift', kind: 'reward', duration: 3200 });
       ctx.audio.play('reward');
     },
     quest: {
@@ -481,8 +511,8 @@ function makeHelpers(ctx, refs, rewards) {
     zone: () => refs.zones?.current || null,
     suggestPlace() {
       const todo = TRAVEL.filter((z) => PLACE_TIPS[z] && !refs.progress?.isDiscovered(z));
-      if (!todo.length) return 'Je hebt alles al gezien? Dan wordt het tijd voor de sterren. Station Halo wacht op je.';
-      return PLACE_TIPS[todo[Math.floor(Math.random() * todo.length)]];
+      if (!todo.length) return t({ en: "You've seen it all already? Then it's time for the stars. Station Halo is waiting for you.", nl: 'Je hebt alles al gezien? Dan wordt het tijd voor de sterren. Station Halo wacht op je.' });
+      return t(PLACE_TIPS[todo[Math.floor(Math.random() * todo.length)]]);
     },
   };
 }

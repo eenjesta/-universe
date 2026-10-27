@@ -8,6 +8,8 @@
  *
  * NPC API: { id, name, object, position, appearance, character,
  *   say(text, seconds), setGoal(vec3 | null), follow(object | null), lookAt(vec3 | null) }
+ * Text: `name` and `say(text)` accept plain strings or bilingual {en, nl}
+ * (core/i18n.js); `npc.name`, `npc.lines` and npc:say {text} are always strings.
  * Manager: { list, get(id), party (Set), named, spawn(def), ... }
  * Events: emits npc:interact {id} (E near a named NPC), npc:say {id, text};
  * listens to event:start / event:end (id 'starfall' → crowd gathers + cheers).
@@ -15,6 +17,7 @@
 import * as THREE from 'three';
 import { ZONES } from '../world/layout.js';
 import { Rng, clamp, damp, dampAngle, angleDiff } from '../core/math.js';
+import { t, pick } from '../core/i18n.js';
 import { Character } from './character.js';
 import { CharacterBatch } from './batch.js';
 import { normalizeAppearance } from './appearance.js';
@@ -27,7 +30,14 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _cam = new THREE.Vector3();
 
+/** Bark lines in the active language: accepts [..] or { en: [..], nl: [..] }; null when empty. */
+function linesOf(lines) {
+  const v = pick(lines);
+  return Array.isArray(v) && v.length ? v.map((l) => t(l)) : null;
+}
+
 export function createNpcs(ctx, { material, labels }) {
+  const crowdLines = linesOf(CROWD_LINES) || [];
   const world = ctx.world;
   const scene = world.scene;
   const rng = new Rng('npcs');
@@ -119,7 +129,7 @@ export function createNpcs(ctx, { material, labels }) {
     const home = new THREE.Vector3(def.x, 0, def.z);
     const npc = {
       id: def.id,
-      name: def.name || null,
+      name: def.name ? t(def.name) : null,
       named: !!def.name,
       area: def.area,
       object: chr.object,
@@ -141,7 +151,7 @@ export function createNpcs(ctx, { material, labels }) {
       timer: rng.range(0, 6),
       heading: def.heading ?? 0,
       faceHeading: def.heading ?? 0,
-      lines: def.lines || null,
+      lines: linesOf(def.lines),
       label: null,
       groupId: def.group || null,
       waveCooldown: 0,
@@ -161,6 +171,7 @@ export function createNpcs(ctx, { material, labels }) {
       _y: 0,
       ready: !chr.pending,
       say(text, seconds = 4) {
+        text = t(text);
         if (!npc.label) npc.label = labels.add(npc, npc.name || '', { kind: npc.named ? 'npc' : 'anon' });
         labels.say(npc.label, text, seconds);
         ctx.events.emit('npc:say', { id: npc.id, text });
@@ -234,7 +245,8 @@ export function createNpcs(ctx, { material, labels }) {
     for (const w of r) npc.route.push(w);
   }
 
-  // interactions: "[E] Praten" floating beside the NPC's head
+  // interactions: "[E] Talk" floating beside the NPC's head
+  const talkLabel = t({ en: 'Talk', nl: 'Praten' });
   function addInteraction(npc) {
     const pos = new THREE.Vector3();
     const anchor = new THREE.Vector3();
@@ -242,7 +254,7 @@ export function createNpcs(ctx, { material, labels }) {
       id: `npc-${npc.id}`,
       scope: 'world',
       radius: 3.3,
-      label: 'Praten',
+      label: talkLabel,
       priority: 1,
       position: () => pos.copy(npc.object.position).setY(npc.object.position.y + 1.0),
       anchor: () => {
@@ -628,7 +640,7 @@ export function createNpcs(ctx, { material, labels }) {
     const near = list.filter((n) => n.named && n.area === 'plaza' && n.lines && n.object.position.distanceTo(playerPos) < 22);
     if (!near.length) return;
     const n = near[Math.floor(Math.random() * near.length)];
-    const pool = eventActive ? CROWD_LINES : n.lines;
+    const pool = eventActive ? crowdLines : n.lines;
     n.say(pool[Math.floor(Math.random() * pool.length)], 3.8);
   }
 

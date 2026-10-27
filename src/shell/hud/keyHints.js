@@ -1,8 +1,9 @@
 /**
- * Key hints (bottom-right, explore on foot): B Bouwen · F Voertuig · G Garage
- * · J Missies · M Kaart · H Help. Hidden while build mode shows its own hints.
+ * Key hints (bottom-right, explore on foot): B Build · F Vehicle · G Garage
+ * · J Missions · M Map · H Help. Hidden while build mode shows its own hints.
  * Clicking a hint triggers the same action as the key.
  */
+import { t } from '../../core/i18n.js';
 import { KEY_HINTS } from '../data.js';
 
 export class KeyHints {
@@ -11,7 +12,7 @@ export class KeyHints {
     const h = ctx.ui.h;
     this.el = h(
       'div',
-      { class: 'shell-keyhints', role: 'note', 'aria-label': 'Sneltoetsen' },
+      { class: 'shell-keyhints', role: 'note', 'aria-label': t({ en: 'Shortcuts', nl: 'Sneltoetsen' }) },
       KEY_HINTS.map((k, i) => [
         i ? h('span', { class: 'shell-keyhints-dot', 'aria-hidden': 'true' }) : null,
         h(
@@ -19,14 +20,14 @@ export class KeyHints {
           {
             class: 'shell-keyhint',
             type: 'button',
-            title: `${k.t} (${k.k})`,
+            title: `${t(k.t)} (${k.k})`,
             onclick: (e) => {
               e.currentTarget.blur();
               actions[k.k]?.();
             },
           },
           h('span', { class: 'kbd shell-kbd', text: k.k }),
-          h('span', { class: 'shell-keyhint-label', text: k.t }),
+          h('span', { class: 'shell-keyhint-label', text: t(k.t) }),
         ),
       ]),
     );

@@ -1,10 +1,11 @@
 /**
  * "You are here" label (top-left, explore/drive): pin icon + place name
- * ("Nexus-plein"), shown for a few seconds when entering a zone or region.
+ * ("Nexus Plaza"), shown for a few seconds when entering a zone or region.
  * Listens to `player:zone` and also detects zones itself from the layout,
  * de-duplicated, so it works even when the characters module is a fallback.
  */
 import { icon } from '../../ui/icons.js';
+import { t } from '../../core/i18n.js';
 import { LABEL_PLACES, place } from '../data.js';
 
 const SHOW_MS = 5600;
@@ -42,11 +43,12 @@ export class ZoneLabel {
     });
   }
 
-  /** Public: show any text (e.g. "Jouw basis — Niveau 3"). */
+  /** Public: show any text (e.g. "Your Base — Level 3"); strings or { en, nl }. */
   show(name, { iconName = 'pin', sub = '' } = {}) {
     const ui = this.ctx.ui;
     this.iconEl.innerHTML = icon(iconName, 18);
-    this.nameEl.textContent = name;
+    this.nameEl.textContent = t(name);
+    sub = t(sub);
     this.subEl.textContent = sub;
     this.subEl.hidden = !sub;
     clearTimeout(this._timer);
@@ -71,7 +73,7 @@ export class ZoneLabel {
     if (now - (this.lastShown.get(id) ?? -1e9) < REPEAT_COOLDOWN) return;
     this.lastShown.set(id, now);
     const level = this.ctx.state.get('progress.level');
-    const sub = id === 'base' && level > 1 ? `Niveau ${level}` : '';
+    const sub = id === 'base' && level > 1 ? t({ en: 'Level {n}', nl: 'Niveau {n}' }, { n: level }) : '';
     this.show(p.label, { iconName: id === 'base' ? 'home' : 'pin', sub });
   }
 

@@ -1,18 +1,20 @@
 /**
  * Round HUD minimap (bottom-left, explore/drive). Rotates with the camera
- * heading, shows the shared map image (terrain), N/O/Z/W around the ring, a
+ * heading, shows the shared map image (terrain), N/E/S/W (nl N/O/Z/W) around the ring, a
  * view cone, the player arrow and ctx.markers as icons (quest markers clamp
  * to the rim). Zooms out with vehicle speed. Drawn on a 2D canvas.
  */
 import { worldToUV, MAP_EXTENT } from '../map/mapImage.js';
 import { iconImage, imageReady } from '../util.js';
 import { damp, clamp } from '../../core/math.js';
+import { t } from '../../core/i18n.js';
 
 const TAU = Math.PI * 2;
+/** Ring letters; `t` per language, resolved when the minimap is built. */
 const LETTERS = [
   { t: 'N', dx: 0, dz: -1 },
-  { t: 'O', dx: 1, dz: 0 },
-  { t: 'Z', dx: 0, dz: 1 },
+  { t: { en: 'E', nl: 'O' }, dx: 1, dz: 0 },
+  { t: { en: 'S', nl: 'Z' }, dx: 0, dz: 1 },
   { t: 'W', dx: -1, dz: 0 },
 ];
 /** CanvasRenderingContext2D.filter support (not in every Safari). */
@@ -44,7 +46,8 @@ export class Minimap {
     this.mapImage = mapImage;
     const h = ctx.ui.h;
     this.canvas = h('canvas', { class: 'shell-minimap-canvas', 'aria-hidden': 'true' });
-    this.el = h('div', { class: 'shell-minimap', role: 'img', 'aria-label': 'Minikaart' }, this.canvas);
+    this.el = h('div', { class: 'shell-minimap', role: 'img', 'aria-label': t({ en: 'Minimap', nl: 'Minikaart' }) }, this.canvas);
+    this.letters = LETTERS.map((L) => ({ text: t(L.t), dx: L.dx, dz: L.dz, north: L.dz === -1 }));
     ctx.ui.addWidget('bottom-left', this.el, { modes: ['explore', 'drive'], order: 10 });
     this.g = this.canvas.getContext('2d');
     this.size = 0;
@@ -241,15 +244,15 @@ export class Minimap {
     }
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    for (const L of LETTERS) {
+    for (const L of this.letters) {
       const tx = L.dx * cos - L.dz * sin;
       const ty = L.dx * sin + L.dz * cos;
-      const isN = L.t === 'N';
+      const isN = L.north;
       g.font = `${isN ? 600 : 500} ${isN ? 12 : 11}px Jost, system-ui, sans-serif`;
       g.fillStyle = isN ? '#ffffff' : 'rgba(236, 230, 220, 0.78)';
       g.shadowColor = 'rgba(0, 0, 0, 0.8)';
       g.shadowBlur = 4;
-      g.fillText(L.t, c + tx * (R + 11), c + ty * (R + 11) + 0.5);
+      g.fillText(L.text, c + tx * (R + 11), c + ty * (R + 11) + 0.5);
       g.shadowBlur = 0;
       // small cyan notch on the ring for north
       if (isN) {

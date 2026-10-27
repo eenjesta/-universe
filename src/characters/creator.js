@@ -1,12 +1,15 @@
 /**
  * Character creator screen (characters module) — DOM layer of the 'customize'
  * mode, laid out like generated/17_character_creator.png: Ø UNIVERSE logo +
- * PERSONAGE AANPASSEN + tabs (Gezicht / Haar / Outfit / Uitrusting / Kleuren)
- * on the left, a glass panel with rendered variant thumbnails and colour
- * swatches on the right, Willekeurig + Bevestigen bottom-right, name field.
+ * CUSTOMIZE CHARACTER + tabs (Face / Hair / Outfit / Gear / Colors) on the
+ * left, a glass panel with rendered variant thumbnails and colour swatches on
+ * the right, Randomize + Confirm bottom-right, name field. Text is bilingual
+ * (core/i18n.js), resolved when the screen is built.
  * Thumbnails are rendered lazily (one per frame) through ctx.portraits.
  */
 import { icon } from '../ui/icons.js';
+import { t } from '../core/i18n.js';
+import { formatNumber } from '../core/math.js';
 import { requestArrays, hasArrays } from './build-client.js';
 import {
   SKIN_TONES, OUTFIT_COLORS, HAIR_COLORS, ACCENT_COLORS, EYE_COLORS, HAIR_STYLES, FACES, BEARDS,
@@ -14,18 +17,24 @@ import {
 } from './appearance.js';
 
 const TABS = [
-  { id: 'face', label: 'Gezicht', icon: 'chr-face', preset: 'face' },
-  { id: 'hair', label: 'Haar', icon: 'chr-hair', preset: 'face' },
-  { id: 'outfit', label: 'Outfit', icon: 'chr-outfit', preset: 'full' },
-  { id: 'gear', label: 'Uitrusting', icon: 'chr-gear', preset: 'full' },
-  { id: 'colors', label: 'Kleuren', icon: 'palette', preset: 'front' },
+  { id: 'face', label: { en: 'Face', nl: 'Gezicht' }, icon: 'chr-face', preset: 'face' },
+  { id: 'hair', label: { en: 'Hair', nl: 'Haar' }, icon: 'chr-hair', preset: 'face' },
+  { id: 'outfit', label: { en: 'Outfit', nl: 'Outfit' }, icon: 'chr-outfit', preset: 'full' },
+  { id: 'gear', label: { en: 'Gear', nl: 'Uitrusting' }, icon: 'chr-gear', preset: 'full' },
+  { id: 'colors', label: { en: 'Colors', nl: 'Kleuren' }, icon: 'palette', preset: 'front' },
 ];
+
+/** Default player name (state.profile.name until the player picks one). */
+export const DEFAULT_NAME = { en: 'Traveler', nl: 'Reiziger' };
+export const defaultName = () => t(DEFAULT_NAME);
+/** True for an untouched default name in any language. */
+export const isDefaultName = (n) => !n || n === DEFAULT_NAME.en || n === DEFAULT_NAME.nl || n === 'Traveller';
 
 export function createCreator(ctx, { studio, onConfirm, onCancel }) {
   const { ui } = ctx;
   const h = ui.h.bind(ui);
   let app = null;
-  let name = 'Reiziger';
+  let name = defaultName();
   let tab = 'outfit';
   let root = null;
   let panel = null;
@@ -36,16 +45,16 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
   const priceHint = (o) => {
     const it = ctx.economy?.items?.find?.((i) => i.id === o.unlock);
     const p = it?.price ?? o.price;
-    return p ? `Ø ${Number(p).toLocaleString('nl-NL')}` : 'Vergrendeld';
+    return p ? `Ø ${formatNumber(Number(p))}` : t({ en: 'Locked', nl: 'Vergrendeld' });
   };
 
   function build() {
-    const tabs = TABS.map((t) =>
+    const tabs = TABS.map((tb) =>
       h(
         'button',
-        { class: `chr-cc-tab${t.id === tab ? ' active' : ''}`, dataset: { tab: t.id }, onclick: () => setTab(t.id) },
-        h('span', { class: 'chr-cc-tab-icon', html: icon(t.icon, 30) }),
-        h('span', { class: 'chr-cc-tab-label', text: t.label }),
+        { class: `chr-cc-tab${tb.id === tab ? ' active' : ''}`, dataset: { tab: tb.id }, onclick: () => setTab(tb.id) },
+        h('span', { class: 'chr-cc-tab-icon', html: icon(tb.icon, 30) }),
+        h('span', { class: 'chr-cc-tab-label', text: t(tb.label) }),
       ),
     );
     const nameInput = h('input', {
@@ -54,7 +63,7 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
       maxlength: '18',
       spellcheck: 'false',
       value: name,
-      'aria-label': 'Naam',
+      'aria-label': t({ en: 'Name', nl: 'Naam' }),
       oninput: (e) => (name = e.target.value),
       onkeydown: (e) => {
         if (e.key === 'Enter') e.target.blur();
@@ -75,18 +84,26 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
           h('div', { class: 'chr-cc-logo-text' }, h('div', { class: 'chr-cc-word', text: 'UNIVERSE' }), h('div', { class: 'chr-cc-sub', text: 'EXPLORE · CREATE · CONNECT' })),
         ),
         h('div', { class: 'chr-cc-rule' }),
-        h('div', { class: 'chr-cc-title', text: 'Personage aanpassen' }),
+        h('div', { class: 'chr-cc-title', text: t({ en: 'Customize Character', nl: 'Personage aanpassen' }) }),
         h('nav', { class: 'chr-cc-tabs' }, tabs),
-        h('label', { class: 'chr-cc-name' }, h('span', { class: 'chr-cc-name-label', text: 'Naam' }), nameInput),
+        h('label', { class: 'chr-cc-name' }, h('span', { class: 'chr-cc-name-label', text: t({ en: 'Name', nl: 'Naam' }) }), nameInput),
       ),
       panel,
       h(
         'div',
         { class: 'chr-cc-actions' },
-        h('button', { class: 'chr-cc-btn', onclick: randomize }, h('span', { html: icon('chr-dice', 24) }), 'Willekeurig'),
-        h('button', { class: 'chr-cc-btn chr-cc-primary', onclick: confirm }, 'Bevestigen', h('span', { html: icon('chr-arrow', 22) })),
+        h('button', { class: 'chr-cc-btn', onclick: randomize }, h('span', { html: icon('chr-dice', 24) }), t({ en: 'Randomize', nl: 'Willekeurig' })),
+        h('button', { class: 'chr-cc-btn chr-cc-primary', onclick: confirm }, t({ en: 'Confirm', nl: 'Bevestigen' }), h('span', { html: icon('chr-arrow', 22) })),
       ),
-      h('div', { class: 'chr-cc-hint' }, h('span', { html: icon('rotate', 16) }), 'Sleep om te draaien', h('span', { class: 'chr-cc-hint-sep' }), h('span', { class: 'kbd', text: 'Esc' }), 'Terug'),
+      h(
+        'div',
+        { class: 'chr-cc-hint' },
+        h('span', { html: icon('rotate', 16) }),
+        t({ en: 'Drag to rotate', nl: 'Sleep om te draaien' }),
+        h('span', { class: 'chr-cc-hint-sep' }),
+        h('span', { class: 'kbd', text: 'Esc' }),
+        t({ en: 'Back', nl: 'Terug' }),
+      ),
     );
     renderPanel();
     return root;
@@ -96,16 +113,17 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
     if (tab === id) return;
     tab = id;
     root?.querySelectorAll('.chr-cc-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === id));
-    const t = TABS.find((x) => x.id === id);
-    studio.setPreset(t.preset);
-    studio.lookAtCamera(t.preset === 'face' || t.preset === 'front');
+    const tb = TABS.find((x) => x.id === id);
+    studio.setPreset(tb.preset);
+    studio.lookAtCamera(tb.preset === 'face' || tb.preset === 'front');
     renderPanel();
     ctx.audio?.play?.('ui.click');
   }
 
   // ------------------------------------------------------------ panel
+  /** `title` is bilingual text ({en, nl}). */
   function section(title, ...children) {
-    return h('div', { class: 'chr-cc-section' }, h('div', { class: 'chr-cc-sec-title', text: title }), ...children);
+    return h('div', { class: 'chr-cc-section' }, h('div', { class: 'chr-cc-sec-title', text: t(title) }), ...children);
   }
 
   function grid(items, { cols = 3, aspect = 'tall', framing = 'full', view = 'three-quarter' } = {}) {
@@ -141,7 +159,7 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
       'div',
       { class: 'chr-cc-chips' },
       options.map((o) =>
-        h('button', { class: `chr-cc-chip${o.id === current ? ' selected' : ''}`, onclick: () => onPick(o.id) }, o.label),
+        h('button', { class: `chr-cc-chip${o.id === current ? ' selected' : ''}`, onclick: () => onPick(o.id) }, t(o.label)),
       ),
     );
   }
@@ -167,37 +185,41 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
   function renderPanel() {
     if (!panel || !app) return;
     queue = [];
-    const t = TABS.find((x) => x.id === tab);
+    const tb = TABS.find((x) => x.id === tab);
     const body = [];
     if (tab === 'face') {
+      const bodies = [
+        { id: 'm', label: { en: 'Male', nl: 'Man' } },
+        { id: 'f', label: { en: 'Female', nl: 'Vrouw' } },
+      ];
       body.push(
-        section('Lichaam', chips([{ id: 'm', label: 'Man' }, { id: 'f', label: 'Vrouw' }], app.body, (v) => update({ body: v, beard: v === 'f' ? 'none' : app.beard }))),
+        section({ en: 'Body', nl: 'Lichaam' }, chips(bodies, app.body, (v) => update({ body: v, beard: v === 'f' ? 'none' : app.beard }))),
         section(
-          'Gezicht',
+          { en: 'Face', nl: 'Gezicht' },
           grid(
             FACES.map((f) => ({ label: f.label, selected: app.face === f.id, preview: variant({ face: f.id }), apply: () => update({ face: f.id }) })),
             { aspect: 'square', framing: 'face', view: 'three-quarter' },
           ),
         ),
-        app.body === 'm' ? section('Baard', chips(BEARDS, app.beard, (v) => update({ beard: v }))) : null,
-        section('Huidskleur', swatches(SKIN_TONES, app.skin, (c) => update({ skin: c }))),
+        app.body === 'm' ? section({ en: 'Beard', nl: 'Baard' }, chips(BEARDS, app.beard, (v) => update({ beard: v }))) : null,
+        section({ en: 'Skin Tone', nl: 'Huidskleur' }, swatches(SKIN_TONES, app.skin, (c) => update({ skin: c }))),
       );
     } else if (tab === 'hair') {
       body.push(
         section(
-          'Kapsel',
+          { en: 'Hairstyle', nl: 'Kapsel' },
           grid(
             HAIR_STYLES.map((s) => ({ label: s.label, selected: app.hair === s.id, preview: variant({ hair: s.id }), apply: () => update({ hair: s.id }) })),
             { aspect: 'square', framing: 'face', view: 'three-quarter' },
           ),
         ),
-        section('Haarkleur', swatches(HAIR_COLORS, app.hairColor, (c) => update({ hairColor: c }))),
+        section({ en: 'Hair Color', nl: 'Haarkleur' }, swatches(HAIR_COLORS, app.hairColor, (c) => update({ hairColor: c }))),
       );
     } else if (tab === 'outfit') {
       const owned = ownedItems();
       body.push(
         section(
-          'Outfit',
+          { en: 'Outfit', nl: 'Outfit' },
           grid(
             PLAYER_OUTFITS.map((o) => {
               const locked = !outfitUnlocked(o.id, owned);
@@ -213,51 +235,51 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
             { aspect: 'tall', framing: 'full', view: 'back' },
           ),
         ),
-        section('Kleuren', swatches(OUTFIT_COLORS, app.outfitColor, (c) => update({ outfitColor: c }))),
+        section({ en: 'Colors', nl: 'Kleuren' }, swatches(OUTFIT_COLORS, app.outfitColor, (c) => update({ outfitColor: c }))),
       );
     } else if (tab === 'gear') {
       body.push(
         section(
-          'Rugzak',
+          { en: 'Backpack', nl: 'Rugzak' },
           grid(
             BACKPACKS.map((b) => ({ label: b.label, selected: app.backpack === b.id, preview: variant({ backpack: b.id }), apply: () => update({ backpack: b.id }) })),
             { aspect: 'tall', framing: 'full', view: 'back' },
           ),
         ),
         section(
-          'Bril & vizier',
+          { en: 'Glasses & Visor', nl: 'Bril & vizier' },
           grid(
             EYEWEAR.map((e) => ({ label: e.label, selected: app.eyewear === e.id, preview: variant({ eyewear: e.id }), apply: () => update({ eyewear: e.id }) })),
             { cols: 4, aspect: 'square', framing: 'face', view: 'three-quarter' },
           ),
         ),
         section(
-          'Details',
+          { en: 'Details', nl: 'Details' },
           h(
             'div',
             { class: 'chr-cc-toggles' },
-            toggle('Handschoenen', app.gloves, (v) => update({ gloves: v })),
-            toggle('Ø-schouderpatch', app.patch, (v) => update({ patch: v })),
+            toggle({ en: 'Gloves', nl: 'Handschoenen' }, app.gloves, (v) => update({ gloves: v })),
+            toggle({ en: 'Ø Shoulder Patch', nl: 'Ø-schouderpatch' }, app.patch, (v) => update({ patch: v })),
           ),
         ),
       );
     } else {
       body.push(
-        section('Outfit', swatches(OUTFIT_COLORS, app.outfitColor, (c) => update({ outfitColor: c }))),
-        section('Accent', swatches(ACCENT_COLORS, app.accentColor, (c) => update({ accentColor: c }))),
-        section('Haar', swatches(HAIR_COLORS, app.hairColor, (c) => update({ hairColor: c }))),
-        section('Huid', swatches(SKIN_TONES, app.skin, (c) => update({ skin: c }))),
-        section('Ogen', swatches(EYE_COLORS, app.eyeColor, (c) => update({ eyeColor: c }))),
+        section({ en: 'Outfit', nl: 'Outfit' }, swatches(OUTFIT_COLORS, app.outfitColor, (c) => update({ outfitColor: c }))),
+        section({ en: 'Accent', nl: 'Accent' }, swatches(ACCENT_COLORS, app.accentColor, (c) => update({ accentColor: c }))),
+        section({ en: 'Hair', nl: 'Haar' }, swatches(HAIR_COLORS, app.hairColor, (c) => update({ hairColor: c }))),
+        section({ en: 'Skin', nl: 'Huid' }, swatches(SKIN_TONES, app.skin, (c) => update({ skin: c }))),
+        section({ en: 'Eyes', nl: 'Ogen' }, swatches(EYE_COLORS, app.eyeColor, (c) => update({ eyeColor: c }))),
       );
     }
-    panel.replaceChildren(h('div', { class: 'chr-cc-panel-title', text: t.label }), h('div', { class: 'chr-cc-panel-body scroll' }, body));
+    panel.replaceChildren(h('div', { class: 'chr-cc-panel-title', text: t(tb.label) }), h('div', { class: 'chr-cc-panel-body scroll' }, body));
   }
 
   function toggle(label, value, onChange) {
     return h(
       'button',
       { class: `chr-cc-toggle${value ? ' on' : ''}`, onclick: () => onChange(!value) },
-      h('span', { class: 'chr-cc-toggle-label', text: label }),
+      h('span', { class: 'chr-cc-toggle-label', text: t(label) }),
       h('span', { class: 'chr-cc-switch' }, h('i')),
     );
   }
@@ -291,13 +313,18 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
     if (busy) return;
     if (!outfitUnlocked(app.outfit, ownedItems())) {
       const o = OUTFIT_MAP[app.outfit];
-      ui.toast({ title: 'Outfit vergrendeld', text: `${o.label} koop je in de marktplaats (${priceHint(o)}).`, icon: 'chr-lock', kind: 'warn' });
+      ui.toast({
+        title: t({ en: 'Outfit Locked', nl: 'Outfit vergrendeld' }),
+        text: t({ en: 'Get {outfit} at the Marketplace ({price}).', nl: '{outfit} koop je in de marktplaats ({price}).' }, { outfit: o.label, price: priceHint(o) }),
+        icon: 'chr-lock',
+        kind: 'warn',
+      });
       ctx.audio?.play?.('ui.error');
       if (tab !== 'outfit') setTab('outfit');
       return;
     }
     busy = true;
-    onConfirm({ appearance: app, name: (name || '').trim() || 'Reiziger' });
+    onConfirm({ appearance: app, name: (name || '').trim() || defaultName() });
   }
 
   /** Renders one queued thumbnail per frame; meshes are built in the worker first. */
@@ -327,14 +354,14 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
   return {
     open(initial, initialName, opts = {}) {
       app = normalizeAppearance(initial);
-      name = initialName || 'Reiziger';
+      name = initialName || defaultName();
       tab = opts.tab || 'outfit';
       busy = false;
       unlockedFn = opts.unlocked || unlockedFn;
       studio.setAppearance(app);
-      const t = TABS.find((x) => x.id === tab);
-      studio.setPreset(t.preset, { snap: true });
-      studio.lookAtCamera(t.preset === 'face' || t.preset === 'front');
+      const tb = TABS.find((x) => x.id === tab);
+      studio.setPreset(tb.preset, { snap: true });
+      studio.lookAtCamera(tb.preset === 'face' || tb.preset === 'front');
       ui.showScreen('customize', build());
     },
     close() {

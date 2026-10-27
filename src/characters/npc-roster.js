@@ -1,6 +1,7 @@
 /**
  * NPC roster (characters module): named characters with their looks, homes and
- * lines, plus generators for crowd / technicians / builders. Dutch text.
+ * lines, plus generators for crowd / technicians / builders. Lines are
+ * bilingual ({ en: [...], nl: [...] }); npcs.js resolves them with pick().
  */
 import { ZONES } from '../world/layout.js';
 import { normalizeAppearance, randomAppearance } from './appearance.js';
@@ -10,49 +11,79 @@ export const NAMED = [
   {
     id: 'luna', name: 'Luna_Ø', area: 'plaza', group: 'a', lod: 1,
     app: { body: 'f', skin: '#d9a47c', hair: 'ponytail', hairColor: '#2a1d15', face: 5, outfit: 'scout', outfitColor: '#d8cdb8', accentColor: '#15171b', backpack: 'pack', gloves: true, eyeColor: '#6b4a2a' },
-    lines: ['Zullen we de nieuwe missie proberen?', 'Wat een lichtshow!', 'Heb je de ruïnes al gescand?'],
+    lines: {
+      en: ['Shall we try the new mission?', 'What a light show!', 'Have you scanned the ruins yet?'],
+      nl: ['Zullen we de nieuwe missie proberen?', 'Wat een lichtshow!', 'Heb je de ruïnes al gescand?'],
+    },
   },
   {
     id: 'kai', name: 'Kai', area: 'plaza', group: 'a', lod: 1,
     app: { body: 'm', skin: '#c68e67', hair: 'short', hairColor: '#1a1412', face: 0, outfit: 'pathfinder', outfitColor: '#1c1f25', accentColor: '#d8d2c6', backpack: 'tech', beard: 'stubble' },
-    lines: ['Ja, ik ben erbij!', 'Kom naar het podium!', 'Mijn basis is bijna klaar.'],
+    lines: {
+      en: ["Yes, I'm in!", 'Come to the stage!', 'My base is almost finished.'],
+      nl: ['Ja, ik ben erbij!', 'Kom naar het podium!', 'Mijn basis is bijna klaar.'],
+    },
   },
   {
     id: 'nova', name: 'Nova', area: 'plaza', group: 'a', lod: 1,
     app: { body: 'f', skin: '#f2c9a8', hair: 'short', hairColor: '#e8e4dc', face: 1, outfit: 'pathfinder', outfitColor: '#15171b', accentColor: '#ff8a3d', backpack: 'pack', eyeColor: '#3c5f7d' },
-    lines: ['Deze plek is prachtig.', 'Dit is geweldig!', 'Zie je die schepen boven de stad?'],
+    lines: {
+      en: ['This place is beautiful.', 'This is amazing!', 'See those ships above the city?'],
+      nl: ['Deze plek is prachtig.', 'Dit is geweldig!', 'Zie je die schepen boven de stad?'],
+    },
   },
   {
     id: 'yara', name: 'Yara', area: 'plaza', group: 'b', lod: 1,
     app: { body: 'f', skin: '#9c6b4b', hair: 'curly', hairColor: '#1a1412', face: 2, outfit: 'scout', outfitColor: '#d8cdb8', accentColor: '#c64a3e', backpack: 'tech', gloves: true },
-    lines: ['Heb je het Starfall Festival al gezien?', 'De Levensboom gloeit vanavond extra mooi.', 'Ik ga zo naar de nachtmarkt.'],
+    lines: {
+      en: ['Have you seen the Starfall Festival yet?', 'The Tree of Life is glowing extra bright tonight.', "I'm heading to the night market soon."],
+      nl: ['Heb je het Starfall Festival al gezien?', 'De Levensboom gloeit vanavond extra mooi.', 'Ik ga zo naar de nachtmarkt.'],
+    },
   },
   {
     id: 'milan', name: 'Milan', area: 'plaza', group: 'b', lod: 1,
     app: { body: 'm', skin: '#6e4630', hair: 'buzz', hairColor: '#1a1412', face: 3, beard: 'stubble', outfit: 'drifter', outfitColor: '#15171b', accentColor: '#c64a3e', backpack: 'none' },
-    lines: ['Kom naar het podium!', 'Ik ken een snellere route naar de ruimtehaven.', 'Laten we gaan!'],
+    lines: {
+      en: ['Come to the stage!', 'I know a faster route to the spaceport.', "Let's go!"],
+      nl: ['Kom naar het podium!', 'Ik ken een snellere route naar de ruimtehaven.', 'Laten we gaan!'],
+    },
   },
   {
     id: 'aria', name: 'Aria', area: 'signal', lod: 1,
     app: { body: 'f', skin: '#d9a47c', hair: 'ponytail', hairColor: '#1a1412', face: 5, outfit: 'pathfinder', outfitColor: '#1c1f25', accentColor: '#d8d2c6', backpack: 'pack', eyeColor: '#4a3020' },
-    lines: ['Deze plek heeft een geschiedenis die verder gaat dan wat we denken.', 'Voel je het signaal ook?', 'Het baken reageert op jou.'],
+    lines: {
+      en: ['This place has a history that runs deeper than we think.', 'Do you feel the signal too?', 'The beacon is responding to you.'],
+      nl: ['Deze plek heeft een geschiedenis die verder gaat dan wat we denken.', 'Voel je het signaal ook?', 'Het baken reageert op jou.'],
+    },
   },
   {
     id: 'oran', name: 'Oran', area: 'plaza', lod: 1, post: 'oran',
     app: { body: 'm', skin: '#c68e67', hair: 'short', hairColor: '#cfcac2', face: 4, beard: 'full', outfit: 'robe', outfitColor: '#5a3424', accentColor: '#c9a25a', headwear: 'headband', age: 0.9, backpack: 'none', patch: false, eyeColor: '#5d6670', height: 0.97 },
-    lines: ['Ik heb geruchten gehoord over een verloren schip in de Noordelijke Ringen…', 'Kijk gerust rond, reiziger.', 'Zeldzame waren, eerlijke prijzen.'],
+    lines: {
+      en: ["I've heard rumors of a lost ship in the Northern Rings…", 'Feel free to look around, traveler.', 'Rare goods, fair prices.'],
+      nl: ['Ik heb geruchten gehoord over een verloren schip in de Noordelijke Ringen…', 'Kijk gerust rond, reiziger.', 'Zeldzame waren, eerlijke prijzen.'],
+    },
   },
   {
     id: 'jules', name: 'Jules', area: 'spaceport', lod: 1,
     app: { body: 'm', skin: '#9c6b4b', hair: 'short', hairColor: '#2a1d15', face: 2, outfit: 'tech', outfitColor: '#3a3f47', accentColor: '#ff9a4a', headwear: 'headset', backpack: 'none', prop: 'tablet', gloves: true },
-    lines: ['Je schip staat klaar. Alle systemen groen.', 'Vergeet je startcontrole niet.', 'Platform drie is vrij voor vertrek.'],
+    lines: {
+      en: ['Your ship is ready. All systems green.', "Don't forget your pre-flight check.", 'Pad three is clear for departure.'],
+      nl: ['Je schip staat klaar. Alle systemen groen.', 'Vergeet je startcontrole niet.', 'Platform drie is vrij voor vertrek.'],
+    },
   },
 ];
 
-export const CROWD_LINES = [
-  'Wat een lichtshow!', 'Kom naar het podium!', 'Dit is geweldig!', 'Zie je die schepen?', 'Laten we gaan!',
-  'Prachtige avond.', 'Heb je de waterval al gezien?', 'Ik bouw een huis bij het bos.',
-];
+export const CROWD_LINES = {
+  en: [
+    'What a light show!', 'Come to the stage!', 'This is amazing!', 'See those ships?', "Let's go!",
+    'Beautiful evening.', 'Have you seen the waterfall yet?', "I'm building a house by the forest.",
+  ],
+  nl: [
+    'Wat een lichtshow!', 'Kom naar het podium!', 'Dit is geweldig!', 'Zie je die schepen?', 'Laten we gaan!',
+    'Prachtige avond.', 'Heb je de waterval al gezien?', 'Ik bouw een huis bij het bos.',
+  ],
+};
 
 /** Deterministic crowd appearances (poster look: mostly dark techwear, some light suits). */
 export function crowdAppearances(count, seed = 'plaza-crowd') {

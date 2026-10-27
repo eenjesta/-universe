@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from './i18n.js';
 
 /**
  * GPU diagnostics (`?diag`). Finds out — on the player's own machine — what
@@ -11,8 +12,9 @@ import * as THREE from 'three';
  *   3. measures the final picture (fraction of black pixels) with bloom,
  *      MSAA, the sanitize pass, the environment map or the whole post chain
  *      switched off, to see which one causes a black/flickering screen.
- * Shows a summary panel and POSTs the JSON report to the diag collector
- * (tools/diag-server.mjs, port 4174 on the same host as the page).
+ * Shows a summary panel (text in the active language) and POSTs the JSON
+ * report to the diag collector (tools/diag-server.mjs, port 4174 on the same
+ * host as the page). The report itself keeps its English keys.
  */
 
 const LAYER = 31;
@@ -22,9 +24,9 @@ export async function runDiagnostics(ctx) {
   const r = engine.renderer;
   const gl = r.getContext();
   const panel = createPanel();
-  const say = (t) => {
-    panel.log(t);
-    console.log(`[diag] ${t}`);
+  const say = (msg) => {
+    panel.log(msg);
+    console.log(`[diag] ${msg}`);
   };
   const frame = () => new Promise((res) => requestAnimationFrame(() => res()));
 
@@ -83,7 +85,12 @@ export async function runDiagnostics(ctx) {
 
     const full = scan();
     report.hdrScan = full;
-    say(`Beeld: ${full.nan} NaN, ${full.inf} Inf, ${full.huge} te fel, ${full.neg} negatief (max ${full.max})`);
+    say(
+      t(
+        { en: 'Image: {nan} NaN, {inf} Inf, {huge} too bright, {neg} negative (max {max})', nl: 'Beeld: {nan} NaN, {inf} Inf, {huge} te fel, {neg} negatief (max {max})' },
+        { nan: full.nan, inf: full.inf, huge: full.huge, neg: full.neg, max: full.max },
+      ),
+    );
 
     const envSaved = scene.environment;
     scene.environment = null;
@@ -103,7 +110,7 @@ export async function runDiagnostics(ctx) {
         if (o.isLight) lights.push(o);
         else if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && o.material) renderables.push(o);
       });
-      say(`Zoek de bron tussen ${renderables.length} objecten…`);
+      say(t({ en: 'Looking for the source among {n} objects…', nl: 'Zoek de bron tussen {n} objecten…' }, { n: renderables.length }));
       const culprits = [];
       const camMask = camera.layers.mask;
       const t0 = performance.now();
@@ -131,7 +138,11 @@ export async function runDiagnostics(ctx) {
       }
       culprits.sort((a, b) => b.nan + b.inf + b.huge - (a.nan + a.inf + a.huge));
       report.culprits = culprits.slice(0, 40);
-      say(culprits.length ? `Bron: ${culprits.slice(0, 3).map((c) => c.object.path).join(' | ')}` : 'Geen los object gevonden (alleen in combinatie)');
+      say(
+        culprits.length
+          ? t({ en: 'Source: {list}', nl: 'Bron: {list}' }, { list: culprits.slice(0, 3).map((c) => c.object.path).join(' | ') })
+          : t({ en: 'No single object found (only in combination)', nl: 'Geen los object gevonden (alleen in combinatie)' }),
+      );
     }
 
     // ----------------------- 3. final picture with features switched off/on
@@ -165,9 +176,9 @@ export async function runDiagnostics(ctx) {
     const q = engine.quality;
     const comp = engine.composer;
     const setMsaa = (n) => {
-      for (const t of [comp.renderTarget1, comp.renderTarget2]) {
-        t.samples = n;
-        t.dispose();
+      for (const target of [comp.renderTarget1, comp.renderTarget2]) {
+        target.samples = n;
+        target.dispose();
       }
     };
     const variants = {};
@@ -202,7 +213,7 @@ export async function runDiagnostics(ctx) {
     }
     report.picture = variants;
     say(
-      'Zwart in beeld: ' +
+      t({ en: 'Black on screen: ', nl: 'Zwart in beeld: ' }) +
         Object.entries(variants)
           .map(([k, v]) => `${k} ${Math.round(v.black * 100)}%`)
           .join(' · '),
@@ -210,7 +221,7 @@ export async function runDiagnostics(ctx) {
     rt.dispose();
   } catch (err) {
     report.failure = String(err?.stack || err);
-    say(`Diagnose mislukt: ${err?.message || err}`);
+    say(t({ en: 'Diagnostics failed: {err}', nl: 'Diagnose mislukt: {err}' }, { err: err?.message || err }));
   } finally {
     console.error = origError;
   }
@@ -220,9 +231,9 @@ export async function runDiagnostics(ctx) {
   const endpoint = `${location.protocol}//${location.hostname}:4174/diag`;
   try {
     await fetch(endpoint, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(report) });
-    say('Rapport verstuurd naar de server ✓ — je kunt gewoon verder.');
+    say(t({ en: 'Report sent to the server ✓ — you can carry on.', nl: 'Rapport verstuurd naar de server ✓ — je kunt gewoon verder.' }));
   } catch (err) {
-    say(`Versturen mislukt (${err?.message || err}); het rapport staat in de console.`);
+    say(t({ en: 'Sending failed ({err}); the report is in the console.', nl: 'Versturen mislukt ({err}); het rapport staat in de console.' }, { err: err?.message || err }));
   }
   console.log('[diag] report', report);
   panel.done();
@@ -294,21 +305,21 @@ function createPanel() {
     'padding:14px 16px;border-radius:12px;background:rgba(8,10,16,.88);color:#ece6dc;' +
     "font:13px/1.45 Jost,system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.5);pointer-events:auto";
   const title = document.createElement('div');
-  title.textContent = 'Ø GPU-diagnose — even geduld…';
+  title.textContent = t({ en: 'Ø GPU diagnostics — please wait…', nl: 'Ø GPU-diagnose — even geduld…' });
   title.style.cssText = 'font-weight:500;letter-spacing:.08em;margin-bottom:6px';
   const body = document.createElement('div');
   el.append(title, body);
   document.body.appendChild(el);
   return {
-    log(t) {
+    log(msg) {
       const line = document.createElement('div');
-      line.textContent = t;
+      line.textContent = msg;
       body.appendChild(line);
     },
     done() {
-      title.textContent = 'Ø GPU-diagnose — klaar';
+      title.textContent = t({ en: 'Ø GPU diagnostics — done', nl: 'Ø GPU-diagnose — klaar' });
       const close = document.createElement('button');
-      close.textContent = 'Sluiten';
+      close.textContent = t({ en: 'Close', nl: 'Sluiten' });
       close.style.cssText = 'margin-top:8px;padding:4px 12px;border-radius:8px;border:1px solid #555;background:#1b1f27;color:#ece6dc;cursor:pointer';
       close.onclick = () => el.remove();
       el.appendChild(close);

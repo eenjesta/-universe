@@ -1,12 +1,14 @@
 /**
  * Title screen UI in the poster layout: Ø UNIVERSE logo, motto, tagline,
- * "A BRIGHTER TOMORROW.", the menu (Speel/Doorgaan · Karakter ·
- * Instellingen), the four pillars panel on the right and the "Gameplay
- * overview" cards with live thumbnails at the bottom. Handles the staged
- * reveal, including the logo hand-off from the boot screen (FLIP).
+ * "A BRIGHTER TOMORROW.", the menu (Play/Continue · Character · Settings),
+ * the four pillars panel on the right and the "Gameplay overview" cards with
+ * live thumbnails at the bottom. Handles the staged reveal, including the
+ * logo hand-off from the boot screen (FLIP). Text is resolved when built.
  */
 import { icon } from '../../ui/icons.js';
-import { PILLARS, CARDS, TAGLINE, MOTTO, BRIGHTER, VERSION, place } from '../data.js';
+import { t, pick } from '../../core/i18n.js';
+import { ZONES } from '../../world/layout.js';
+import { PILLARS, CARDS, TAGLINE_LINES, MOTTO, BRIGHTER, VERSION, place } from '../data.js';
 import { logoMarkSVG, formatDuration, uiSound } from '../util.js';
 
 export class TitleScreen {
@@ -99,13 +101,13 @@ export class TitleScreen {
       h('span', { class: 'shell-logo-mark', html: logoMarkSVG({ size: 100, stroke: 4.4 }) }),
       h('span', { class: 'shell-logo-word', 'aria-hidden': 'true' }, letters),
     );
-    const [l1, l2] = TAGLINE.split('technologie, ');
+    const [l1, l2] = pick(TAGLINE_LINES);
     const brand = h(
       'header',
       { class: 'shell-brand' },
       logo,
       rv(h('div', { class: 'shell-motto', text: MOTTO }), (d = 0.55)),
-      rv(h('p', { class: 'shell-tagline' }, `${l1}technologie, `, h('br', { class: 'shell-br' }), l2), (d += 0.18)),
+      rv(h('p', { class: 'shell-tagline' }, `${l1} `, h('br', { class: 'shell-br' }), l2), (d += 0.18)),
       rv(h('div', { class: 'shell-rule' }), (d += 0.16)),
       rv(h('div', { class: 'shell-brighter', text: BRIGHTER }), (d += 0.12)),
     );
@@ -113,14 +115,14 @@ export class TitleScreen {
 
     const pillars = h(
       'aside',
-      { class: 'shell-pillars', 'aria-label': 'Ø Universe in het kort' },
+      { class: 'shell-pillars', 'aria-label': t({ en: 'Ø Universe at a glance', nl: 'Ø Universe in het kort' }) },
       PILLARS.map((p, i) =>
         rv(
           h(
             'div',
             { class: 'shell-pillar' },
             h('span', { class: 'shell-pillar-icon', html: icon(p.icon, 34) }),
-            h('div', { class: 'shell-pillar-body' }, h('div', { class: 'shell-pillar-title', text: p.title }), h('div', { class: 'shell-pillar-text', text: p.text })),
+            h('div', { class: 'shell-pillar-body' }, h('div', { class: 'shell-pillar-title', text: t(p.title) }), h('div', { class: 'shell-pillar-text', text: t(p.text) })),
           ),
           0.5 + i * 0.12,
         ),
@@ -129,7 +131,8 @@ export class TitleScreen {
 
     this.cardEls = new Map();
     const cards = h('div', { class: 'shell-cards' });
-    CARDS.forEach((c, i) => {
+    CARDS.forEach((def, i) => {
+      const c = { ...def, title: t(def.title), text: t(def.text), cta: t(def.cta) };
       if (i) cards.appendChild(rv(h('span', { class: 'shell-chev', 'aria-hidden': 'true', html: icon('chevron-right', 22) }), 1.05 + i * 0.11));
       const media = h('div', { class: 'shell-card-media' }, h('div', { class: `shell-card-ph shell-card-ph-${c.id}`, html: icon(['shell-mountain', 'cube', 'people', 'rocket'][i], 30) }));
       const card = h(
@@ -159,7 +162,15 @@ export class TitleScreen {
     const overview = h(
       'section',
       { class: 'shell-overview', 'aria-label': 'Gameplay overview' },
-      rv(h('header', { class: 'shell-ov-head' }, h('h2', { class: 'shell-ov-title', text: 'Gameplay overview' }), h('p', { class: 'shell-ov-sub', text: 'Volledige vrijheid in een dynamische, online wereld.' })), 0.85),
+      rv(
+        h(
+          'header',
+          { class: 'shell-ov-head' },
+          h('h2', { class: 'shell-ov-title', text: 'Gameplay overview' }),
+          h('p', { class: 'shell-ov-sub', text: t({ en: 'Complete freedom in a dynamic, online world.', nl: 'Volledige vrijheid in een dynamische, online wereld.' }) }),
+        ),
+        0.85,
+      ),
       cards,
     );
 
@@ -180,8 +191,12 @@ export class TitleScreen {
     const resume = this.shell.hasProgress();
     const st = ctx.state;
     const sub = resume
-      ? [place(st.get('player.zone'))?.label || 'Uitzichtpunt', `Niveau ${st.get('progress.level', 1)}`, formatDuration(st.get('stats.playtime', 0))].join(' · ')
-      : 'Maak je personage en stap de wereld in';
+      ? [
+          place(st.get('player.zone'))?.label || ZONES.spawn.label,
+          t({ en: 'Level {n}', nl: 'Niveau {n}' }, { n: st.get('progress.level', 1) }),
+          formatDuration(st.get('stats.playtime', 0)),
+        ].join(' · ')
+      : t({ en: 'Create your character and step into the world', nl: 'Maak je personage en stap de wereld in' });
     const item = (id, label, iconName, extra = {}) =>
       h(
         'button',
@@ -196,14 +211,14 @@ export class TitleScreen {
           },
         },
         h('span', { class: 'shell-tmenu-icon', html: icon(iconName, extra.primary ? 18 : 16) }),
-        h('span', { class: 'shell-tmenu-text' }, h('span', { class: 'shell-tmenu-label', text: label }), extra.sub ? h('span', { class: 'shell-tmenu-sub', text: extra.sub }) : null),
+        h('span', { class: 'shell-tmenu-text' }, h('span', { class: 'shell-tmenu-label', text: t(label) }), extra.sub ? h('span', { class: 'shell-tmenu-sub', text: extra.sub }) : null),
       );
     const nav = h(
       'nav',
-      { class: 'shell-tmenu', 'aria-label': 'Hoofdmenu' },
-      item('play', resume ? 'Doorgaan' : 'Speel', 'play', { primary: true, sub }),
-      item('character', 'Karakter', 'user'),
-      item('settings', 'Instellingen', 'settings'),
+      { class: 'shell-tmenu', 'aria-label': t({ en: 'Main menu', nl: 'Hoofdmenu' }) },
+      item('play', resume ? { en: 'Continue', nl: 'Doorgaan' } : { en: 'Play', nl: 'Speel' }, 'play', { primary: true, sub }),
+      item('character', { en: 'Character', nl: 'Karakter' }, 'user'),
+      item('settings', { en: 'Settings', nl: 'Instellingen' }, 'settings'),
     );
     nav.addEventListener('keydown', (e) => {
       if (e.code !== 'ArrowDown' && e.code !== 'ArrowUp') return;

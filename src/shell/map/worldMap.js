@@ -2,9 +2,10 @@
  * World map modal (M, 19_world_map.png): the shared relief map image with
  * labelled diamond pins for every zone and region, the player arrow and the
  * active quest markers, a compass rose, a scale bar, wheel zoom + drag pan,
- * and the "Legenda" panel with "Snel reizen" to discovered zones.
+ * and the "Legend" panel with "Fast travel" to discovered zones.
  */
 import { icon } from '../../ui/icons.js';
+import { t, locale } from '../../core/i18n.js';
 import { ZONES, REGIONS, TRAVEL } from '../../world/layout.js';
 import { MAP_PLACES, PLACE_ICONS, ALWAYS_KNOWN, place } from '../data.js';
 import { MAP_EXTENT } from './mapImage.js';
@@ -22,6 +23,13 @@ const PLACES_CENTER = (() => {
 })();
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 5;
+
+/** Labels used in more than one place. */
+const TXT = {
+  worldMap: { en: 'World map', nl: 'Wereldkaart' },
+  fastTravel: { en: 'Fast travel', nl: 'Snel reizen' },
+  youAreHere: { en: 'You are here', nl: 'Je bent hier' },
+};
 
 export class WorldMap {
   constructor(ctx, shell, mapImage, frame) {
@@ -67,7 +75,7 @@ export class WorldMap {
     uiSound(ctx, 'ui.open');
     if (!this.mapImage.ready) this.mapImage.start(0);
     this._offReady = this.mapImage.onReady(() => this._attachCanvas());
-    // frame all named places (base … Aurora-stad), leaning toward the player
+    // frame all named places (base … Aurora City), leaning toward the player
     requestAnimationFrame(() => {
       this._measure();
       const f = this.frame.focus;
@@ -107,10 +115,10 @@ export class WorldMap {
 
     this.canvasHost = h('div', { class: 'shell-map-canvas-host' });
     this.pinLayer = h('div', { class: 'shell-map-pins' });
-    this.playerEl = h('div', { class: 'shell-map-player', title: 'Jij' }, h('div', { class: 'shell-map-player-arrow' }));
+    this.playerEl = h('div', { class: 'shell-map-player', title: t({ en: 'You', nl: 'Jij' }) }, h('div', { class: 'shell-map-player-arrow' }));
     this.questLayer = h('div', { class: 'shell-map-quests' });
-    this.loading = h('div', { class: 'shell-map-loading' }, h('span', { class: 'shell-spinner' }), 'Kaart wordt getekend…');
-    this.loadingNote = h('div', { class: 'shell-map-refine', hidden: true }, h('span', { class: 'shell-spinner' }), 'Details worden geladen…');
+    this.loading = h('div', { class: 'shell-map-loading' }, h('span', { class: 'shell-spinner' }), t({ en: 'Drawing the map…', nl: 'Kaart wordt getekend…' }));
+    this.loadingNote = h('div', { class: 'shell-map-refine', hidden: true }, h('span', { class: 'shell-spinner' }), t({ en: 'Loading details…', nl: 'Details worden geladen…' }));
     this._layers = [];
     this._img = null;
 
@@ -162,23 +170,23 @@ export class WorldMap {
         'div',
         { class: 'shell-map-brand' },
         h('div', { class: 'shell-map-brand-row' }, h('span', { html: logoMarkSVG({ size: 34, stroke: 5 }) }), h('span', { class: 'shell-map-brand-word', text: 'UNIVERSE' })),
-        h('div', { class: 'shell-map-brand-sub', text: 'Wereldkaart' }),
+        h('div', { class: 'shell-map-brand-sub', text: t(TXT.worldMap) }),
       ),
-      h('div', { class: 'shell-map-compass', html: COMPASS_SVG }),
+      h('div', { class: 'shell-map-compass', html: compassSVG() }),
       this.scaleEl,
       h(
         'div',
         { class: 'shell-map-zoom' },
-        h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': 'Inzoomen', html: icon('plus', 18), onclick: () => this._zoomBy(1.5) }),
-        h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': 'Uitzoomen', html: icon('minus', 18), onclick: () => this._zoomBy(1 / 1.5) }),
-        h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': 'Centreer op jou', html: icon('shell-crosshair', 18), onclick: () => this._centerOnPlayer() }),
+        h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': t({ en: 'Zoom in', nl: 'Inzoomen' }), title: t({ en: 'Zoom in', nl: 'Inzoomen' }), html: icon('plus', 18), onclick: () => this._zoomBy(1.5) }),
+        h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': t({ en: 'Zoom out', nl: 'Uitzoomen' }), title: t({ en: 'Zoom out', nl: 'Uitzoomen' }), html: icon('minus', 18), onclick: () => this._zoomBy(1 / 1.5) }),
+        h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': t({ en: 'Centre on you', nl: 'Centreer op jou' }), title: t({ en: 'Centre on you', nl: 'Centreer op jou' }), html: icon('shell-crosshair', 18), onclick: () => this._centerOnPlayer() }),
       ),
-      h('div', { class: 'shell-map-hint', text: 'Scroll om te zoomen · Sleep om te verschuiven · Dubbelklik om te reizen' }),
+      h('div', { class: 'shell-map-hint', text: t({ en: 'Scroll to zoom · Drag to pan · Double-click to travel', nl: 'Scroll om te zoomen · Sleep om te verschuiven · Dubbelklik om te reizen' }) }),
       this.loadingNote,
     );
 
     // legend
-    const list = h('div', { class: 'shell-legend-list scroll', role: 'listbox', 'aria-label': 'Locaties' });
+    const list = h('div', { class: 'shell-legend-list scroll', role: 'listbox', 'aria-label': t({ en: 'Locations', nl: 'Locaties' }) });
     for (const id of MAP_PLACES) {
       const p = place(id);
       if (!p) continue;
@@ -205,17 +213,22 @@ export class WorldMap {
       list.appendChild(item);
     }
     this.detail = h('div', { class: 'shell-map-detail' });
-    this.travelBtn = h('button', { class: 'shell-map-travel', type: 'button', onclick: () => this._travel(this.selected) }, h('span', { html: icon('shell-fast', 20) }), h('span', { class: 'shell-map-travel-label', text: 'Snel reizen' }));
+    this.travelBtn = h('button', { class: 'shell-map-travel', type: 'button', onclick: () => this._travel(this.selected) }, h('span', { html: icon('shell-fast', 20) }), h('span', { class: 'shell-map-travel-label', text: t(TXT.fastTravel) }));
     const legend = h(
       'aside',
       { class: 'shell-map-legend' },
-      h('div', { class: 'shell-map-legend-head' }, h('h2', { class: 'shell-map-legend-title', text: 'Legenda' }), h('button', { class: 'modal-close', type: 'button', 'aria-label': 'Sluiten', html: icon('close', 20), onclick: () => this.close() })),
+      h(
+        'div',
+        { class: 'shell-map-legend-head' },
+        h('h2', { class: 'shell-map-legend-title', text: t({ en: 'Legend', nl: 'Legenda' }) }),
+        h('button', { class: 'modal-close', type: 'button', 'aria-label': t({ en: 'Close', nl: 'Sluiten' }), html: icon('close', 20), onclick: () => this.close() }),
+      ),
       list,
       this.detail,
       this.travelBtn,
     );
 
-    this.el = h('div', { class: 'shell-map', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Wereldkaart' }, stage, legend);
+    this.el = h('div', { class: 'shell-map', role: 'dialog', 'aria-modal': 'true', 'aria-label': t(TXT.worldMap) }, stage, legend);
     this._attachCanvas();
   }
 
@@ -325,7 +338,7 @@ export class WorldMap {
       }
       const [x, y] = this._toScreen(e.x, e.z);
       el.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
-      const label = e.m.label || 'Missie';
+      const label = t(e.m.label) || t({ en: 'Mission', nl: 'Missie' });
       if (el.lastChild.textContent !== label) el.lastChild.textContent = label;
       el.classList.toggle('is-tracked', e === f.tracked);
       // a quest target on a named place: ring the pin instead of a second label
@@ -357,7 +370,7 @@ export class WorldMap {
     let len = nice[0];
     for (const n of nice) if (n * ppm <= 190) len = n;
     const px = len * ppm;
-    const label = (m) => (m >= 1000 ? `${(m / 1000).toString().replace('.', ',')} km` : `${m} m`);
+    const label = (m) => (m >= 1000 ? `${(m / 1000).toLocaleString(locale())} km` : `${m} m`);
     this.scaleEl.innerHTML = `<div class="shell-map-scale-bar" style="width:${Math.round(px)}px"><i></i><i></i><i></i></div>
       <div class="shell-map-scale-labels" style="width:${Math.round(px)}px"><span>0</span><span>${label(len / 2).replace(/ (m|km)$/, '')}</span><span>${label(len)}</span></div>`;
   }
@@ -471,32 +484,36 @@ export class WorldMap {
     const known = region || this.discovered().has(id) || id === 'city';
     const here = this.shell.currentZone?.() === id || dist < (p.radius || 30);
     const canTravel = this._canTravel(id);
+    const notYet = { en: 'Not discovered yet', nl: 'Nog niet ontdekt' };
     let status;
-    if (region) status = 'Regio';
-    else if (!TRAVEL.includes(id)) status = known ? 'Zichtbaar vanaf de oever' : 'Nog niet ontdekt';
-    else status = known ? 'Ontdekt' : 'Nog niet ontdekt';
+    if (region) status = { en: 'Region', nl: 'Regio' };
+    else if (!TRAVEL.includes(id)) status = known ? { en: 'Visible from the shore', nl: 'Zichtbaar vanaf de oever' } : notYet;
+    else status = known ? { en: 'Discovered', nl: 'Ontdekt' } : notYet;
     this.detail.replaceChildren(
       h('div', { class: 'shell-map-detail-name' }, h('span', { html: icon(PLACE_ICONS[id] || 'pin', 18) }), p.label),
-      h('p', { class: 'shell-map-detail-desc', text: known ? p.desc || '' : 'Verken de wereld om deze locatie te ontdekken.' }),
+      h('p', { class: 'shell-map-detail-desc', text: known ? p.desc || '' : t({ en: 'Explore the world to discover this location.', nl: 'Verken de wereld om deze locatie te ontdekken.' }) }),
       h(
         'div',
         { class: 'shell-map-detail-meta' },
-        h('span', { class: `shell-map-detail-status${known && !region ? ' is-known' : ''}`, text: status }),
-        this.ctx.modes.is('space') ? null : h('span', { class: 'num', text: here ? 'Je bent hier' : formatDistance(dist) }),
+        h('span', { class: `shell-map-detail-status${known && !region ? ' is-known' : ''}`, text: t(status) }),
+        this.ctx.modes.is('space') ? null : h('span', { class: 'num', text: here ? t(TXT.youAreHere) : formatDistance(dist) }),
       ),
     );
     const enabled = canTravel && !here;
     this.travelBtn.disabled = !enabled;
-    this.travelBtn.title = enabled
-      ? `Reis naar ${p.label}`
-      : here
-        ? 'Je bent hier al'
-        : !TRAVEL.includes(id)
-          ? 'Snel reizen is hier niet mogelijk'
-          : !known
-            ? 'Ontdek deze locatie eerst'
-            : 'Snel reizen kan alleen op de planeet';
-    this.travelBtn.querySelector('.shell-map-travel-label').textContent = here && canTravel ? 'Je bent hier' : 'Snel reizen';
+    this.travelBtn.title = t(
+      enabled
+        ? { en: 'Travel to {place}', nl: 'Reis naar {place}' }
+        : here
+          ? { en: 'You are already here', nl: 'Je bent hier al' }
+          : !TRAVEL.includes(id)
+            ? { en: 'Fast travel is not possible here', nl: 'Snel reizen is hier niet mogelijk' }
+            : !known
+              ? { en: 'Discover this location first', nl: 'Ontdek deze locatie eerst' }
+              : { en: 'Fast travel only works on the planet', nl: 'Snel reizen kan alleen op de planeet' },
+      { place: p.label },
+    );
+    this.travelBtn.querySelector('.shell-map-travel-label').textContent = t(here && canTravel ? TXT.youAreHere : TXT.fastTravel);
   }
 
   async _travel(id) {
@@ -515,14 +532,19 @@ export class WorldMap {
   }
 }
 
-const COMPASS_SVG = `<svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true" fill="none">
+/** Compass rose; the letters follow the language (N/E/S/W, nl N/O/Z/W). */
+function compassSVG() {
+  const east = t({ en: 'E', nl: 'O' });
+  const south = t({ en: 'S', nl: 'Z' });
+  return `<svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true" fill="none">
   <circle cx="60" cy="60" r="38" stroke="rgba(236,230,220,.55)" stroke-width="1"/>
   <circle cx="60" cy="60" r="27" stroke="rgba(236,230,220,.2)" stroke-width="1" stroke-dasharray="2 3"/>
   <path d="M60 14v10M60 96v10M14 60h10M96 60h10" stroke="rgba(236,230,220,.6)" stroke-width="1"/>
   <path d="m60 33 7 27-7-5-7 5Z" fill="#ece6dc"/>
   <path d="m60 87-7-27 7 5 7-5Z" fill="rgba(236,230,220,.28)"/>
   <text x="60" y="10" text-anchor="middle" font-family="Jost, sans-serif" font-size="12" font-weight="500" fill="#fff">N</text>
-  <text x="114" y="64" text-anchor="middle" font-family="Jost, sans-serif" font-size="11" fill="rgba(236,230,220,.8)">O</text>
-  <text x="60" y="118" text-anchor="middle" font-family="Jost, sans-serif" font-size="11" fill="rgba(236,230,220,.8)">Z</text>
+  <text x="114" y="64" text-anchor="middle" font-family="Jost, sans-serif" font-size="11" fill="rgba(236,230,220,.8)">${east}</text>
+  <text x="60" y="118" text-anchor="middle" font-family="Jost, sans-serif" font-size="11" fill="rgba(236,230,220,.8)">${south}</text>
   <text x="6" y="64" text-anchor="middle" font-family="Jost, sans-serif" font-size="11" fill="rgba(236,230,220,.8)">W</text>
 </svg>`;
+}

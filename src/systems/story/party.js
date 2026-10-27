@@ -1,16 +1,18 @@
 /**
  * Party: NPCs that follow the player (ctx.npcs.get(id).follow(player.object)),
  * persisted in state.systems.party, plus the party list widget in the right
- * HUD slot (portrait avatars or initials, status "Volgt je" / distance).
+ * HUD slot (portrait avatars or initials, status "Following you" / distance).
  */
 import * as THREE from 'three';
+import { t } from '../../core/i18n.js';
 import { fmtDist, playerPos, zoneAt, zoneLabel } from '../shared/util.js';
 
 export function createParty(ctx, { trees, portraits, notify, refs }) {
   const { ui, state } = ctx;
   const members = () => [...(state.get('systems.party') || [])];
   const has = (id) => members().includes(id);
-  const nameOf = (id) => trees[id]?.name || ctx.npcs?.get?.(id)?.name || id;
+  const nameOf = (id) => t(trees[id]?.name || ctx.npcs?.get?.(id)?.name || id);
+  const FOLLOWING = { en: 'Following you', nl: 'Volgt je' };
 
   function applyFollow(id, on) {
     try {
@@ -30,14 +32,21 @@ export function createParty(ctx, { trees, portraits, notify, refs }) {
   function join(id, { silent = false } = {}) {
     if (!id || has(id)) return false;
     if (full()) {
-      if (!silent) notify.show({ kind: 'event', icon: 'party', title: 'Je groep is vol', sub: 'Maximaal 4 spelers', sound: 'ui.error', duration: 2600 });
+      if (!silent) notify.show({ kind: 'event', icon: 'party', title: t({ en: 'Your party is full', nl: 'Je groep is vol' }), sub: t({ en: 'Up to 4 players', nl: 'Maximaal 4 spelers' }), sound: 'ui.error', duration: 2600 });
       return false;
     }
     state.set('systems.party', [...members(), id]);
     applyFollow(id, true);
     if (!silent) {
-      notify.show({ kind: 'event', icon: 'party', title: `${nameOf(id)} sluit zich aan bij je groep`, sub: `Groep ${members().length + 1}/4`, sound: 'reward', duration: 3200 });
-      refs.chat?.system?.(`${nameOf(id)} heeft zich bij je groep gevoegd.`);
+      notify.show({
+        kind: 'event',
+        icon: 'party',
+        title: t({ en: '{name} joins your party', nl: '{name} sluit zich aan bij je groep' }, { name: nameOf(id) }),
+        sub: t({ en: 'Party {n}/4', nl: 'Groep {n}/4' }, { n: members().length + 1 }),
+        sound: 'reward',
+        duration: 3200,
+      });
+      refs.chat?.system?.(t({ en: '{name} has joined your party.', nl: '{name} heeft zich bij je groep gevoegd.' }, { name: nameOf(id) }));
     }
     ctx.events.emit('party:join', { id });
     render();
@@ -48,7 +57,7 @@ export function createParty(ctx, { trees, portraits, notify, refs }) {
     if (!has(id)) return false;
     state.set('systems.party', members().filter((m) => m !== id));
     applyFollow(id, false);
-    if (!silent) refs.chat?.system?.(`${nameOf(id)} heeft je groep verlaten.`);
+    if (!silent) refs.chat?.system?.(t({ en: '{name} has left your party.', nl: '{name} heeft je groep verlaten.' }, { name: nameOf(id) }));
     ctx.events.emit('party:leave', { id });
     render();
     return true;
@@ -57,15 +66,15 @@ export function createParty(ctx, { trees, portraits, notify, refs }) {
   // ---------------------------------------------------------------- widget
   const list = ui.h('div', { class: 'sys-party-list' });
   const count = ui.h('b');
-  const el = ui.h('div', { class: 'sys-party' }, ui.h('div', { class: 'sys-party-head', html: `${ui.icon('party', 15)}<span>Groep</span>` }, count), list);
+  const el = ui.h('div', { class: 'sys-party' }, ui.h('div', { class: 'sys-party-head', html: `${ui.icon('party', 15)}<span>${t({ en: 'Party', nl: 'Groep' })}</span>` }, count), list);
   ui.addWidget('right', el, { modes: ['explore', 'drive'], order: 10 });
   const rows = new Map(); // id → {row, status, dot}
 
   function avatarFor(id) {
-    const t = trees[id];
+    const tr = trees[id];
     const av = ui.h('div', { class: 'sys-party-avatar', text: (nameOf(id) || '?').slice(0, 1).toUpperCase() });
-    av.style.setProperty('--av', t?.accent || '#b48cff');
-    const info = t || { id, name: nameOf(id) };
+    av.style.setProperty('--av', tr?.accent || '#b48cff');
+    const info = tr || { id, name: nameOf(id) };
     try {
       if (portraits.has?.(id)) av.appendChild(portraits.avatar(id, info, 72));
       else {
@@ -100,7 +109,7 @@ export function createParty(ctx, { trees, portraits, notify, refs }) {
     }
     for (const id of ids) {
       if (rows.has(id)) continue;
-      const status = ui.h('div', { class: 'sys-party-status', text: 'Volgt je' });
+      const status = ui.h('div', { class: 'sys-party-status', text: t(FOLLOWING) });
       const dot = ui.h('span', { class: 'sys-party-dot' });
       const row = ui.h('div', { class: 'sys-party-member' }, avatarFor(id), ui.h('div', { class: 'sys-party-info' }, ui.h('div', { class: 'sys-party-name', text: nameOf(id) }), status), dot);
       list.appendChild(row);
@@ -114,7 +123,7 @@ export function createParty(ctx, { trees, portraits, notify, refs }) {
     const p = playerPos(ctx, _p);
     for (const [id, r] of rows) {
       const n = ctx.npcs?.get?.(id)?.position;
-      let text = 'Volgt je';
+      let text = t(FOLLOWING);
       let far = false;
       if (p && n) {
         const d = Math.hypot(n.x - p.x, n.z - p.z);
@@ -123,7 +132,7 @@ export function createParty(ctx, { trees, portraits, notify, refs }) {
           const z = zoneAt(n.x, n.z);
           text = `${fmtDist(d)}${z ? ` · ${zoneLabel(z)}` : ''}`;
         }
-      } else if (!n) text = 'Groepschat';
+      } else if (!n) text = t({ en: 'Party chat', nl: 'Groepschat' });
       if (text !== r.last) {
         r.last = text;
         r.status.textContent = text;

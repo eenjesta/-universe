@@ -7,7 +7,8 @@
  */
 import * as THREE from 'three';
 import { GeoBuilder, Frame, addBeam, mat, hdr } from './common.js';
-import { meshPanelTexture, signTexture } from './textures.js';
+import { meshPanelTexture, signTexture, signAspect } from './textures.js';
+import { t } from '../core/i18n.js';
 
 const H = 22; // platform height
 const CORE = 2.4; // half size of the leg square
@@ -212,9 +213,11 @@ export function buildLookout(env, zone) {
   wood.box(0.8, 0.6, 0.6, F.m(DECK * 0.62, deckY + 0.3, DECK * 0.62, 0, 0.3, 0), woodO(0x9a7a54));
   F.box(physics, DECK * 0.62, deckY + 0.3, DECK * 0.62, 0.8, 0.6, 0.6, 0.3);
 
-  // sign at the stair entrance
-  const sign = signTexture('UITKIJKPOST', { color: '#f0dcc0', glow: null, bg: '#3a2a1e', height: 96 });
-  const sw = 2.4;
+  // sign at the stair entrance (letter height designed for 'UITKIJKPOST' on a 2.4 m board)
+  const signOpts = { color: '#f0dcc0', glow: null, bg: '#3a2a1e', height: 96 };
+  const sign = signTexture(t({ en: 'LOOKOUT', nl: 'UITKIJKPOST' }), signOpts);
+  const letterH = 2.4 / signAspect('UITKIJKPOST', signOpts);
+  const sw = Math.min(2.4, letterH * sign.userData.aspect);
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(sw, sw / sign.userData.aspect), new THREE.MeshStandardMaterial({ map: sign, roughness: 0.9 }));
   mats.list.push(signMesh.material);
   signMesh.position.copy(V(-BAND_OUT - 1.6, 1.7, BAND_C + 1.2));

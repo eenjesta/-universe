@@ -1,6 +1,6 @@
 /**
- * Top-centre notification banner (poster: "Locatie ontdekt: Uitkijkpost" +
- * "+250 XP"). One message at a time from a queue: discoveries, quest start /
+ * Top-centre notification banner (poster: "Location discovered: Lookout" +
+ * "+250 XP"; Dutch "Locatie ontdekt: Uitkijkpost"). One message at a time from a queue: discoveries, quest start /
  * completion, level-ups. Lives in the top-center HUD slot below the compass
  * strip and the world-event banner.
  */

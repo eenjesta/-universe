@@ -24,7 +24,7 @@ export function installGlue(ctx, { rewards, progress }) {
   });
   on('build:placed', () => progress.addXP(8, 'build'));
   on('harvest', (p) => progress.addXP(p.source === 'meteor' ? 30 : 4, 'harvest'));
-  // every landmark has a short story in the journal ("Verhalen")
+  // every landmark has a short story in the journal ("Stories")
   const ZONE_LORE = { city: 'aurora', lookout: 'lookout', waterfall: 'waterfall', plaza: 'plaza', spaceport: 'spaceport', base: 'base' };
   on('progress:discover', ({ zone }) => {
     if (ZONE_LORE[zone]) rewards.unlockLore(ZONE_LORE[zone], { silent: true });

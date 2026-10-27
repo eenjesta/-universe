@@ -5,13 +5,15 @@
  * module errors. Everything comes from ctx.debug.info(), sampled twice per
  * second (the engine resets its render counters once per frame).
  */
+import { t, locale } from '../../core/i18n.js';
 import { formatNumber } from '../util.js';
 
-/** 1240000 → "1,24 M", 85400 → "85,4 k" (Dutch decimal comma). */
+/** 1240000 → "1.24 M", 85400 → "85.4 k" (decimal sign of the active language). */
 function compact(n) {
   if (!Number.isFinite(n)) return '–';
-  if (n >= 1e6) return `${(n / 1e6).toFixed(2).replace('.', ',')} M`;
-  if (n >= 1e4) return `${(n / 1e3).toFixed(1).replace('.', ',')} k`;
+  const dec = (v, d) => v.toLocaleString(locale(), { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (n >= 1e6) return `${dec(n / 1e6, 2)} M`;
+  if (n >= 1e4) return `${dec(n / 1e3, 1)} k`;
   return formatNumber(n);
 }
 
@@ -31,7 +33,7 @@ export class DebugOverlay {
       const row = (key, label) => {
         const v = h('span', { class: 'shell-debug-v' });
         this.rows[key] = v;
-        return h('div', { class: 'shell-debug-row' }, h('span', { class: 'shell-debug-k', text: label }), v);
+        return h('div', { class: 'shell-debug-row' }, h('span', { class: 'shell-debug-k', text: t(label) }), v);
       };
       this.panel = h(
         'div',
@@ -40,12 +42,12 @@ export class DebugOverlay {
         row('fps', 'FPS'),
         row('ms', 'Frame'),
         row('calls', 'Draw calls'),
-        row('tris', 'Driehoeken'),
+        row('tris', { en: 'Triangles', nl: 'Driehoeken' }),
         row('mem', 'Geo / tex'),
-        row('mode', 'Modus'),
+        row('mode', { en: 'Mode', nl: 'Modus' }),
         row('cam', 'Camera'),
-        row('pos', 'Positie'),
-        row('errors', 'Fouten'),
+        row('pos', { en: 'Position', nl: 'Positie' }),
+        row('errors', { en: 'Errors', nl: 'Fouten' }),
       );
       ctx.ui.layers.hud.appendChild(this.panel);
     }
@@ -78,7 +80,9 @@ export class DebugOverlay {
       info = null;
     }
     this.fpsNum.textContent = `${Math.round(fps)} FPS`;
-    this.fpsStats.textContent = info ? ` · ${compact(info.drawCalls ?? 0)} draw calls · ${compact(info.triangles ?? 0)} driehoeken` : '';
+    this.fpsStats.textContent = info
+      ? t({ en: ' · {calls} draw calls · {tris} triangles', nl: ' · {calls} draw calls · {tris} driehoeken' }, { calls: compact(info.drawCalls ?? 0), tris: compact(info.triangles ?? 0) })
+      : '';
     this.fpsEl.classList.toggle('is-low', fps < 30);
     if (!this.panel) return;
     const r = this.rows;

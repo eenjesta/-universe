@@ -11,7 +11,8 @@ import * as THREE from 'three';
 import { ZONES } from '../world/layout.js';
 import { Rng } from '../core/math.js';
 import { GeoBuilder, Frame, addBeam, mat, TAU, hdr } from './common.js';
-import { padTexture, ribTexture, signTexture } from './textures.js';
+import { padTexture, ribTexture, signTexture, signAspect } from './textures.js';
+import { t } from '../core/i18n.js';
 import { buildPools } from './plaza.js';
 
 const PADS = [
@@ -247,9 +248,10 @@ export function buildSpaceport(env) {
     hm.box(2.4, 1.4, 2.4, HF.m(-20, y - 22.6, 4), { color: YELLOW });
     for (const lx of [-HW + 3, HW - 3]) hm.box(3, 2, 6, HF.m(lx, y + 0.5, 4), { color: 0x9a7a18 });
   }
-  // fascia sign
-  const sign = signTexture('RUIMTEHAVEN', { color: '#e8f4ff', glow: 'rgba(120,200,255,1)', height: 128 });
-  const sw = 46;
+  // fascia sign (letter height designed for 'RUIMTEHAVEN' at 46 m wide)
+  const signOpts = { color: '#e8f4ff', glow: 'rgba(120,200,255,1)', height: 128 };
+  const sign = signTexture(t({ en: 'SPACEPORT', nl: 'RUIMTEHAVEN' }), signOpts);
+  const sw = Math.min(46, (46 / signAspect('RUIMTEHAVEN', signOpts)) * sign.userData.aspect);
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(sw, sw / sign.userData.aspect), mats.holo(sign, { intensity: 1.3, dayLevel: 0.5, scan: 0, side: THREE.FrontSide }));
   signMesh.position.copy(HF.p(-30, HH - 3.6, -HDp - 2.45));
   signMesh.rotation.y = HF.heading(Math.PI);

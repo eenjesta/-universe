@@ -2,14 +2,15 @@
  * Quest tracker widget (top-left, modes explore/drive/space) in the poster
  * style: cyan diamond + quest title, thin progress line, objectives with cyan
  * circle checks, live distance (or dwell %) on the current objective and an
- * animated completion ("Missie voltooid") before switching to the next quest.
+ * animated completion ("Mission complete") before switching to the next quest.
  */
+import { t } from '../../core/i18n.js';
 import { fmtDist, playerPos } from '../shared/util.js';
 
 export function createTracker(ctx, { quests, sys }) {
   const { ui } = ctx;
   // clicking the tracker (with a free mouse) opens the journal on the shown quest
-  const root = ui.h('div', { class: 'sys-tracker', title: 'Missies [J]', onclick: () => shownId && sys.emit('journal:open', { id: shownId }) });
+  const root = ui.h('div', { class: 'sys-tracker', title: t({ en: 'Missions [J]', nl: 'Missies [J]' }), onclick: () => shownId && sys.emit('journal:open', { id: shownId }) });
   ui.addWidget('top-left', root, { modes: ['explore', 'drive', 'space'], order: 10 });
 
   let card = null;
@@ -21,7 +22,7 @@ export function createTracker(ctx, { quests, sys }) {
 
   function buildCard(q) {
     const compact = q.objectives.length === 1;
-    const showObj = compact && !q.titleOnly; // "Het signaal — Spreek met Aria" vs "Aanmeren bij Station Halo"
+    const showObj = compact && !q.titleOnly; // "The Signal — Talk to Aria" vs "Dock at Station Halo"
     const el = ui.h('div', { class: `sys-tr-card${compact ? ' compact' : ''}`, dataset: { type: q.type, quest: q.id } });
     const head = ui.h(
       'div',
@@ -38,7 +39,7 @@ export function createTracker(ctx, { quests, sys }) {
     );
     const bar = ui.h('div', { class: 'sys-tr-bar' }, ui.h('i'));
     const list = compact ? null : ui.h('ul', { class: 'sys-tr-objs' });
-    const done = ui.h('div', { class: 'sys-tr-done' }, ui.h('span', { class: 'sys-tr-done-ic', html: ui.icon('check', 13) }), ui.h('span', { text: 'Missie voltooid' }));
+    const done = ui.h('div', { class: 'sys-tr-done' }, ui.h('span', { class: 'sys-tr-done-ic', html: ui.icon('check', 13) }), ui.h('span', { text: t({ en: 'Mission complete', nl: 'Missie voltooid' }) }));
     el.append(head, bar);
     if (list) el.append(list);
     el.append(done);

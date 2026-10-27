@@ -2,15 +2,16 @@
  * Chat widget (bottom-left, above the minimap; modes explore/drive) in the
  * poster style: dark rounded panel, coloured names, emoji. Enter/T focuses
  * the input (gameplay input is blocked while typing), the player posts as
- * "Jij", NPCs reply via the intent engine (context-aware), ambient plaza and
+ * "You" ("Jij"), NPCs reply via the intent engine (context-aware), ambient plaza and
  * festival chatter, party remarks, speech bubbles via npc.say.
  * Emits chat:message {from, text, color, self} and chat:sent {text}.
  */
 import '../css/chat.css';
 import { ZONES } from '../../world/layout.js';
+import { t, pick as pickLang } from '../../core/i18n.js';
 import { detectIntents, primaryIntent, replyFor } from './intents.js';
 import { POSTER_TALK, PLAZA_LINES, FESTIVAL_LINES, WORLD_LINES, ZONE_REMARKS, PARTY_BANTER } from './lines.js';
-import { fill, hourOf, isNight, partOfDay, playerPos, pick, zoneLabel, zoneAtText } from '../shared/util.js';
+import { fill, hourOf, isNight, partOfDay, partOfDayText, playerPos, pick, zoneLabel, zoneAtText } from '../shared/util.js';
 
 /** Speakers: named NPCs + a few "online players". */
 const SPEAKERS = {
@@ -29,6 +30,9 @@ const SPEAKERS = {
 const NAMED = ['luna', 'kai', 'nova', 'aria', 'oran', 'yara', 'milan', 'jules'];
 const ONLINE = ['luna', 'kai', 'nova', 'Mira_Ø', 'StarRider', 'Jonas'];
 const MAX_LINES = 40;
+const YOU = { en: 'You', nl: 'Jij' };
+const TRAVELER = { en: 'Traveler', nl: 'Reiziger' };
+const HERE = { en: 'here', nl: 'hier' };
 
 export function createChat(ctx, { sys, refs, portraits }) {
   const { ui, state } = ctx;
@@ -41,11 +45,11 @@ export function createChat(ctx, { sys, refs, portraits }) {
     maxlength: '140',
     spellcheck: 'false',
     autocomplete: 'off',
-    placeholder: 'Druk op Enter om te chatten',
-    'aria-label': 'Chatbericht',
+    placeholder: t({ en: 'Press Enter to chat', nl: 'Druk op Enter om te chatten' }),
+    'aria-label': t({ en: 'Chat message', nl: 'Chatbericht' }),
   });
   const suggest = ui.h('div', { class: 'sys-chat-suggest' });
-  const sendBtn = ui.h('button', { class: 'sys-chat-send', title: 'Versturen', html: ui.icon('sys-send', 15), onclick: () => submit() });
+  const sendBtn = ui.h('button', { class: 'sys-chat-send', title: t({ en: 'Send', nl: 'Versturen' }), html: ui.icon('sys-send', 15), onclick: () => submit() });
   const row = ui.h('div', { class: 'sys-chat-row' }, ui.h('span', { class: 'sys-chat-ic', html: ui.icon('chat', 15) }), input, sendBtn);
   const el = ui.h('div', { class: 'sys-chat' }, log, suggest, row);
   ui.addWidget('bottom-left', el, { modes: ['explore', 'drive'], order: 20 });
@@ -115,7 +119,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
   function post(from, text, { color, self = false, kind = 'msg' } = {}) {
     if (!text) return;
     const sp = SPEAKERS[from];
-    const name = self ? 'Jij' : sp?.name || from || '???';
+    const name = self ? t(YOU) : sp?.name || from || '???';
     const col = color || (self ? '#ffffff' : colorOf(from));
     addLine({ from, name, text, color: col, kind, self });
     if (!self && kind !== 'system') ctx.audio.play('chat', { volume: 0.6 });
@@ -124,7 +128,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
 
   function system(text) {
     addLine({ text, kind: 'system', color: '#7fe0ff' });
-    ctx.events.emit('chat:message', { from: 'Systeem', text, color: '#7fe0ff', self: false, kind: 'system' });
+    ctx.events.emit('chat:message', { from: t({ en: 'System', nl: 'Systeem' }), text, color: '#7fe0ff', self: false, kind: 'system' });
   }
 
   /** NPC line + speech bubble if the NPC is nearby. */
@@ -175,18 +179,19 @@ export function createChat(ctx, { sys, refs, portraits }) {
       speaker,
       text,
       pos: p ? { x: p.x, z: p.z } : null,
-      player: state.get('profile.name') || 'Reiziger',
+      player: state.get('profile.name') || t(TRAVELER),
       zone: zoneLabel(z),
       zoneLabel: z ? zoneLabel(z) : '',
       at: z ? zoneAtText(z) : '',
       night: isNight(ctx),
-      dagdeel: partOfDay(ctx),
+      daypart: partOfDay(ctx), // id: 'morning' | 'afternoon' | 'evening' | 'night'
+      daypartText: partOfDayText(ctx), // "evening" / "avond"
       clock: clockText(),
       quest: q,
       objective: cur?.text?.replace(/\s*\(\d+\/\d+\)$/, '') || '',
       partySize: party.length,
       partyIds: party,
-      partyNames: party.map((id) => SPEAKERS[id]?.name || id).join(' en '),
+      partyNames: party.map((id) => SPEAKERS[id]?.name || id).join(t({ en: ' and ', nl: ' en ' })),
       festival: !!refs.events?.isActive('starfall'),
       meteors: !!refs.events?.isActive('meteors'),
       nearPlaza: !!p && Math.hypot(p.x - ZONES.plaza.x, p.z - ZONES.plaza.z) < 110,
@@ -245,10 +250,11 @@ export function createChat(ctx, { sys, refs, portraits }) {
       later(at, () => {
         hideTyping();
         const c = context(id, text);
-        let line = fill(replyFor(intent, c), { player: c.player, zone: c.zoneLabel || 'hier', at: c.at || 'hier', dagdeel: c.dagdeel, speakerName: SPEAKERS[id]?.name || id });
+        const here = t(HERE);
+        let line = fill(replyFor(intent, c), { player: c.player, zone: c.zoneLabel || here, at: c.at || here, daypart: c.daypartText, dagdeel: c.daypartText, speakerName: SPEAKERS[id]?.name || id });
         // a party invite through chat: a nearby named NPC joins
         if (intent === 'party' && NAMED.includes(id) && !refs.party?.has(id) && !refs.party?.full?.() && ctx.npcs?.get?.(id) && nearestNamed(40) === id) {
-          line = pick(['Ik kom eraan! 🙌', 'Ja! Ik volg je.', 'Gezellig, ik doe mee!']);
+          line = pick(pickLang({ en: ["I'm coming! 🙌", "Yes! I'll follow you.", "Fun, I'm in!"], nl: ['Ik kom eraan! 🙌', 'Ja! Ik volg je.', 'Gezellig, ik doe mee!'] }));
           later(0.6, () => refs.party?.join(id));
         }
         npcSay(id, line, { kind: refs.party?.has(id) ? 'party' : 'msg' });
@@ -298,7 +304,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
   function send(text) {
     text = String(text || '').trim().slice(0, 140);
     if (!text) return false;
-    post('Jij', text, { self: true });
+    post('you', text, { self: true });
     ctx.events.emit('chat:sent', { text });
     reply(text);
     return true;
@@ -306,19 +312,19 @@ export function createChat(ctx, { sys, refs, portraits }) {
 
   function renderSuggestions() {
     const c = context();
-    const opts = ['Hoi! 👋', 'Laten we gaan! 🚀'];
-    if (c.festival) opts.push('Wat een show! ✨');
-    else if (c.quest) opts.push('Wat is de missie?');
-    else opts.push('Wat kan ik doen?');
+    const opts = [t({ en: 'Hi! 👋', nl: 'Hoi! 👋' }), t({ en: "Let's go! 🚀", nl: 'Laten we gaan! 🚀' })];
+    if (c.festival) opts.push(t({ en: 'What a show! ✨', nl: 'Wat een show! ✨' }));
+    else if (c.quest) opts.push(t({ en: "What's the mission?", nl: 'Wat is de missie?' }));
+    else opts.push(t({ en: 'What can I do?', nl: 'Wat kan ik doen?' }));
     suggest.textContent = '';
-    for (const t of opts) {
+    for (const text of opts) {
       suggest.appendChild(
         ui.h('button', {
           class: 'sys-chat-chip',
-          text: t,
+          text,
           onmousedown: (e) => {
             e.preventDefault();
-            send(t);
+            send(text);
             closeInput();
           },
         }),
@@ -351,7 +357,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
       if (!b || !members.length) return;
       banterAt = ctx.loop.time;
       const id = b.who && members.includes(b.who) ? b.who : pick(members);
-      npcSay(id, fill(pick(PARTY_BANTER[b.kind]), b.vars), { kind: 'party' });
+      npcSay(id, fill(pick(pickLang(PARTY_BANTER[b.kind])), b.vars), { kind: 'party' });
     });
   }
   ctx.events.on('quest:complete', ({ id } = {}) => {
@@ -372,7 +378,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
     // first visit to the plaza: the poster conversation
     if (zone === 'plaza' && !posterPlayed) {
       posterPlayed = true;
-      POSTER_TALK.forEach(([id, text], i) => later(1.5 + i * 2.6, () => npcSay(id, text)));
+      POSTER_TALK.forEach(([id, text], i) => later(1.5 + i * 2.6, () => npcSay(id, t(text))));
       ambientAt = ctx.loop.time + 14;
     }
     // party remarks, once per zone per session
@@ -380,15 +386,15 @@ export function createChat(ctx, { sys, refs, portraits }) {
     if (party.length && !remarked.has(zone)) {
       remarked.add(zone);
       const id = party.includes('aria') ? 'aria' : party[0];
-      const text = ZONE_REMARKS[id]?.[zone] || ZONE_REMARKS.default[zone];
+      const text = t(ZONE_REMARKS[id]?.[zone] || ZONE_REMARKS.default[zone]);
       if (text) later(2.2, () => npcSay(id, text, { kind: 'party' }));
     }
   });
 
   function tick() {
-    const t = ctx.loop.time;
+    const now0 = ctx.loop.time;
     for (let i = queue.length - 1; i >= 0; i--) {
-      if (queue[i].at <= t) {
+      if (queue[i].at <= now0) {
         const job = queue.splice(i, 1)[0];
         try {
           job.fn();
@@ -398,7 +404,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
       }
     }
     if (!ctx.modes.is('explore', 'drive')) return;
-    if (t < ambientAt && t < worldAt) {
+    if (now0 < ambientAt && now0 < worldAt) {
       if (!focused && now() - lastActivity > 14 && !el.classList.contains('idle')) el.classList.add('idle');
       return;
     }
@@ -407,23 +413,23 @@ export function createChat(ctx, { sys, refs, portraits }) {
       festival: !!refs.events?.isActive('starfall'),
       nearPlaza: !!pp && Math.hypot(pp.x - ZONES.plaza.x, pp.z - ZONES.plaza.z) < 110,
     };
-    if (t >= ambientAt) {
+    if (now0 >= ambientAt) {
       if (c.festival && c.nearPlaza) {
         const [id, text] = pick(FESTIVAL_LINES);
-        npcSay(id, text);
-        ambientAt = t + 7 + Math.random() * 7;
+        npcSay(id, t(text));
+        ambientAt = now0 + 7 + Math.random() * 7;
       } else if (c.nearPlaza) {
         const [id, text] = pick(PLAZA_LINES);
-        npcSay(id, text);
-        ambientAt = t + 11 + Math.random() * 12;
-      } else ambientAt = t + 5;
+        npcSay(id, t(text));
+        ambientAt = now0 + 11 + Math.random() * 12;
+      } else ambientAt = now0 + 5;
     }
-    if (t >= worldAt) {
+    if (now0 >= worldAt) {
       if (!c.nearPlaza) {
         const [id, text] = pick(WORLD_LINES);
-        post(id, text);
+        post(id, t(text));
       }
-      worldAt = t + 55 + Math.random() * 45;
+      worldAt = now0 + 55 + Math.random() * 45;
     }
     // fade old lines when idle
     if (!focused && now() - lastActivity > 14 && !el.classList.contains('idle')) el.classList.add('idle');
@@ -447,9 +453,9 @@ export function createChat(ctx, { sys, refs, portraits }) {
   });
 
   // greeting lines so the panel is never empty
-  system('Welkom in Ø Universe! Zeg hallo tegen de andere reizigers.');
-  later(4, () => post('luna', 'Hoi allemaal! 👋'));
-  later(6.5, () => post('kai', 'Jo! 🙌'));
+  system(t({ en: 'Welcome to Ø Universe! Say hello to the other travelers.', nl: 'Welkom in Ø Universe! Zeg hallo tegen de andere reizigers.' }));
+  later(4, () => post('luna', t({ en: 'Hi everyone! 👋', nl: 'Hoi allemaal! 👋' })));
+  later(6.5, () => post('kai', t({ en: 'Yo! 🙌', nl: 'Jo! 🙌' })));
 
   return {
     post,

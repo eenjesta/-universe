@@ -2,7 +2,7 @@
  * Zone presence tracker: every 0.25 s works out which zone (layout.js) the
  * player — or the vehicle they drive — is in, emits 'zone' {zone, prev} on the
  * internal systems bus and discovers new zones (banner + XP). Discovery from
- * the air only counts below 80 m above the ground (except Aurora-stad).
+ * the air only counts below 80 m above the ground (except Aurora City).
  */
 import { playerPos, zoneAt, groundY } from './util.js';
 
