@@ -78,3 +78,25 @@ Shots: shots/ux/a-*.png. Top problems, biggest first:
   the vitals on phones); phone world map brand overlay toned down (no subtitle) so it doesn't cover the hub
   label. __game.debug.info().errors empty in every run (only console noise: the offline ws probe + 502).
   Build ok; shell tests 10/10. DONE for this wave.
+
+## Map continuity (hub map ↔ procedural planet) — owner report "map should continue from the safe zone"
+- Was: the planet layer was a different renderer (flat biome colours, light from the SE instead of the hub's NNE,
+  own water colours, pale single-stroke highways, extra CSS/ctx filters), its fine tiles queued behind terrain
+  jobs in the shared terrain worker (views stayed on blurry 32/128 m-per-pixel fallbacks), and the hub image
+  ended in a hard square seam at ±1200 m. Minimap: frontier drawn over the hub with a different filter.
+- Now: src/shell/map/mapStyle.js holds the shared art style (palette, light, shadeLand / shadeWater /
+  lightLand / grade, canopy + shadow stamps, world-space macro/ripple noise). mapBake.js uses it (bit-identical
+  for the non-seamless bake; seamless = uniform water sheen). src/frontier/mapTile.js paints planet tiles with it
+  (3D terrain masks → hub colours, soft cast shadows on a coarse grid, procedural canopies ≤ 8 m/px, forest tint
+  coarser) in a dedicated map worker (src/frontier/mapWorker.js, 3 in flight). minimap.js: `hole` option
+  (planet paints outside ±(1200 − 110) m), hub-road styled highways, `pois:false` honoured, returns {missing}.
+  mapImage feathers the outer 110 m of the hub image (destination-out ramps) → cross-fade over the planet layer.
+  World map + minimap use one filter for both layers; minimap draws planet first, hub on top.
+  (pack.js mapTile is now unused by the layer; left in place for the frontier owner.)
+  Tile zoom levels now [2, 4, 8, 16, 32, 128] m/px, capped at 72 tiles per view; 2 map workers (≥ 4 cores), nearest
+  tiles first; FrontierLayer re-draws while tiles are missing and nothing is in flight.
+- FOUND (not fixed, shared/worldgen/hub.js — not my slice): worker-side `extension()` answers points EXACTLY on
+  |x| = extent (|z| < extent) with the north/south edge profile (`if (ax <= extent)` branch) → e.g.
+  heightAt(1200, −400) = −35.4 vs −15.6 one metre either side. Showed as a dark trench line on the map; mapTile
+  now samples 1.3 cm off the lattice. Frontier terrain tiles built in the worker may have the same spike on
+  vertices along x = ±1200 — worth a look by the worldgen/frontier owner.

@@ -14,6 +14,7 @@
  */
 import { WORLD, ZONES, ROADS, RIVERS, WATERFALLS, CITY_ISLANDS, RACE_TRACK } from '../../world/layout.js';
 import { bakeMap, TREE_KINDS } from './mapBake.js';
+import { MAP_LIGHT, HUB_FEATHER } from './mapStyle.js';
 
 /** Half-size (m) of the square the map image covers, centred on the origin. */
 export const MAP_EXTENT = WORLD.half;
@@ -25,12 +26,8 @@ export function worldToUV(x, z, out = [0, 0], extent = MAP_EXTENT) {
   return out;
 }
 
-/** Golden-hour light from the north-north-east, 30° high (unit, toward the light). */
-const LIGHT = (() => {
-  const az = (28 * Math.PI) / 180; // compass bearing, east of north
-  const el = (30 * Math.PI) / 180;
-  return [Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)];
-})();
+/** Golden-hour light from the north-north-east, 30° high — shared with the planet's map tiles. */
+const LIGHT = MAP_LIGHT;
 
 const yieldToMain = () => new Promise((r) => setTimeout(r, 0));
 
@@ -144,6 +141,9 @@ export class MapImage {
     g.putImageData(new ImageData(pixels, S, S), 0, 0);
     await yieldToMain();
     this._drawOverlays(g, S);
+    // the planet continues around the hub: fade the image's outer edge so it cross-fades into the
+    // procedural map layer drawn beneath it (world map, minimap) instead of meeting it at a hard seam
+    if (this.ctx.frontier || this.ctx.world?.frontier) featherEdges(g, S, (HUB_FEATHER / (2 * MAP_EXTENT)) * S);
     this.canvas = canvas;
     this.stats = { ...(this.stats || {}), how };
   }
@@ -588,4 +588,30 @@ function convexHull(points) {
   upper.pop();
   lower.pop();
   return lower.concat(upper);
+}
+
+/** Fades the outer `band` px of a square canvas to transparent (smooth on each side, corners multiply). */
+function featherEdges(g, S, band) {
+  const b = Math.max(1, Math.round(band));
+  const ramp = (x0, y0, x1, y1) => {
+    const gr = g.createLinearGradient(x0, y0, x1, y1);
+    // smoothstep-ish alpha ramp: transparent at the edge → opaque `band` px inside
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8;
+      const a = t * t * (3 - 2 * t);
+      gr.addColorStop(t, `rgba(0, 0, 0, ${(1 - a).toFixed(4)})`);
+    }
+    return gr;
+  };
+  g.save();
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = ramp(0, 0, b, 0);
+  g.fillRect(0, 0, b, S);
+  g.fillStyle = ramp(S, 0, S - b, 0);
+  g.fillRect(S - b, 0, b, S);
+  g.fillStyle = ramp(0, 0, 0, b);
+  g.fillRect(0, 0, S, b);
+  g.fillStyle = ramp(0, S, 0, S - b);
+  g.fillRect(0, S - b, S, b);
+  g.restore();
 }

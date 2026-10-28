@@ -12,7 +12,7 @@
  * when something visible changed.
  */
 import { worldToUV, MAP_EXTENT } from '../map/mapImage.js';
-import { FrontierLayer, quantMpp } from '../map/frontierLayer.js';
+import { FrontierLayer, quantMpp, HUB_HOLE } from '../map/frontierLayer.js';
 import { POI_STYLE } from '../wild.js';
 import { HUB_HALF } from '../logic.js';
 import { iconImage, imageReady } from '../util.js';
@@ -38,6 +38,9 @@ const HAS_FILTER = (() => {
     return false;
   }
 })();
+
+/** The HUD's dark, cool, quiet grade of the map — the hub image and the planet layer alike. */
+const HUD_FILTER = 'saturate(0.62) brightness(0.72) contrast(1.06)';
 
 const KIND_COLORS = {
   quest: '#7fe0ff',
@@ -181,7 +184,7 @@ export class Minimap {
   /** True when the disc (plus rotation margin) reaches beyond the hub map image. */
   _seesFrontier(x, z) {
     const reach = this.radiusM * 1.5;
-    return Math.abs(x) + reach > MAP_EXTENT || Math.abs(z) + reach > MAP_EXTENT;
+    return Math.abs(x) + reach > HUB_HOLE || Math.abs(z) + reach > HUB_HOLE;
   }
 
   /** Cheap checksum of everything dynamic drawn on the disc (markers, players, claims, waypoint, cache). */
@@ -225,11 +228,8 @@ export class Minimap {
     g.fillRect(0, 0, css, css);
 
     let drew = false;
-    const preview = this.mapAlpha < 1 ? this.mapImage.preview() : null;
-    const nearHub = Math.abs(f.focus.x) - this.radiusM * 1.5 < MAP_EXTENT && Math.abs(f.focus.z) - this.radiusM * 1.5 < MAP_EXTENT;
-    if (nearHub && preview && this.previewAlpha > 0) drew = this._drawMap(g, preview.canvas, preview.extent, c, h, pxPerM, this.previewAlpha);
-    if (nearHub && this.mapImage.ready && this.mapAlpha > 0) drew = this._drawMap(g, this.mapImage.canvas, MAP_EXTENT, c, h, pxPerM, this.mapAlpha) || drew;
-    // the infinite planet beyond the hub (PLATFORM.md §11) — the layer paints only outside the hub square
+    // the infinite planet first (PLATFORM.md §11; it paints outside the hub's core), then the hub map on top —
+    // its feathered edge cross-fades into the planet, both through the same HUD grade (one continuous map)
     const L = this.layer;
     if (this.ctx.frontier?.minimap && L.version > 0 && Number.isFinite(L.cx) && this._seesFrontier(f.focus.x, f.focus.z)) {
       const k = pxPerM * L.mpp; // canvas px → minimap css px
@@ -238,13 +238,18 @@ export class Minimap {
       g.rotate(h);
       g.translate((L.cx - f.focus.x) * pxPerM, (L.cz - f.focus.z) * pxPerM);
       g.scale(k, k);
-      g.globalAlpha = HAS_FILTER ? 0.9 : 0.8;
-      if (HAS_FILTER) g.filter = 'saturate(0.7) brightness(0.8) contrast(1.05)';
+      g.globalAlpha = 0.92;
+      g.imageSmoothingEnabled = true;
+      if (HAS_FILTER) g.filter = HUD_FILTER;
       g.drawImage(L.canvas, -L.w / 2, -L.h / 2);
       g.filter = 'none';
       g.restore();
       drew = true;
     }
+    const preview = this.mapAlpha < 1 ? this.mapImage.preview() : null;
+    const nearHub = Math.abs(f.focus.x) - this.radiusM * 1.5 < MAP_EXTENT && Math.abs(f.focus.z) - this.radiusM * 1.5 < MAP_EXTENT;
+    if (nearHub && preview && this.previewAlpha > 0) drew = this._drawMap(g, preview.canvas, preview.extent, c, h, pxPerM, this.previewAlpha) || drew;
+    if (nearHub && this.mapImage.ready && this.mapAlpha > 0) drew = this._drawMap(g, this.mapImage.canvas, MAP_EXTENT, c, h, pxPerM, this.mapAlpha) || drew;
     if (drew) {
       g.fillStyle = HAS_FILTER ? 'rgba(8, 18, 30, 0.22)' : 'rgba(8, 18, 30, 0.45)';
       g.fillRect(0, 0, css, css);
@@ -469,7 +474,7 @@ export class Minimap {
       out.width = map.width;
       out.height = map.height;
       const g = out.getContext('2d');
-      g.filter = 'saturate(0.62) brightness(0.72) contrast(1.06)';
+      g.filter = HUD_FILTER;
       g.drawImage(map, 0, 0);
       // keep at most the preview + the baked map
       if (cache.size >= 2) cache.delete(cache.keys().next().value);

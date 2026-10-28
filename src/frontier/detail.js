@@ -70,6 +70,10 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
   }
 
   const Q = { ...quality };
+  const bushRadius = () => Math.min(Q.vegRadius, Q.bushRadius ?? 560);
+  // chunks stream PREFETCH m beyond the visible radius so a tree is loaded before it
+  // can be seen (the far shader hides everything past the radius per instance)
+  const PREFETCH = 128;
   const layers = { tree: [], bush: [], rock: [], crystal: [], grass: null, flowers: [], node: {}, mushroom: [], crop: [], stump: null, rubble: null };
   const farOf = (name, radius) => {
     if (impostors?.quads?.[name]) return { geometry: impostors.quads[name], material: impostors.material, radius };
@@ -84,16 +88,19 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
       name: `frontier-tree-${name}`,
       parent: group,
       capacity: Q.treeCap,
+      maxCapacity: 65536, // grows instead of dropping trees (dense jungle at 'high' ≈ 35 k of one variant)
       near: { geometry: lib.near[name].geometry, material: treeMat, depthMaterial: mats.depth, castShadow: true, radius: Q.treeNear, capacity: 700 },
       far: farOf(name, Q.vegRadius),
     });
   });
   BUSH_VARIANTS.forEach((name, i) => {
-    const far = name === 'bushGreen' || name === 'bushJuniper' ? farOf(name, Math.min(Q.vegRadius, 520)) : null;
+    // far bushes end at the bush ring per instance (shader), not per chunk (setBushes) → no chunk pops
+    const far = name === 'bushGreen' || name === 'bushJuniper' ? farOf(name, bushRadius()) : null;
     layers.bush[i] = new DynamicScatter({
       name: `frontier-bush-${name}`,
       parent: group,
       capacity: Q.bushCap,
+      maxCapacity: 65536,
       near: { geometry: lib.near[name].geometry, material: mats.near, depthMaterial: mats.depth, castShadow: name.startsWith('bush'), radius: far ? 85 : 70, capacity: 900 },
       far,
     });
@@ -112,6 +119,7 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
     });
   });
   const props = { stone: null, metal: null };
+  let density0 = Q.treeDensity;
   const crystalMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.1, emissive: new THREE.Color(0x2fd8ff), emissiveIntensity: 0.9 });
   crystalMat.name = 'frontier-crystal';
   for (let v = 0; v < 3; v++) {
@@ -209,7 +217,7 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
   }
 
   function plan(cam, now) {
-    const R = Q.vegRadius + CHUNK;
+    const R = Q.vegRadius + PREFETCH + CHUNK;
     const i0 = Math.floor((cam.x - R) / CHUNK);
     const i1 = Math.floor((cam.x + R) / CHUNK);
     const j0 = Math.floor((cam.z - R) / CHUNK);
@@ -223,7 +231,7 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
         const dx = Math.max(x0 - cam.x, 0, cam.x - (x0 + CHUNK));
         const dz = Math.max(z0 - cam.z, 0, cam.z - (z0 + CHUNK));
         const d = Math.sqrt(dx * dx + dz * dz);
-        if (d > Q.vegRadius) continue;
+        if (d > Q.vegRadius + PREFETCH) continue;
         const k = ckey(i, j);
         let c = chunks.get(k);
         const grass = !!layers.grass && d < Q.grassRadius + 8;
@@ -234,8 +242,8 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
         c.used = now;
         c.d = d;
         if (c.state === 'ready') {
-          if (!c.bush && d < bushRadius()) setBushes(c, true);
-          else if (c.bush && d > bushRadius() + 50) setBushes(c, false);
+          if (!c.bush && d < bushRadius() + PREFETCH * 0.5) setBushes(c, true);
+          else if (c.bush && d > bushRadius() + PREFETCH) setBushes(c, false);
         }
         // grass came into range after a decor-only load: reload with grass
         if (c.state === 'ready' && grass && !c.grass) c.state = 'regrass';
@@ -295,7 +303,7 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
     c.decor = msg.decor;
     c.ids = msg.ids || null;
     c.fid = null; // feature id strings (lazily, featuresNear)
-    c.bush = c.d < bushRadius();
+    c.bush = c.d < bushRadius() + PREFETCH * 0.5;
     fill(c, ALL);
     // nodes
     c.nodes = msg.nodes;
@@ -324,8 +332,6 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
     }
     if (msg.grass) ingestGrass(c, msg);
   }
-
-  const bushRadius = () => Math.min(Q.vegRadius, Q.bushRadius ?? 560);
 
   /** Adds / removes the bushes (+ their berry crops) of a loaded chunk (from its cached decor list). */
   function setBushes(c, on) {
@@ -777,10 +783,19 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
     },
     setQuality(q) {
       Object.assign(Q, q);
+      const densityChanged = q.treeDensity !== undefined && q.treeDensity !== density0;
+      density0 = Q.treeDensity;
       for (const l of layers.tree) {
         l.nearRadius = Q.treeNear;
+        l.farUniforms && (l.farUniforms.uNearRadius.value = Q.treeNear);
         l.setFarRadius(Q.vegRadius);
+        l.changed = true;
       }
+      for (const l of layers.bush) l.setFarRadius(bushRadius());
+      ROCK_VARIANTS.forEach((name, i) => layers.rock[i].setFarRadius(Math.min(Q.vegRadius, name === 'hoodoo' || name === 'outcrop' ? 2400 : 700)));
+      for (const l of layers.crystal) l.setFarRadius(Math.min(Q.vegRadius, 900));
+      // the density cull (trees / bushes) is applied when a chunk is filled: refill them all
+      if (densityChanged) for (const c of chunks.values()) if (c.state === 'ready' || c.state === 'pending-grass') dirty.add(c.key);
       grassShared.uGrassFade.value.set(Q.grassRadius * 0.65, Q.grassRadius);
       if (layers.grass) layers.grass.nearRadius = Q.grassRadius;
       for (const l of layers.flowers) if (l) l.nearRadius = Q.grassRadius;

@@ -39,6 +39,13 @@ Quality (`FRONTIER_QUALITY` in index.js; follows `quality:change` by itself):
 | medium | 4.6 km | 1 000 m (85 %) | 48 m | 7 000 trees |
 | high | 6 km | 1 500 m | 70 m | 12 000 trees |
 
+Caps are starting capacities: a layer grows (×1.5, up to 65 536 per tree variant) instead of dropping instances.
+Stability rules (`scatter.js`, test: `node --test src/frontier/`): every streamed instance is drawn exactly once
+whatever the load order — near/far dither and the impostor mirror flip are hashes of the instance POSITION (slots
+move on swap-remove), chunks stream 128 m beyond the visible radius, and instances shrink away over the last
+≤ 60 m of their far radius (trees: `vegRadius`, bushes: `bushRadius`) instead of popping per chunk. A terrain
+tile that is not ready yet is covered by its four ready children, else by its nearest ready ancestor.
+
 ## Integration (exact steps for the integrator)
 
 1. After `ctx.world = await installWorld(ctx, …)` and BEFORE anything replaces `ctx.world.getHeightAt`

@@ -17,7 +17,13 @@
  *   layer.ensure(frontier, cx, cz, mpp, widthPx, heightPx, now) → true when the canvas was redrawn
  *   layer.canvas / .cx / .cz / .mpp  (the canvas centre is (cx, cz); mpp = metres per canvas pixel)
  */
-const DRAW_OPTS = { pois: false };
+import { MAP_EXTENT } from './mapImage.js';
+import { HUB_FEATHER } from './mapStyle.js';
+
+/** The planet layer paints everything outside this half-size; the hub image's feathered edge (the outer
+ * HUB_FEATHER metres of ±MAP_EXTENT) cross-fades over it. */
+export const HUB_HOLE = MAP_EXTENT - HUB_FEATHER;
+const DRAW_OPTS = { pois: false, hole: HUB_HOLE };
 
 export class FrontierLayer {
   constructor({ settle = 2.5, every = 0.22, moveFrac = 0.12, tail = 14, tailEvery = 0.6 } = {}) {
@@ -86,7 +92,9 @@ export class FrontierLayer {
     const since = now - this._changedAt;
     const wait = now - this.drawnAt;
     const incomplete = this.missing !== 0; // unknown (-1) counts as incomplete
-    const settling = incomplete && ((since < this.settle && wait >= this.every) || (since < this.tail && wait >= this.tailEvery));
+    // tiles still missing but nothing in flight (the layer requests only while it draws): draw again so it asks
+    const idle = this.missing > 0 && fm.stats?.().pending === 0 && wait >= this.every;
+    const settling = idle || (incomplete && ((since < this.settle && wait >= this.every) || (since < this.tail && wait >= this.tailEvery)));
     if (!sizeChanged && !zoomed && !moved && !settling) return false;
     if (sizeChanged) {
       this.canvas.width = w;

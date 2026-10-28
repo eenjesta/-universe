@@ -18,7 +18,7 @@ import { t, locale } from '../../core/i18n.js';
 import { ZONES, REGIONS, TRAVEL } from '../../world/layout.js';
 import { MAP_PLACES, PLACE_ICONS, ALWAYS_KNOWN, place } from '../data.js';
 import { MAP_EXTENT } from './mapImage.js';
-import { FrontierLayer } from './frontierLayer.js';
+import { FrontierLayer, HUB_HOLE } from './frontierLayer.js';
 import { logoMarkSVG, formatDistance, uiSound } from '../util.js';
 import { HUB_HALF, NO_BUILD, toScreen, toWorld, zoomAround, clampCenter, niceLength, viewBounds, formatWait, fitView } from '../logic.js';
 import { POI_STYLE, poiName } from '../wild.js';
@@ -1304,7 +1304,8 @@ export class WorldMap {
     const fr = this.ctx.frontier;
     if (fr?.minimap) {
       const b = viewBounds(v, 0);
-      const wild = b.x0 < -MAP_EXTENT || b.x1 > MAP_EXTENT || b.z0 < -MAP_EXTENT || b.z1 > MAP_EXTENT;
+      // anything beyond the hub image's opaque core (its feathered edge cross-fades into the planet layer)
+      const wild = b.x0 < -HUB_HOLE || b.x1 > HUB_HOLE || b.z0 < -HUB_HOLE || b.z1 > HUB_HOLE;
       if (wild && this.layer.ensure(fr, v.cx, v.cz, 1 / (v.ppm * this.dpr), v.vw * 1.4 * this.dpr, v.vh * 1.4 * this.dpr, performance.now() / 1000)) this._layoutFrontier();
     }
     if (this._img || fr) this._layoutDynamic();

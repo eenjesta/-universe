@@ -185,7 +185,9 @@ const IMP_VS = /* glsl */ `
   float tilt = clamp(pitch, 0.0, 1.3) * 0.6;
   vec3 bU = vec3(-hz.x * sin(tilt), cos(tilt), -hz.y * sin(tilt));
   vec3 bF = normalize(cross(bR, bU));
-  float flip = impHash(uint(gl_InstanceID) * 7u + 3u) < 0.5 ? -1.0 : 1.0;
+  // mirror flip from the instance's position, not gl_InstanceID: streamed layers (src/frontier)
+  // move instances between slots, which made distant trees flip sideways while flying
+  float flip = impHash((floatBitsToUint(iO.x) ^ (floatBitsToUint(iO.z) * 0x9e3779b1u)) * 7u + 3u) < 0.5 ? -1.0 : 1.0;
   vec3 wp = iO + bR * (transformed.x * iSx * flip) + bU * (transformed.y * iSy);
   vImpR = normalize((viewMatrix * vec4(bR * flip, 0.0)).xyz);
   vImpU = normalize((viewMatrix * vec4(bU, 0.0)).xyz);

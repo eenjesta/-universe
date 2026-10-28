@@ -113,7 +113,24 @@ export function createTiles({ group, uniforms, worker, hubExtent = 0, quality = 
         continue;
       }
       if (t.state === 'new') want.push(t, pri);
-      // fallback ancestor
+      // fallback 1: its four ready children (moving away — the finer tiles are still cached and,
+      // being this far out, already geomorphed into this tile's shape) → no hole, no coarse pop
+      if (t.l > 0) {
+        let all = true;
+        for (let q = 0; q < 4 && all; q++) {
+          const ch = tiles.get(key(t.l - 1, t.tx * 2 + (q & 1), t.tz * 2 + (q >> 1)));
+          if (!ch || ch.state !== 'ready') all = false;
+        }
+        if (all) {
+          for (let q = 0; q < 4; q++) {
+            const ch = tiles.get(key(t.l - 1, t.tx * 2 + (q & 1), t.tz * 2 + (q >> 1)));
+            ch.used = now;
+            display.add(ch);
+          }
+          continue;
+        }
+      }
+      // fallback 2: nearest ready ancestor
       let a = null;
       for (let l = t.l + 1; l < LEVELS; l++) {
         const sh = l - t.l;
