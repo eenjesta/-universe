@@ -344,7 +344,9 @@ export function createPlayer(ctx, { material, fx = null, trails = null }) {
         if (dx * dx + dz * dz > 0.04) player.heading = dampAngle(player.heading, Math.atan2(-dx, -dz), 14, dt);
       } else if (facingView && rig) {
         // combat stance / work / first person: face the view, strafe / backpedal
-        player.heading = dampAngle(player.heading, rig.yaw, fpFacing ? 30 : 16, dt);
+        // aiming: the body IS the aim direction (no lag, so the weapon and head match the crosshair);
+        // work actions / first person still turn quickly but smoothly
+        player.heading = stance && !acting ? rig.yaw : dampAngle(player.heading, rig.yaw, fpFacing ? 30 : 16, dt);
       } else if (moving && hsp > 0.2) {
         const target = Math.atan2(-wx, -wz);
         player.heading = dampAngle(player.heading, target, swimming ? 5 : 11, dt);

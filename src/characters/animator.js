@@ -911,10 +911,12 @@ export class Animator {
       O[j * 3 + 1] = y;
       O[j * 3 + 2] = z;
     };
-    set(J.spine, -0.02 + p * 0.22, blade * 0.45 + yw * 0.3, 0);
-    set(J.chest, p * 0.3 + sway, blade * 0.55 + yw * 0.35, 0);
-    set(J.neck, p * 0.18, -blade * 0.45 + yw * 0.15, 0);
-    set(J.head, p * 0.2 - 0.04, -blade * 0.55 + yw * 0.2, two ? -0.08 : 0);
+    // the remaining yaw goes into the torso only (spine + chest = 100 %): arms, weapon and head all
+    // follow the chest, so the head never looks further than the gun points
+    set(J.spine, -0.02 + p * 0.22, blade * 0.45 + yw * 0.45, 0);
+    set(J.chest, p * 0.3 + sway, blade * 0.55 + yw * 0.55, 0);
+    set(J.neck, p * 0.18, -blade * 0.45, 0);
+    set(J.head, p * 0.2 - 0.04, -blade * 0.55, two ? -0.08 : 0);
     set(J.clavR, 0, 0, two ? 0.04 : 0);
     set(J.clavL, 0, two ? -0.15 : -0.06, 0);
     if (g === 'none') {

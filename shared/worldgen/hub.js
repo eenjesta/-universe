@@ -109,7 +109,9 @@ export function createHubSeam(hub = {}, opts = {}) {
     let r;
     let sm;
     let gr;
-    if (ax <= extent) {
+    // the side whose border the point is beyond (or on): max-norm region. A point exactly on the
+    // east/west border (ax = extent, az < ax) belongs to side X — not to the north/south profile.
+    if (ax <= extent && az >= ax) {
       const side = z < 0 ? 0 : 1;
       r = edgeAt(raw, side, x);
       sm = edgeAt(smooth, side, x);
