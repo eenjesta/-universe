@@ -56,7 +56,8 @@ const RULES = {
   [C.RELOAD]: (m) => opt(m.w, str),
   [C.EQUIP]: (m) => (m.slot !== undefined && m.slot !== null ? int(m.slot, 0, 9) : str(m.w)),
   [C.RESPAWN]: (m) => opt(m.at, (a) => str(a, 16)),
-  [C.HARVEST]: (m) => id(m.node),
+  // resource nodes { node } or world features — trees / rocks / plants — { feature, tool?, hit? }
+  [C.HARVEST]: (m) => (id(m.node) || str(m.feature, 64)) && opt(m.tool, (x) => str(x, 32)) && opt(m.hit, (h) => int(h, 0)),
   [C.CRAFT]: (m) => str(m.recipe, 48) && opt(m.n, (n) => int(n, 1, 999)),
   [C.USE]: (m) => str(m.item, 48),
   [C.PICKUP]: (m) => id(m.loot),
