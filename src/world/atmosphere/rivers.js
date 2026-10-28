@@ -42,7 +42,9 @@ varying vec3 vWorld;
 #include <fog_pars_fragment>
 
 vec2 eqUv( vec3 d ) {
-	return vec2( atan( d.z, d.x ) * 0.15915494 + 0.5, asin( clamp( d.y, - 1.0, 1.0 ) ) * 0.31830989 + 0.5 );
+	// atan( 0, 0 ) (reflection straight up) is undefined: NaN on some GPUs
+	float lon = abs( d.x ) + abs( d.z ) > 0.0 ? atan( d.z, d.x ) : 0.0;
+	return vec2( lon * 0.15915494 + 0.5, asin( clamp( d.y, - 1.0, 1.0 ) ) * 0.31830989 + 0.5 );
 }
 
 void main() {

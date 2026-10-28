@@ -48,7 +48,13 @@ varying vec3 vWorld;
 #include <fog_pars_fragment>
 
 vec2 eqUv( vec3 d ) {
-	return vec2( atan( d.z, d.x ) * 0.15915494 + 0.5, asin( clamp( d.y, - 1.0, 1.0 ) ) * 0.31830989 + 0.5 );
+	// atan( 0, 0 ) (reflection straight up) is undefined: NaN on some GPUs
+	float lon = abs( d.x ) + abs( d.z ) > 0.0 ? atan( d.z, d.x ) : 0.0;
+	return vec2( lon * 0.15915494 + 0.5, asin( clamp( d.y, - 1.0, 1.0 ) ) * 0.31830989 + 0.5 );
+}
+// normalize() that gives 0 instead of NaN for a zero vector
+vec3 safeNormalize( vec3 v ) {
+	return v * inversesqrt( max( dot( v, v ), 1e-30 ) );
 }
 
 void main() {
@@ -103,7 +109,8 @@ void main() {
 	// grows with distance. Toward a low sun this gives the tall, narrow
 	// glitter column of the poster (sparkling up close, smooth far away).
 	float sig2 = uGlitter.x + uGlitter.y * smoothstep( 20.0, 1400.0, dist );
-	vec3 Hs = normalize( uSunDir + V );
+	// (V = -uSunDir on the pixel whose view ray points exactly at the set sun → normalize(0))
+	vec3 Hs = safeNormalize( uSunDir + V );
 	float nh = max( dot( N, Hs ), 1e-3 );
 	float nh2 = nh * nh;
 	float Ds = exp( - ( 1.0 - nh2 ) / ( nh2 * sig2 ) ) / ( 3.14159 * sig2 * nh2 * nh2 );
@@ -111,7 +118,7 @@ void main() {
 	vec3 spec = uSunSpec * min( Ds * Fs * uGlitter.z / max( 4.0 * NdV, 0.6 ), 1.6 );
 	// the giant planet at night: a broad, soft glint (it is a huge area light)
 	float sigP = sig2 + uGlitter.w;
-	vec3 Hp = normalize( uGlintDir + V );
+	vec3 Hp = safeNormalize( uGlintDir + V );
 	float np = max( dot( N, Hp ), 1e-3 );
 	float np2 = np * np;
 	float Dp = exp( - ( 1.0 - np2 ) / ( np2 * sigP ) ) / ( 3.14159 * sigP * np2 * np2 );

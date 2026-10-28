@@ -176,3 +176,39 @@
   .sys-mkt-rprice, .sys-mkt-rbtns { grid-column: 2; text-align: left; }
   .sys-mkt-foot span:first-child { display: none; }
 }
+
+/* ------------------------------------------------------------ touch devices
+ * Dynamic viewport + safe areas, touch-sized tabs/buttons, no key hints;
+ * short landscape phones get a compact header and two-to-four card columns.
+ */
+body[data-touch="1"] .sys-mkt-wrap .modal.sys-mkt { max-height: min(660px, calc(100dvh - 16px - var(--sat, 0px) - var(--sab, 0px))); }
+body[data-touch="1"] .sys-mkt-keys { display: none; }
+body[data-touch="1"] .sys-mkt-tab { min-height: 44px; }
+body[data-touch="1"] .sys-mkt-btn { height: 42px; }
+body[data-touch="1"] .sys-mkt-btn.sm { height: 38px; padding: 0 14px; }
+body[data-touch="1"] .sys-mkt-filter { min-height: 34px; }
+@media (max-height: 500px) and (orientation: landscape) {
+  .sys-mkt-wrap .modal.sys-mkt { width: min(860px, calc(100vw - 16px - var(--sal, 0px) - var(--sar, 0px))); max-height: calc(100dvh - 12px) !important; border-radius: 12px; }
+  .modal-wrap.sys-mkt-wrap { justify-content: center; padding-right: 0; }
+  .sys-mkt-head { padding: 6px 8px 4px 16px; gap: 12px; }
+  .sys-mkt-title { font-size: 17px; }
+  .sys-mkt-tabs { margin: 0 16px; }
+  .sys-mkt-tab { min-height: 36px; padding-top: 4px; padding-bottom: 4px; }
+  .sys-mkt-filters { padding: 8px 16px 0; }
+  .sys-mkt-body { padding: 10px 16px 12px; }
+  .sys-mkt-grid { grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 10px; }
+  .sys-mkt-desc { display: none; }
+  .sys-mkt-thumb { aspect-ratio: 32 / 15; }
+  .sys-mkt-cat { margin-top: 6px; }
+  .sys-mkt-act { gap: 6px; padding-top: 4px; }
+  .sys-mkt-foot { display: none; }
+}
+@media (max-width: 560px) and (orientation: portrait) {
+  .sys-mkt-head { padding: 12px 8px 8px 16px; }
+  .sys-mkt-unit { display: none; }
+  .sys-mkt-tabs { margin: 0 14px; }
+  .sys-mkt-filters { padding: 10px 14px 2px; }
+  .sys-mkt-body { padding: 12px 14px 14px; }
+  .sys-mkt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sys-mkt-foot { padding: 8px 14px calc(10px + var(--sab, 0px)); }
+}

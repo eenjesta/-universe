@@ -29,6 +29,10 @@ export class AudioEngine {
     this._unlock = this._unlock.bind(this);
     window.addEventListener('pointerdown', this._unlock, true);
     window.addEventListener('keydown', this._unlock, true);
+    // iOS Safari only starts / resumes Web Audio from touchend or click (a
+    // touchstart / pointerdown gesture is not enough there)
+    window.addEventListener('touchend', this._unlock, true);
+    window.addEventListener('click', this._unlock, true);
   }
 
   get ready() {
@@ -55,7 +59,8 @@ export class AudioEngine {
         this._applyVolumes();
         this.events?.emit('audio:ready');
       }
-      if (this.ac.state === 'suspended') this.ac.resume();
+      // 'interrupted': iOS paused the context (call, app switch, lock screen)
+      if (this.ac.state === 'suspended' || this.ac.state === 'interrupted') this.ac.resume();
       if (this.ac.state !== 'closed') {
         const pending = this._pendingLoops.splice(0);
         pending.forEach((p) => p.start());

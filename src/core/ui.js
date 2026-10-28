@@ -289,12 +289,18 @@ class Prompts {
         this.ui.h('span', { class: 'prompt-ring' }),
       );
       this._root().appendChild(el);
-      it = { el, key: null, text: null, anchor: null };
+      it = { el, key: null, text: null, anchor: null, channel, hold: false, progress: null };
+      el.dataset.channel = channel;
       this.items.set(channel, it);
     }
-    if (it.key !== key) it.el.children[0].textContent = it.key = key;
+    if (it.key !== key) {
+      it.el.children[0].textContent = it.key = key;
+      it.el.dataset.key = key; // touch: tapping the prompt presses this key
+    }
     if (it.text !== text) it.el.children[1].textContent = it.text = text;
     it.el.classList.toggle('hold', !!hold);
+    it.hold = !!hold;
+    it.progress = progress;
     it.el.style.setProperty('--p', progress == null ? 0 : Math.max(0, Math.min(1, progress)));
     if (anchor) (it.anchor || (it.anchor = new Vector3())).copy(anchor);
     else it.anchor = null;

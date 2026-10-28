@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build lab</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07090d; overflow: hidden; }
+  #lab-info { position: fixed; left: 8px; bottom: 4px; z-index: 60; padding: 2px 8px; font: 11px sans-serif; color: #aaa; background: rgba(0,0,0,.35); border-radius: 4px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl" tabindex="0"></canvas>
+  <div id="hud" class="layer layer-hud"></div>
+  <div id="screens" class="layer layer-screens"></div>
+  <div id="modals" class="layer layer-modals"></div>
+  <div id="toasts" class="layer layer-toasts"></div>
+  <div id="fade" class="layer layer-fade"></div>
+</div>
+<div id="lab-info"></div>
+<script type="module" src="./lab.js"></script>
+</body>
+</html>

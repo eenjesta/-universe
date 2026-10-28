@@ -512,7 +512,8 @@ function makeFoliageMaterial(U, center, R) {
           vec3 V = normalize(vViewPosition);
           vec3 L = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
           float back = pow(max(dot(-V, L), 0.0), 4.0);
-          float thin = pow(1.0 - abs(dot(normal, V)), 2.0);
+          // max(): |dot| can round above 1 where a lump faces the camera → pow(< 0) = NaN
+          float thin = pow(max(1.0 - abs(dot(normal, V)), 0.0), 2.0);
           totalEmissiveRadiance += uSunCol * vec3(0.55, 0.38, 0.9) * back * thin * 0.12 * smoothstep(-0.05, 0.1, uSunDir.y);
         }`,
       );

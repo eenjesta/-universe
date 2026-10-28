@@ -250,3 +250,48 @@
   .shell-map-hint, .shell-map-compass { display: none; }
   .shell-map-brand-word { font-size: 20px; }
 }
+
+/* ------------------------------------------------------- touch devices
+ * Tap a pin or legend entry to select it, then Fast travel; one finger pans,
+ * two fingers pinch-zoom (worldMap.js). Bigger targets, safe areas, and a
+ * slim legend column on short landscape phones.
+ */
+body[data-touch="1"] .modal.shell-map {
+  width: min(1500px, calc(100vw - 16px - var(--sal, 0px) - var(--sar, 0px)));
+  height: min(920px, calc(100dvh - 16px - var(--sat, 0px) - var(--sab, 0px)));
+}
+body[data-touch="1"] .shell-map-zbtn { width: 44px; height: 44px; }
+body[data-touch="1"] .shell-pin-gem::before { inset: 3px; }
+body[data-touch="1"] .shell-pin-gem { left: -22px; top: -22px; width: 44px; height: 44px; }
+body[data-touch="1"] .shell-pin-gem::after { top: 42px; }
+body[data-touch="1"] .shell-pin-label { left: 26px; }
+body[data-touch="1"] .shell-legend-item { min-height: 44px; }
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .modal.shell-map { grid-template-columns: minmax(0, 1fr) clamp(200px, 30vw, 250px); grid-template-rows: none; border-radius: 14px; }
+  .shell-map-legend { border-top: 0; border-left: 1px solid var(--line); padding: 8px 12px 10px; }
+  .shell-legend-list { display: block; margin: 4px -4px 6px; }
+  .shell-legend-item { padding: 4px 4px; gap: 10px; font-size: 13px; letter-spacing: 0.04em; }
+  .shell-legend-gem { width: 28px; height: 28px; }
+  .shell-map-legend-head { padding: 0 0 4px; }
+  .shell-map-legend-title { font-size: 14px; letter-spacing: 0.36em; }
+  .shell-map-detail { min-height: 0; padding: 6px 2px 8px; border-top: 1px solid var(--line-2); }
+  .shell-map-detail-name { font-size: 15px; }
+  .shell-map-detail-desc { display: none; }
+  .shell-map-travel { height: 44px; flex: none; font-size: 13px; letter-spacing: 0.18em; gap: 10px; }
+  .shell-map-brand { left: 14px; top: 10px; }
+  .shell-map-brand-row { gap: 10px; }
+  .shell-map-brand-row svg { width: 24px; height: 24px; }
+  .shell-map-brand-word { font-size: 15px; }
+  .shell-map-brand-sub { font-size: 9px; margin-left: 34px; padding-bottom: 5px; }
+  .shell-map-compass, .shell-map-hint { display: none; }
+  .shell-map-zoom { right: 10px; top: 10px; gap: 6px; }
+  .shell-map-scale { left: 14px; bottom: 12px; }
+  .shell-pin-label { font-size: 12.5px; }
+}
+@media (max-width: 560px) and (orientation: portrait) {
+  .shell-map-legend { padding: 10px 14px calc(12px + var(--sab, 0px)); }
+  .shell-map-brand-word { font-size: 16px; }
+  .shell-map-brand-sub { margin-left: 40px; }
+  .shell-pin-label { font-size: 12.5px; }
+}

@@ -117,7 +117,7 @@ varying vec3 vWorld;
 void main() {
 	vec2 c = vUv * 2.0 - 1.0;
 	float r = length( c );
-	float ang = atan( c.y, c.x );
+	float ang = r > 0.0 ? atan( c.y, c.x ) : 0.0; // atan( 0, 0 ) at the disc centre is undefined
 	float ring = fract( r * 1.6 - uTime * 0.35 );
 	float n = texture( uNoise, vWorld.xz * 0.09 + vec2( uTime * 0.03, 0.0 ) ).a;
 	float n2 = texture( uNoise, vec2( ang * 0.6, r * 0.8 - uTime * 0.25 ) ).g;

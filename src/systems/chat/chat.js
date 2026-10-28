@@ -45,7 +45,7 @@ export function createChat(ctx, { sys, refs, portraits }) {
     maxlength: '140',
     spellcheck: 'false',
     autocomplete: 'off',
-    placeholder: t({ en: 'Press Enter to chat', nl: 'Druk op Enter om te chatten' }),
+    placeholder: ctx.device?.touch ? t({ en: 'Type a message…', nl: 'Typ een bericht…' }) : t({ en: 'Press Enter to chat', nl: 'Druk op Enter om te chatten' }),
     'aria-label': t({ en: 'Chat message', nl: 'Chatbericht' }),
   });
   const suggest = ui.h('div', { class: 'sys-chat-suggest' });

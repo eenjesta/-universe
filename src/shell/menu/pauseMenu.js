@@ -225,7 +225,12 @@ export class PauseMenu {
       this._settings = settingsPanel(ctx, this.shell.settings);
       body = this._settings.el;
     } else if (tab === 'controls') {
-      head = [TXT.controls, { en: 'Every key at a glance. Press H in the game to open this help.', nl: 'Alle toetsen op een rij. Druk in het spel op H voor deze hulp.' }];
+      head = [
+        TXT.controls,
+        ctx.device?.touch
+          ? { en: 'Every control at a glance: touch first, then keyboard and mouse.', nl: 'Alle besturing op een rij: eerst aanraken, dan toetsenbord en muis.' }
+          : { en: 'Every key at a glance. Press H in the game to open this help.', nl: 'Alle toetsen op een rij. Druk in het spel op H voor deze hulp.' },
+      ];
       body = controlsPanel(ctx, { mode: ctx.modes.is('title') ? null : ctx.modes.name });
     } else if (tab === 'about') {
       head = [TXT.about, { en: 'Complete freedom in a dynamic, online world.', nl: 'Volledige vrijheid in een dynamische, online wereld.' }];

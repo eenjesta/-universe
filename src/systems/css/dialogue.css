@@ -153,3 +153,42 @@ body.sys-dlg-open .sys-party { opacity: 0; pointer-events: none !important; }
   .sys-dlg-choice { font-size: 14px; }
   .sys-dlg-hint { display: none; }
 }
+
+/* ------------------------------------------------------------ touch devices
+ * Big tappable choices, a close button instead of Esc, no key hints, and a
+ * compact panel on short landscape phones (above the home indicator).
+ */
+.sys-dlg-close { display: none; }
+body[data-touch="1"] .sys-dlg-close {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  display: grid; place-items: center; width: 42px; height: 42px; padding: 0;
+  border: 0; border-radius: 12px; background: none; color: var(--ink-2); cursor: pointer;
+}
+body[data-touch="1"] .sys-dlg-close:active { color: #fff; background: rgba(255, 255, 255, .08); }
+body[data-touch="1"] .sys-dlg-speaker { padding-right: 40px; }
+body[data-touch="1"] .sys-dlg-hint { display: none; }
+body[data-touch="1"] .sys-dlg-choice { min-height: 48px; padding: 10px 16px 10px 10px; }
+body[data-touch="1"] .sys-dlg-num { width: 28px; height: 28px; font-size: 13.5px; }
+body[data-touch="1"] .modal-wrap.sys-dlg-wrap {
+  padding-left: calc(16px + var(--sal, 0px)); padding-right: calc(16px + var(--sar, 0px));
+  padding-bottom: calc(24px + var(--sab, 0px));
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .modal-wrap.sys-dlg-wrap { padding-bottom: calc(8px + var(--sab, 0px)) !important; }
+  .sys-dlg-wrap .modal.sys-dlg { width: min(820px, 100%); }
+  .sys-dlg { gap: 10px; }
+  .sys-dlg-portrait { width: 104px; min-height: 0; align-self: stretch; }
+  .sys-dlg-kicker { display: none; }
+  .sys-dlg-main { gap: 6px; }
+  .sys-dlg-box { padding: 9px 16px 10px; }
+  .sys-dlg-speaker { margin-bottom: 4px; }
+  .sys-dlg-name { font-size: 15px; padding-bottom: 3px; }
+  .sys-dlg-text { font-size: 14.5px; line-height: 1.42; min-height: 2.8em; }
+  .sys-dlg-choices { gap: 5px; }
+  .sys-dlg-choice { min-height: 40px !important; padding: 6px 14px 6px 9px !important; font-size: 14px; }
+  .sys-dlg-num { width: 24px !important; height: 24px !important; font-size: 12px !important; }
+}
+@media (max-width: 560px) and (orientation: portrait) {
+  .sys-dlg { flex-direction: column; }
+  .sys-dlg-portrait { width: 96px; min-height: 112px; }
+}

@@ -22,7 +22,8 @@ varying float vGlow;
 void main() {
 	vec4 mvPosition = viewMatrix * modelMatrix * vec4( position, 1.0 );
 	gl_Position = projectionMatrix * mvPosition;
-	float blink = 0.1 + 0.9 * pow( 0.5 + 0.5 * sin( uTime * ( 1.4 + aSeed.y * 2.2 ) + aSeed.x * 31.0 ), 3.0 );
+	// max(): GPU sin() may overshoot -1 by an ulp → pow() of a negative base = NaN
+	float blink = 0.1 + 0.9 * pow( max( 0.5 + 0.5 * sin( uTime * ( 1.4 + aSeed.y * 2.2 ) + aSeed.x * 31.0 ), 0.0 ), 3.0 );
 	vGlow = blink * uIntensity * smoothstep( 110.0, 25.0, - mvPosition.z );
 	// tiny sparks: a few pixels even up close (the bloom pass adds the halo)
 	gl_PointSize = clamp( ( 0.11 + blink * 0.09 ) * uScale / max( - mvPosition.z, 0.3 ), 1.5, 9.0 );

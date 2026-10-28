@@ -115,7 +115,16 @@ export function createCharacterMaterial({ rim = 0.0, name = 'character' } = {}) 
         '#include <common>',
         '#include <common>\nattribute vec4 aMat;\nattribute float aDetail;\nvarying vec4 vMat;\nvarying float vDetail;',
       )
-      .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvMat = aMat;\n\tvDetail = aDetail;');
+      .replace('#include <uv_vertex>', '#include <uv_vertex>\n\tvMat = aMat;\n\tvDetail = aDetail;')
+      // a zero normal (surface-nets vertex with a vanishing SDF gradient) must not
+      // become normalize(0) = NaN, which shades the whole triangle black
+      .replace(
+        '#include <normal_vertex>',
+        THREE.ShaderChunk.normal_vertex.replace(
+          'vNormal = normalize( transformedNormal );',
+          'vNormal = transformedNormal * inversesqrt( max( dot( transformedNormal, transformedNormal ), 1e-30 ) );',
+        ),
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
@@ -152,7 +161,8 @@ export function createCharacterMaterial({ rim = 0.0, name = 'character' } = {}) 
       .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = diffuseColor.rgb * vMat.z;')
       .replace(
         '#include <lights_physical_fragment>',
-        '#include <lights_physical_fragment>\n\tmaterial.sheenColor *= vMat.w * ( 0.4 + 0.6 * sqrt( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ) ) );',
+        // max(): with MSAA the vertex colour is extrapolated at triangle edges and can dip below 0 → sqrt = NaN
+        '#include <lights_physical_fragment>\n\tmaterial.sheenColor *= vMat.w * ( 0.4 + 0.6 * sqrt( max( dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), 0.0 ) ) );',
       )
       .replace(
         '#include <opaque_fragment>',

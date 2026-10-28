@@ -72,7 +72,9 @@ export function createSunOcclusion(noise, uniforms) {
     const oy = Re + camPos.y;
     const Rc = Re + cl.z;
     const b = oy * d.y;
-    const t = -b + Math.sqrt(b * b + (Rc - oy) * (Rc + oy));
+    // max(): above the deck the ray can miss the shell → sqrt(< 0) = NaN, which
+    // would latch into the smoothed sun dimming (and the sun colour) for good
+    const t = -b + Math.sqrt(Math.max(0, b * b + (Rc - oy) * (Rc + oy)));
     const wind = uniforms.uCloudWind.value;
     const qx = (camPos.x + d.x * t) / cl.w + wind.x;
     const qy = (camPos.z + d.z * t) / cl.w + wind.y;

@@ -2,14 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#07090d" />
+    <!-- installable web app: "Add to Home Screen" / "Zet op beginscherm" opens full screen -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ø Universe" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <meta name="description" content="Ø Universe — Explore · Create · Connect. An endless, living world where technology, creativity and people come together." />
     <title>Ø Universe</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307090d'/%3E%3Ccircle cx='32' cy='32' r='17' fill='none' stroke='%23ece6dc' stroke-width='4'/%3E%3Cline x1='14' y1='50' x2='50' y2='14' stroke='%23ece6dc' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
     <style>
       /* Boot styles: only what is needed before the JS bundle loads. */
-      html, body { margin: 0; height: 100%; background: #07090d; overflow: hidden; }
+      html, body { margin: 0; height: 100%; background: #07090d; overflow: hidden; overscroll-behavior: none; }
       #boot {
         position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 28px;
@@ -25,6 +33,13 @@
       #boot .boot-bar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #f0b46a, #ece6dc); transition: width .3s ease; }
       #boot .boot-status { font-size: 12px; letter-spacing: .12em; opacity: .55; min-height: 1em; }
       #boot .boot-error { max-width: 640px; color: #ffb4a8; font-size: 13px; line-height: 1.5; text-align: center; white-space: pre-wrap; }
+      @media (max-width: 560px), (max-height: 420px) {
+        #boot { gap: 20px; padding: 0 20px; }
+        #boot .boot-logo { gap: 16px; }
+        #boot .boot-logo svg { width: 46px; height: 46px; }
+        #boot .boot-word { font-size: 30px; }
+        #boot .boot-sub { font-size: 10px; letter-spacing: .4em; margin-right: -.4em; }
+      }
     </style>
   </head>
   <body>

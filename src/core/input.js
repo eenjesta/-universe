@@ -9,6 +9,12 @@
  * Gameplay code uses the filtered queries (down/pressed/released/action*), which
  * all return false while `gameEnabled` is false. UI code that must work while a
  * modal is open (e.g. Escape to close it) uses rawDown/rawPressed.
+ *
+ * Touch / on-screen controls (src/core/touch.js) feed the same queries through
+ * `virtual`: pressVirtual/releaseVirtual/tapVirtual(code) hold a key with real
+ * pressed/released edges, addLook(dx, dy) adds a look delta like mouse-look
+ * (× sensitivity, invertY), addWheel(n) zooms, virtual.moveX/moveY is the analog
+ * stick (read by moveVector() and axis(…, 'moveX'|'moveY')).
  */
 
 export const ACTIONS = {
@@ -85,6 +91,9 @@ export class Input {
     this._dragLook = false;
     /** Touch / on-screen controls can write here; actions & axes include them. */
     this.virtual = { moveX: 0, moveY: 0, lookX: 0, lookY: 0, buttons: new Set() };
+    /** Touch devices never grab the pointer (set by core/touch.js). */
+    this.pointerLockDisabled = false;
+    this._tapRelease = new Set(); // virtual taps released after the next frame
     this._bind();
   }
 
@@ -158,7 +167,7 @@ export class Input {
 
   // ---------------------------------------------------------- pointer lock
   requestPointerLock() {
-    if (!this.gameEnabled || this.locked) return;
+    if (this.pointerLockDisabled || !this.gameEnabled || this.locked) return;
     try {
       const p = this.canvas.requestPointerLock?.();
       if (p && typeof p.catch === 'function') p.catch(() => {});
@@ -176,6 +185,61 @@ export class Input {
     }
   }
 
+  // ------------------------------------------------------ virtual input
+  /**
+   * Holds a virtual key (touch / on-screen button) until releaseVirtual(code).
+   * Gameplay sees it like a real key: down(), plus a pressed() edge on the
+   * next frame. Emits 'input:key' {code, virtual: true} like a key press.
+   */
+  pressVirtual(code) {
+    const v = this.virtual.buttons;
+    this._tapRelease.delete(code);
+    if (v.has(code)) return;
+    if (!this.keys.has(code)) this._pressed.add(code);
+    v.add(code);
+    this.events?.emit('input:key', { code, key: '', virtual: true });
+  }
+
+  /** Releases a virtual key (released() edge on the next frame). */
+  releaseVirtual(code) {
+    const v = this.virtual.buttons;
+    if (!v.has(code)) return;
+    v.delete(code);
+    if (!this.keys.has(code)) this._released.add(code);
+  }
+
+  /** A short virtual key press: pressed now, released after the next frame. */
+  tapVirtual(code) {
+    this.pressVirtual(code);
+    this._tapRelease.add(code);
+  }
+
+  /** Releases every virtual key and zeroes the virtual stick. */
+  releaseAllVirtual() {
+    for (const c of [...this.virtual.buttons]) this.releaseVirtual(c);
+    this._tapRelease.clear();
+    this.virtual.moveX = 0;
+    this.virtual.moveY = 0;
+  }
+
+  /**
+   * Adds a look delta in mouse pixels (touch drag): applied like mouse-look
+   * (× sensitivity, invertY) to this frame's lookX/lookY; the raw delta is
+   * also summed in virtual.lookX/lookY (reset every frame).
+   */
+  addLook(dx, dy) {
+    if (!this.gameEnabled) return;
+    this.virtual.lookX += dx;
+    this.virtual.lookY += dy;
+    this.lookX += dx * this.sensitivity;
+    this.lookY += dy * this.sensitivity * (this.invertY ? -1 : 1);
+  }
+
+  /** Adds zoom in wheel notches (positive = zoom out), e.g. from a pinch. */
+  addWheel(notches) {
+    if (Number.isFinite(notches)) this.mouse.wheel += notches;
+  }
+
   // ------------------------------------------------------------- per frame
   /** Called by the loop after every frame. */
   endFrame() {
@@ -186,6 +250,12 @@ export class Input {
     this.mouse.wheel = 0;
     this.lookX = 0;
     this.lookY = 0;
+    this.virtual.lookX = 0;
+    this.virtual.lookY = 0;
+    if (this._tapRelease.size) {
+      for (const c of this._tapRelease) this.releaseVirtual(c);
+      this._tapRelease.clear();
+    }
   }
 
   // ---------------------------------------------------------------- events
@@ -221,7 +291,7 @@ export class Input {
       c.focus({ preventScroll: true });
       const code = `Mouse${e.button}`;
       this._setDown(code);
-      if (this.wantsPointerLock && !this.locked && this.gameEnabled) {
+      if (this.wantsPointerLock && !this.locked && this.gameEnabled && !this.pointerLockDisabled) {
         // First click only grabs the mouse; don't treat it as a game click.
         this.requestPointerLock();
         this._pressed.delete(code);

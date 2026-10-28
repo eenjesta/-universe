@@ -237,7 +237,8 @@ export function createStudio(ctx) {
     fragmentShader: `uniform sampler2D map; uniform float uGain; uniform float uHdr; varying vec2 vUv;
       void main() {
         vec3 c = texture2D(map, vUv).rgb;
-        if (uHdr > 0.5) c = c / (1.0 + c * 0.75);
+        // clamp: an Inf texel (half-float overflow) would give Inf / Inf = NaN
+        if (uHdr > 0.5) { c = clamp(c, 0.0, 65504.0); c = c / (1.0 + c * 0.75); }
         gl_FragColor = vec4(c * uGain, 1.0);
       }`,
   });

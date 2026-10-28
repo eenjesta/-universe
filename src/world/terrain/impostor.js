@@ -193,6 +193,9 @@ const IMP_VS = /* glsl */ `
   // express the world position in the instance's local frame so every later
   // chunk (projection, shadows, fog) works unchanged; collapsed (far-LOD
   // culled) vertices stay at the origin
+  // removed instances have an all-zero matrix (instancing.js): inverse() of it is
+  // Inf/NaN, so collapse them like the far-LOD cull does
+  if (iSx * iSy <= 0.0) transformed = vec3(0.0);
   if (dot(transformed, transformed) > 0.0) transformed = (inverse(iM) * vec4(wp, 1.0)).xyz;
 }
 `;

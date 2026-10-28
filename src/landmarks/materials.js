@@ -90,7 +90,9 @@ export function createMaterials(ctx) {
       vec3 V = normalize(viewPos);
       vec3 L = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
       float back = max(dot(-V, L), 0.0);
-      float edge = 1.0 - abs(dot(n, V));
+      // max(): |dot| of two unit vectors can round to 1.0000001 where a face looks
+      // straight at the camera → pow() of a negative base = NaN (black dot)
+      float edge = max(1.0 - abs(dot(n, V)), 0.0);
       float up = smoothstep(-0.05, 0.12, uSunDir.y + 0.08);
       return uSunCol * (pow(edge, 3.0) * pow(back, 5.0) * k * up);
     }
@@ -516,7 +518,8 @@ export function createMaterials(ctx) {
           uniform sampler2D map;
           varying vec3 vN; varying vec3 vV; varying vec2 vUv;
           void main() {
-            float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), uPower);
+            // max(): |dot| can round above 1 at a sphere's centre → pow(< 0) = NaN
+            float f = pow(max(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0), uPower);
             vec3 base = uColor;
             float body = 0.12;
             if (uUseMap > 0.5) { vec4 t = texture2D(map, vUv + vec2(uTime * 0.01, 0.0)); base *= 0.6 + t.rgb; body = 0.22 * t.a; }
@@ -558,7 +561,7 @@ export function createMaterials(ctx) {
             {
               vec2 d = vLmWPos.xz - uCenter.xz;
               float r = length(d);
-              float ang = atan(d.y, d.x) + 3.14159265;
+              float ang = (r > 0.0 ? atan(d.y, d.x) : 0.0) + 3.14159265; // atan(0, 0) is undefined
               vec3 cA = vec3(0.42, 0.4, 0.38);
               vec3 cB = vec3(0.31, 0.3, 0.295);
               vec3 cC = vec3(0.2, 0.2, 0.22);

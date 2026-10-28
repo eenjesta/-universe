@@ -74,6 +74,21 @@ export const SKY_FUNCTIONS_GLSL = /* glsl */ `
 
 ${HAZE_GLSL}
 
+// normalize() that gives 0 instead of NaN for a zero vector (a view ray exactly
+// through a body's centre); identical to normalize() for any other vector
+vec3 aNormalize( vec3 v ) {
+	return v * inversesqrt( max( dot( v, v ), 1e-30 ) );
+}
+
+// non-finite (NaN / ±Inf) → 0, per channel. Bit test: isnan()/isinf() may be
+// folded away by fast-math shader compilers (Metal)
+float aFinite1( float x ) {
+	return ( floatBitsToUint( x ) & 0x7f800000u ) == 0x7f800000u ? 0.0 : x;
+}
+vec3 aFinite( vec3 c ) {
+	return vec3( aFinite1( c.r ), aFinite1( c.g ), aFinite1( c.b ) );
+}
+
 vec3 aHash33( vec3 p3 ) {
 	p3 = fract( p3 * vec3( 0.1031, 0.1030, 0.0973 ) );
 	p3 += dot( p3, p3.yxz + 33.33 );
@@ -148,7 +163,9 @@ void aBodyHit( vec3 dir, vec3 C, float sR, out vec3 N, out float t, out float th
 }
 
 vec2 aSphereUV( vec3 nl ) {
-	return vec2( atan( nl.z, nl.x ) * 0.15915494 + 0.5, asin( clamp( nl.y, - 1.0, 1.0 ) ) * 0.31830989 + 0.5 );
+	// atan( 0, 0 ) (exactly at a pole) is undefined: NaN on some GPUs
+	float lon = abs( nl.x ) + abs( nl.z ) > 0.0 ? atan( nl.z, nl.x ) : 0.0;
+	return vec2( lon * 0.15915494 + 0.5, asin( clamp( nl.y, - 1.0, 1.0 ) ) * 0.31830989 + 0.5 );
 }
 
 vec3 aMoon( vec3 dir, vec4 M, vec3 L, vec3 tint, vec2 uvOff, float lod, float pxA, out float cover ) {
@@ -172,7 +189,7 @@ vec3 aMoon( vec3 dir, vec4 M, vec3 L, vec3 tint, vec2 uvOff, float lod, float px
 	float mu = clamp( dot( N, - dir ), 0.0, 1.0 );
 	c += uPlanetRim * 0.22 * pow( 1.0 - mu, 3.0 ) * term;
 	float halo = exp( - max( th - R, 0.0 ) / R * 9.0 ) * ( 1.0 - cover );
-	c = c * cover + a * uPlanetLightCol * 0.03 * halo * smoothstep( - 0.2, 0.5, dot( normalize( dir - M.xyz ), L ) );
+	c = c * cover + a * uPlanetLightCol * 0.03 * halo * smoothstep( - 0.2, 0.5, dot( aNormalize( dir - M.xyz ), L ) );
 	return c;
 }
 
@@ -199,7 +216,8 @@ vec4 aClouds( vec3 dir ) {
 	float oy = Re + uCamPos.y;
 	float Rc = Re + uCloud.z;
 	float b = oy * h;
-	float t = - b + sqrt( b * b + ( Rc - oy ) * ( Rc + oy ) );
+	// max(): with the camera above the deck the ray can miss the shell → sqrt( < 0 ) = NaN
+	float t = - b + sqrt( max( b * b + ( Rc - oy ) * ( Rc + oy ), 0.0 ) );
 	vec2 q = ( uCamPos.xz + dir.xz * t ) / uCloud.w + uCloudWind.xy;
 	float dens = aCloudField( q, uCloud.x );
 	vec2 sxz = uSunDir.xz;
@@ -264,8 +282,8 @@ vec4 aCloudBand( vec3 dir ) {
 	// silhouette normal in the cloud frame (x along the horizon, y up, z toward the viewer)
 	float k = smoothstep( 0.35, 1.0, yr );
 	vec3 n = normalize( vec3( dx * k, sqrt( max( 1.0 - dx * dx, 0.0 ) ) * k, 1.0 - k * 0.8 ) );
-	float sAz = atan( uSunDir.x, - uSunDir.z );
 	float cE = length( uSunDir.xz );
+	float sAz = cE > 0.0 ? atan( uSunDir.x, - uSunDir.z ) : 0.0; // atan( 0, 0 ) with the sun at the zenith
 	vec3 sl = vec3( sin( sAz - az ) * cE, uSunDir.y, - cos( sAz - az ) * cE );
 	float lit = max( dot( n, sl ), 0.0 );
 	float back = max( - sl.z, 0.0 ); // sun behind the bank
@@ -326,13 +344,15 @@ vec3 aSky( vec3 dir, float pxA ) {
 		vec3 albedo = ptex.rgb;
 		vec3 lit = albedo * uPlanetLightCol * ( clamp( ndl, 0.0, 1.0 ) * 0.9 + 0.1 ) * term;
 		// warm band along the terminator (light refracted through its atmosphere)
-		lit += albedo * uPlanetLightCol * vec3( 1.0, 0.55, 0.36 ) * exp( - pow( ( ndlS - 0.03 ) * 8.0, 2.0 ) ) * 0.09;
+		// (explicit squares: pow() of a negative base is NaN on real GPUs)
+		float tb = ( ndlS - 0.03 ) * 8.0;
+		lit += albedo * uPlanetLightCol * vec3( 1.0, 0.55, 0.36 ) * exp( - tb * tb ) * 0.09;
 		vec3 dark = albedo * uPlanetDark * ( 1.0 - term ) * ( 0.6 + 0.4 * ptex.a );
 		float muV = clamp( dot( Np, - dir ), 0.0, 1.0 );
 		vec3 atmo = uPlanetRim * pow( 1.0 - muV, 3.0 ) * smoothstep( - 0.3, 0.55, ndlS ) * 1.5;
 		prad = ( lit + dark + atmo ) * coverP;
 		// thin atmospheric halo just outside the limb, on the lit side
-		vec3 perp = normalize( dir - uPlanetDir * dot( dir, uPlanetDir ) );
+		vec3 perp = aNormalize( dir - uPlanetDir * dot( dir, uPlanetDir ) );
 		float hl = smoothstep( - 0.4, 0.7, dot( perp, uPlanetLightW ) );
 		prad += uPlanetRim * exp( - max( thP - Rp, 0.0 ) / Rp * 28.0 ) * ( 1.0 - coverP ) * hl * 0.55;
 
@@ -343,8 +363,10 @@ vec3 aSky( vec3 dir, float pxA ) {
 		ringlets = mix( ringlets, 0.55, smoothstep( 0.02, 0.08, rfw ) ); // fade sub-pixel detail
 		float bands = ( 0.35 + 0.9 * ringlets ) * mix( 0.55, 1.0, smoothstep( 0.18, 0.4, rN ) );
 		bands *= smoothstep( 0.0, 0.06, rN ) * ( 1.0 - smoothstep( 0.86, 1.0, rN ) );
-		bands *= 1.0 - 0.9 * exp( - pow( ( rN - 0.62 ) * 22.0, 2.0 ) );
-		bands *= 1.0 - 0.7 * exp( - pow( ( rN - 0.9 ) * 60.0, 2.0 ) );
+		float gapC = ( rN - 0.62 ) * 22.0;
+		float gapO = ( rN - 0.9 ) * 60.0;
+		bands *= 1.0 - 0.9 * exp( - gapC * gapC );
+		bands *= 1.0 - 0.7 * exp( - gapO * gapO );
 		float behind = step( tP, tr ) * coverP;
 		vec3 toC = uPlanetDir - Q;
 		float s = dot( toC, uPlanetLightW );
@@ -425,6 +447,11 @@ void main() {
 		dir = normalize( vDir );
 	}
 	float pxA = max( length( fwidth( dir ) ), 1e-5 );
-	gl_FragColor = vec4( aSky( dir, pxA ), 1.0 );
+	vec3 col = aSky( dir, pxA );
+	// the capture feeds PMREM (IBL of every PBR material) and the water
+	// reflections: one NaN texel there gets blurred over half the env map
+	// ("the light turns black in many places" until the next capture)
+	if ( uEquirect > 0.5 ) col = aFinite( col );
+	gl_FragColor = vec4( col, 1.0 );
 }
 `;

@@ -111,11 +111,23 @@ export function createDialogue(ctx, { refs, rewards, portraits }) {
     });
     // little voice meter beside the name while the line types out
     refsUI.voice = ui.h('span', { class: 'sys-dlg-voice', 'aria-hidden': 'true' }, ui.h('i'), ui.h('i'), ui.h('i'), ui.h('i'));
+    // touch devices have no Esc key: a close button (hidden on desktop via CSS)
+    refsUI.close = ui.h('button', {
+      class: 'sys-dlg-close',
+      type: 'button',
+      'aria-label': t({ en: 'Close', nl: 'Sluiten' }),
+      html: ui.icon('close', 18),
+      onclick: (e) => {
+        e.stopPropagation();
+        close();
+      },
+    });
     refsUI.box = ui.h(
       'div',
       { class: 'sys-dlg-box', onclick: () => cur?.typing && finishTyping() },
       ui.h('div', { class: 'sys-dlg-speaker' }, refsUI.name, refsUI.voice, refsUI.role, refsUI.hint),
       refsUI.text,
+      refsUI.close,
     );
     refsUI.list = ui.h('ol', { class: 'sys-dlg-choices' });
     // the poster's caption for this feature, small above the panel

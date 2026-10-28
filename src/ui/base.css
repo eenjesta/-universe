@@ -37,6 +37,12 @@
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   --track: 0.32em;              /* wide tracking for caps titles */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* safe areas (notch, home indicator; viewport-fit=cover) — 0 on desktop */
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -233,3 +239,52 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .hud-slot-bottom-left, .hud-slot-bottom-center, .hud-slot-bottom-right { bottom: 12px; }
   .prompts { bottom: 120px; }
 }
+
+/* ------------------------------------------------------------ touch devices
+ * body[data-touch="1"] / [data-device="phone"|"tablet"] (src/core/touch.js).
+ * Desktop never matches these rules.
+ */
+html.is-touch, body[data-touch="1"] { overscroll-behavior: none; }
+body[data-touch="1"] {
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+  /* room kept free for the touch controls (top bar, joystick, button cluster) */
+  --touch-top: 62px;
+  --touch-bl: 150px;
+  --touch-br: 186px;
+}
+body[data-touch="1"] * { -webkit-touch-callout: none; }
+body[data-touch="1"] #gl { touch-action: none; }
+body[data-touch="1"] :is(button, a, input, select, textarea, label, [role="button"], .card.interactive) { touch-action: manipulation; }
+body[data-touch="1"] :is(.scroll, .modal) { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+body[data-touch="1"] :is(input, textarea) { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+body[data-device="tablet"] { --touch-bl: 176px; --touch-br: 214px; }
+
+/* HUD slots: clear of the notch / home indicator and of the touch controls */
+body[data-touch="1"] .hud-slot-top-left { top: calc(var(--sat) + 12px); left: calc(var(--sal) + 14px); }
+body[data-touch="1"] .hud-slot-top-center { top: calc(var(--sat) + 8px); }
+body[data-touch="1"] .hud-slot-top-right { top: calc(var(--sat) + var(--touch-top)); right: calc(var(--sar) + 14px); }
+body[data-touch="1"] .hud-slot-left { left: calc(var(--sal) + 14px); }
+body[data-touch="1"] .hud-slot-right { right: calc(var(--sar) + 14px); }
+body[data-touch="1"] .hud-slot-bottom-left { left: calc(var(--sal) + 14px); bottom: calc(var(--sab) + var(--touch-bl)); }
+body[data-touch="1"] .hud-slot-bottom-center { bottom: calc(var(--sab) + 12px); }
+body[data-touch="1"] .hud-slot-bottom-right { right: calc(var(--sar) + 14px); bottom: calc(var(--sab) + var(--touch-br)); }
+body[data-touch="1"] .prompts { bottom: calc(var(--sab) + 118px); }
+body[data-touch="1"] .layer-toasts { padding-top: calc(var(--sat) + 10px); }
+/* phones: HUD widgets at 80 % (the slot positions themselves stay exact) */
+body[data-device="phone"] .hud-slot:not(.hud-slot-center) > :not(.shell-minimap):not(.shell-compass):not(.sys-chat) { zoom: 0.8; }
+body[data-device="phone"] .toast { min-width: 0; max-width: min(400px, calc(100vw - 32px)); padding: 8px 14px 8px 11px; }
+body[data-device="phone"] .toast-text { font-size: 13px; }
+/* interaction prompts are tappable on touch (they press their key); the key cap becomes a tap target */
+body[data-touch="1"] .prompt { pointer-events: auto; padding: 6px 16px 6px 6px; touch-action: none; cursor: pointer; }
+body[data-touch="1"] .prompt .kbd {
+  width: 30px; min-width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  border: 1.5px solid var(--cyan); background: rgba(127, 224, 255, 0.12);
+  font-size: 0; color: transparent; position: relative;
+  box-shadow: 0 0 12px rgba(127, 224, 255, 0.35);
+}
+body[data-touch="1"] .prompt .kbd::before {
+  content: ''; position: absolute; inset: 7px; border-radius: 50%;
+  background: radial-gradient(circle, #e9fbff 0 32%, rgba(233, 251, 255, 0) 36% 58%, rgba(233, 251, 255, 0.7) 62% 70%, rgba(233, 251, 255, 0) 74%);
+}
+body[data-touch="1"] .prompt.is-down { border-color: var(--cyan); background: rgba(127, 224, 255, 0.18); }

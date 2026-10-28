@@ -24,6 +24,22 @@ const TIPS = {
   },
 };
 
+/** Touch devices (src/core/touch.js): the same tips without mouse / keys. */
+const TOUCH_TIPS = {
+  explore: {
+    en: 'Walk with the joystick on the left and drag on the right to look around. Follow the cyan marker on your compass to your next objective.',
+    nl: 'Loop met de joystick links en sleep rechts om rond te kijken. Volg de cyaan markering op je kompas naar je volgende doel.',
+  },
+  drive: {
+    en: 'In the spaceship, climb above 600 m or tap the rocket button at the spaceport to fly into space.',
+    nl: 'Met het ruimteschip vlieg je boven de 600 m of met de raketknop vanaf de ruimtehaven de ruimte in.',
+  },
+  space: {
+    en: 'Hold the action button to scan the anomaly and tap Land to return to the planet.',
+    nl: 'Houd de actieknop vast om de anomalie te scannen en tik op Landen om terug te keren naar de planeet.',
+  },
+};
+
 export class HelpOverlay {
   constructor(ctx) {
     this.ctx = ctx;
@@ -42,7 +58,7 @@ export class HelpOverlay {
     const ctx = this.ctx;
     const h = ctx.ui.h;
     const mode = ctx.modes.name;
-    const tip = t(TIPS[mode] || TIPS.explore);
+    const tip = t((ctx.device?.touch && TOUCH_TIPS[mode]) || TIPS[mode] || TIPS.explore);
     const helpWord = t({ en: 'Help', nl: 'Help' });
     const el = h(
       'div',

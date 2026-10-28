@@ -35,7 +35,8 @@ const STREAK_FS = /* glsl */ `
     float d = abs(vUv.y - 0.5) * 2.0;
     float core = 1.0 - smoothstep(0.0, 1.0, d);
     core *= core;
-    float tail = pow(a, 2.6);
+    // max(): with MSAA, uv is extrapolated slightly below 0 at the tail edge → pow(< 0) = NaN
+    float tail = pow(max(a, 0.0), 2.6);
     float head = smoothstep(0.86, 1.0, a);
     vec3 col = vColor * (tail * 1.8 + head * 2.6) + vec3(1.0, 0.96, 0.9) * head * core * 3.2;
     float alpha = core * (tail + head * 0.8) * vAlpha;
@@ -293,7 +294,8 @@ const BEAM_FS = /* glsl */ `
   uniform float uIntensity;
   varying vec2 vUv;
   void main() {
-    float fade = pow(1.0 - vUv.y, 1.6);
+    // max(): with MSAA, uv.y is extrapolated slightly above 1 at the top edge → pow(< 0) = NaN
+    float fade = pow(max(1.0 - vUv.y, 0.0), 1.6);
     float bands = 0.65 + 0.35 * sin(vUv.y * 40.0 - uTime * 3.0);
     float edge = 0.55 + 0.45 * sin(vUv.x * 6.2831 * 3.0 + uTime * 0.7);
     float a = fade * bands * edge * 0.42 * uIntensity;
@@ -495,7 +497,7 @@ const PILLAR_FS = /* glsl */ `
   uniform float uFade;
   varying vec2 vUv;
   void main() {
-    float fade = pow(1.0 - vUv.y, 1.25);
+    float fade = pow(max(1.0 - vUv.y, 0.0), 1.25); // max(): MSAA uv extrapolation (see BEAM_FS)
     float flow = 0.6 + 0.4 * sin(vUv.y * 60.0 - uTime * 4.0);
     float a = fade * flow * 0.6 * uFade;
     gl_FragColor = vec4(vec3(0.45, 0.88, 1.0) * 2.2, a);
@@ -665,7 +667,7 @@ const COLUMN_FS = /* glsl */ `
   uniform vec3 uColor;
   varying vec2 vUv;
   void main() {
-    float fade = pow(1.0 - vUv.y, 1.4) * pow(max(0.0, 1.0 - uT), 1.6);
+    float fade = pow(max(1.0 - vUv.y, 0.0), 1.4) * pow(max(0.0, 1.0 - uT), 1.6); // max(): MSAA uv extrapolation
     float edge = 0.6 + 0.4 * sin(vUv.x * 6.2831 * 4.0);
     gl_FragColor = vec4(uColor * 3.0, fade * edge * 0.75);
   }

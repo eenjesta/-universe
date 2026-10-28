@@ -98,7 +98,10 @@ export class ScreenMarkers {
         let dx = x - W / 2;
         let dy = y - H / 2;
         if (behind) dy = Math.abs(dy) + H; // behind you → bottom edge
-        const sx = (W / 2 - EDGE) / Math.max(1e-3, Math.abs(dx));
+        // touch devices: keep clamped markers off the side HUD columns (minimap + tracker left,
+        // Chat/Menu + panels right) — they clamp inside the central band instead
+        const edgeX = this.ctx.device?.touch ? EDGE + Math.min(W * 0.33, 300) : EDGE;
+        const sx = (W / 2 - edgeX) / Math.max(1e-3, Math.abs(dx));
         const sy = (H / 2 - EDGE) / Math.max(1e-3, Math.abs(dy));
         const s = Math.min(sx, sy);
         x = W / 2 + dx * s;

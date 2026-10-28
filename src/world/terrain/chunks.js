@@ -20,7 +20,8 @@ const LEVELS = [
   { step: 1, switchAt: 0, morph: [230, 350], skirt: 6 },
   { step: 2, switchAt: 520, morph: [610, 730], skirt: 12 },
   { step: 4, switchAt: 900, morph: [1210, 1330], skirt: 24 },
-  { step: 8, switchAt: 1500, morph: [1e9, 1e9 + 1], skirt: 48 },
+  // never morphs. (Not [1e9, 1e9 + 1]: equal in float32 → smoothstep(e, e, x) is undefined on GPUs)
+  { step: 8, switchAt: 1500, morph: [1e9, 2e9], skirt: 48 },
 ];
 
 export function createTerrainChunks(data, uniforms) {

@@ -77,7 +77,8 @@ vec2 craters( vec3 p, float density ) {
 		if ( d > 1.5 ) continue;
 		// flat-ish floor, soft raised rim, faint bright ejecta blanket
 		float bowl = d < 1.0 ? ( smoothstep( 0.0, 1.0, d ) - 1.0 ) * 0.7 : 0.0;
-		float rim = exp( - pow( ( d - 1.0 ) * 3.2, 2.0 ) ) * 0.28;
+		float rd = ( d - 1.0 ) * 3.2; // explicit square: pow() of a negative base is NaN on real GPUs
+		float rim = exp( - rd * rd ) * 0.28;
 		float ej = d > 1.0 ? exp( - ( d - 1.0 ) * 2.6 ) * 0.1 : 0.0;
 		hgt += ( bowl + rim ) * ( 0.45 + r.z * 0.8 );
 		shade += ( d < 1.0 ? 0.1 * ( 1.0 - d * d ) : 0.0 ) - ej - rim * 0.1;

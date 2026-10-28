@@ -135,8 +135,12 @@ export function settingsPanel(ctx, settings) {
     group(
       { en: 'Controls', nl: 'Besturing' },
       'mouse',
-      slider('sensitivity', { en: 'Mouse sensitivity', nl: 'Muisgevoeligheid' }, { min: 0.2, max: 3, step: 0.05, fmt: factor }),
-      toggle('invertY', { en: 'Invert Y axis', nl: 'Y-as omkeren' }, { en: 'Moving the mouse up looks down', nl: 'Muis omhoog kijkt omlaag' }),
+      slider('sensitivity', ctx.device?.touch ? { en: 'Look sensitivity', nl: 'Kijkgevoeligheid' } : { en: 'Mouse sensitivity', nl: 'Muisgevoeligheid' }, { min: 0.2, max: 3, step: 0.05, fmt: factor }),
+      toggle(
+        'invertY',
+        { en: 'Invert Y axis', nl: 'Y-as omkeren' },
+        ctx.device?.touch ? { en: 'Dragging up looks down', nl: 'Omhoog slepen kijkt omlaag' } : { en: 'Moving the mouse up looks down', nl: 'Muis omhoog kijkt omlaag' },
+      ),
     ),
     group(
       { en: 'Game', nl: 'Spel' },
@@ -153,14 +157,46 @@ export function settingsPanel(ctx, settings) {
 }
 
 // ---------------------------------------------------------------- controls
+/** Touch devices: the on-screen controls (src/core/touch.js), shown first in the controls reference. */
+const TOUCH_ROWS = [
+  { icon: 'touch-stick', t: { en: 'Move', nl: 'Lopen' }, d: { en: 'Put your thumb down anywhere on the left: a joystick appears', nl: 'Zet je duim ergens links neer: er verschijnt een joystick' } },
+  { icon: 'touch-sprint', t: { en: 'Sprint', nl: 'Sprinten' }, d: { en: 'Push the joystick all the way to its edge', nl: 'Duw de joystick helemaal tot de rand' } },
+  { icon: 'touch-drag', t: { en: 'Look around', nl: 'Rondkijken' }, d: { en: 'Drag anywhere on the rest of the screen', nl: 'Sleep ergens over de rest van het scherm' } },
+  { icon: 'touch-pinch', t: { en: 'Zoom', nl: 'Zoomen' }, d: { en: 'Pinch with two fingers', nl: 'Knijp met twee vingers' } },
+  { icon: 'touch-jump', t: { en: 'Jump', nl: 'Springen' } },
+  { icon: 'hand', t: { en: 'Interact', nl: 'Interactie' }, d: { en: 'Tap the action button or the prompt; hold it to scan or harvest', nl: 'Tik op de actieknop of de melding; houd vast om te scannen of te oogsten' } },
+  { icon: 'touch-menu', t: { en: 'Menu', nl: 'Menu' }, d: { en: 'Missions, map, character, marketplace, building, vehicles, help and pause', nl: 'Missies, kaart, karakter, marktplaats, bouwen, voertuigen, help en pauze' } },
+  { icon: 'chat', t: { en: 'Chat', nl: 'Chat' }, d: { en: 'Top right, next to the menu', nl: 'Rechtsboven, naast het menu' } },
+];
+
 /** Controls reference; groups relevant to `mode` come first and are marked. */
 export function controlsPanel(ctx, { mode = null, compact = false } = {}) {
   const h = ctx.ui.h;
   const groups = [...CONTROLS];
   if (mode) groups.sort((a, b) => Number(b.modes.includes(mode)) - Number(a.modes.includes(mode)));
+  const touch = ctx.device?.touch
+    ? h(
+        'section',
+        { class: 'shell-ctrl-group is-current shell-ctrl-touch', dataset: { group: 'touch' } },
+        h('h3', { class: 'shell-ctrl-title' }, h('span', { html: icon('hand', 16) }), t({ en: 'Touch screen', nl: 'Touchscreen' })),
+        h(
+          'div',
+          { class: 'shell-ctrl-rows' },
+          TOUCH_ROWS.map((r) =>
+            h(
+              'div',
+              { class: 'shell-ctrl-row' },
+              h('span', { class: 'shell-touch-glyph', html: icon(r.icon, 18) }),
+              h('div', { class: 'shell-ctrl-label' }, h('span', { text: t(r.t) }), r.d ? h('small', { text: t(r.d) }) : null),
+            ),
+          ),
+        ),
+      )
+    : null;
   return h(
     'div',
     { class: `shell-controls${compact ? ' is-compact' : ''}` },
+    touch,
     groups.map((gr) =>
       h(
         'section',

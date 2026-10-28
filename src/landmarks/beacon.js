@@ -164,7 +164,7 @@ export function buildBeacon(env, zone) {
           rings += (1.0 - smoothstep(0.05, 0.22 + fw, abs(r - pr))) * fade * 1.2 * uActive;
         }
         // dashed outer arcs
-        float ang = atan(vP.z, vP.x);
+        float ang = r > 0.0 ? atan(vP.z, vP.x) : 0.0; // atan(0, 0) at the centre vertex is undefined
         float dash = step(0.5, fract(ang * 6.0 / 3.14159 + uTime * 0.05));
         rings += (1.0 - smoothstep(0.04, 0.09 + fw, abs(r - 13.0))) * dash * 0.45 * uActive;
         float edge = 1.0 - smoothstep(12.0, 16.0, r);
@@ -341,7 +341,8 @@ function makeCrystalMaterial(mats, activeU) {
         {
           float pulse = 0.65 + 0.35 * sin(uTime * 2.2 - vCWPos.y * 0.35);
           totalEmissiveRadiance += vec3(0.2, 0.55, 1.0) * cVein * pulse * mix(0.25, 1.6, uActive) * mix(0.6, 1.0, uNight);
-          float rim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.0);
+          // max(): |dot| can round above 1 on faces seen head-on → pow(< 0) = NaN
+          float rim = pow(max(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 0.0), 3.0);
           totalEmissiveRadiance += vec3(0.05, 0.13, 0.32) * rim * (0.6 + 0.4 * uActive);
         }`,
       );

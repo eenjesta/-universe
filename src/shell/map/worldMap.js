@@ -181,7 +181,12 @@ export class WorldMap {
         h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': t({ en: 'Zoom out', nl: 'Uitzoomen' }), title: t({ en: 'Zoom out', nl: 'Uitzoomen' }), html: icon('minus', 18), onclick: () => this._zoomBy(1 / 1.5) }),
         h('button', { class: 'shell-map-zbtn', type: 'button', 'aria-label': t({ en: 'Centre on you', nl: 'Centreer op jou' }), title: t({ en: 'Centre on you', nl: 'Centreer op jou' }), html: icon('shell-crosshair', 18), onclick: () => this._centerOnPlayer() }),
       ),
-      h('div', { class: 'shell-map-hint', text: t({ en: 'Scroll to zoom · Drag to pan · Double-click to travel', nl: 'Scroll om te zoomen · Sleep om te verschuiven · Dubbelklik om te reizen' }) }),
+      h('div', {
+        class: 'shell-map-hint',
+        text: ctx.device?.touch
+          ? t({ en: 'Pinch to zoom · Drag to pan · Tap a place, then Fast travel', nl: 'Knijp om te zoomen · Sleep om te verschuiven · Tik op een plek en dan Snel reizen' })
+          : t({ en: 'Scroll to zoom · Drag to pan · Double-click to travel', nl: 'Scroll om te zoomen · Sleep om te verschuiven · Dubbelklik om te reizen' }),
+      }),
       this.loadingNote,
     );
 
@@ -450,6 +455,38 @@ export class WorldMap {
       window.addEventListener('pointermove', this._onMove);
       window.addEventListener('pointerup', this._onUp);
     });
+    // touch: two-finger pinch zooms around the fingers (one finger pans, above)
+    const pts = new Map();
+    let pinchD = 0;
+    const two = () => {
+      const [a, b] = [...pts.values()];
+      const r = vp.getBoundingClientRect();
+      return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top };
+    };
+    vp.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) {
+        this._onUp(); // the pinch takes over from the one-finger pan
+        pinchD = two().d;
+      }
+    });
+    vp.addEventListener('pointermove', (e) => {
+      const p = pts.get(e.pointerId);
+      if (!p) return;
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (pts.size === 2 && pinchD > 0) {
+        const g = two();
+        if (g.d > 0) this._zoomBy(g.d / pinchD, g.x, g.y);
+        pinchD = g.d;
+      }
+    });
+    const lift = (e) => {
+      if (pts.delete(e.pointerId) && pts.size < 2) pinchD = 0;
+    };
+    vp.addEventListener('pointerup', lift);
+    vp.addEventListener('pointercancel', lift);
     this._ro = new ResizeObserver(() => {
       this._measure();
       this._layout();

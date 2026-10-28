@@ -154,3 +154,21 @@
   .shell-keyhints { gap: 6px; }
   .shell-keyhints-dot { display: none; }
 }
+
+/* ------------------------------------------------------------ touch devices
+ * (body[data-touch="1"], src/core/touch.js) The joystick lives bottom-left, so
+ * the minimap moves to the top-left corner (the quest tracker slides below it)
+ * and the key hints give way to the touch buttons.
+ */
+body[data-touch="1"] { --mm: clamp(92px, 24vh, 148px); }
+body[data-touch="1"] .shell-minimap {
+  position: fixed; left: calc(var(--sal, 0px) + 12px); top: calc(var(--sat, 0px) + 10px);
+  width: var(--mm);
+}
+body[data-touch="1"]:has(.shell-minimap:not([hidden])) .hud-slot-top-left { top: calc(var(--sat, 0px) + 18px + var(--mm)); }
+body[data-touch="1"] .shell-keyhints { display: none !important; }
+body[data-touch="1"] .shell-fps { right: calc(var(--sar, 0px) + 120px); top: calc(var(--sat, 0px) + 4px); }
+body[data-device="phone"] .shell-compass { width: clamp(220px, 36vw, 340px); height: 48px; }
+body[data-device="phone"] .shell-zone-inner { min-width: 0; padding: 8px 16px 8px 11px; }
+body[data-device="phone"] .shell-sm-label { font-size: 12.5px; }
+body[data-device="phone"] .shell-sm-dist { font-size: 12px; }

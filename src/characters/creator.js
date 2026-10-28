@@ -116,9 +116,26 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
     const tb = TABS.find((x) => x.id === id);
     studio.setPreset(tb.preset);
     studio.lookAtCamera(tb.preset === 'face' || tb.preset === 'front');
+    framePortrait();
     renderPanel();
     ctx.audio?.play?.('ui.click');
   }
+
+  // Touch devices in portrait: the studio composes the model for the landscape layout (left of
+  // the panel), which puts it off the left edge of a tall screen. Shift the projection so it
+  // stands centred between the tab bar and the bottom panel (cleared in landscape / on close).
+  const PORTRAIT_SHIFT = { full: [-0.41, -0.04], front: [-0.41, -0.04], face: [-0.62, 0.1] };
+  function framePortrait() {
+    const cam = studio.camera;
+    if (!cam?.setViewOffset) return;
+    const W = Math.max(1, window.innerWidth);
+    const H = Math.max(1, window.innerHeight);
+    const preset = TABS.find((x) => x.id === tab)?.preset;
+    const shift = root && ctx.device?.touch && H > W * 1.1 ? PORTRAIT_SHIFT[preset] : null;
+    if (shift) cam.setViewOffset(W, H, shift[0] * W, shift[1] * H, W, H);
+    else if (cam.view?.enabled) cam.clearViewOffset();
+  }
+  window.addEventListener('resize', () => framePortrait());
 
   // ------------------------------------------------------------ panel
   /** `title` is bilingual text ({en, nl}). */
@@ -363,12 +380,14 @@ export function createCreator(ctx, { studio, onConfirm, onCancel }) {
       studio.setPreset(tb.preset, { snap: true });
       studio.lookAtCamera(tb.preset === 'face' || tb.preset === 'front');
       ui.showScreen('customize', build());
+      framePortrait();
     },
     close() {
       ui.hideScreen('customize');
       root = null;
       panel = null;
       queue = [];
+      framePortrait();
     },
     cancel() {
       onCancel?.();

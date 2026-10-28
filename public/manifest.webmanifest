@@ -1,0 +1,21 @@
+{
+  "name": "Ø Universe",
+  "short_name": "Ø Universe",
+  "description": "Explore · Create · Connect — an endless, living world where technology, creativity and people come together.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "categories": ["games", "entertainment"],
+  "lang": "en",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -13,6 +13,7 @@ import { AudioEngine } from './core/audio.js';
 import { ZONES, WORLD } from './world/layout.js';
 import { installGfx } from './core/gfxpanel.js';
 import { i18n, initLanguage, t } from './core/i18n.js';
+import { detectDevice, applyDevice, deviceProfile, installTouch } from './core/touch.js';
 
 /**
  * Module manifest. Each module's index.js exports `install(ctx, helpers)`
@@ -42,6 +43,9 @@ function parseParams() {
 
 export async function createGame() {
   const params = parseParams();
+  // phone / tablet / desktop (+ ?touch=1|0, ?device=phone|tablet); body[data-touch][data-device]
+  const device = detectDevice(params);
+  applyDevice(device);
   const canvas = document.getElementById('gl');
   const events = new Events();
   const state = new State(events, { persist: !params.nosave });
@@ -49,8 +53,18 @@ export async function createGame() {
   else state.reset();
   initLanguage(params.lang || state.get('settings.language') || 'en');
 
-  const qualityId = params.quality || state.get('settings.quality') || 'high';
-  const engine = new Engine(canvas, qualityId, params);
+  let qualityId = params.quality || state.get('settings.quality') || 'high';
+  // Touch devices: lighter default preset + pixel-ratio caps (null on desktop)
+  const profile = deviceProfile(device);
+  if (profile) {
+    if (!params.quality && !state.get('settings.qualityPicked')) {
+      // until the player picks a quality in the settings, phones start on low, tablets on medium
+      qualityId = profile.quality;
+      state.data.settings.quality = qualityId;
+    }
+    Object.assign(params, { ...profile.params, ...params }); // e.g. phones: ?thumbs=0 unless the URL says otherwise
+  }
+  const engine = new Engine(canvas, qualityId, params, profile ? { presets: profile.presets } : undefined);
   engine.events = events;
   const loop = new Loop();
   const input = new Input(canvas, events);
@@ -71,6 +85,7 @@ export async function createGame() {
     camera: new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.15, 6000),
     ready: false,
     errors: [],
+    device, // { touch, phone, tablet, ios, android, standalone, desktop }
   };
   ctx.audio.setVolumes({
     master: state.get('settings.volume'),
@@ -83,6 +98,8 @@ export async function createGame() {
   ctx.modes = new Modes(ctx);
   ctx.interactions = new Interactions(ctx);
   ctx.debug = createDebug(ctx);
+  // on-screen touch controls + layouts API (inert on desktop)
+  ctx.touch = installTouch(ctx);
   window.__game = ctx;
 
   // Core systems (modules add their own with loop.add).

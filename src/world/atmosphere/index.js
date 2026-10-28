@@ -243,7 +243,9 @@ export async function installAtmosphere(ctx, world, { progress = () => {} } = {}
         mist.attachHeight(world.heightTexture, water.uniforms.uHeightXform.value);
       }
       if (cam) {
-        sunDimSmooth += (sunOcclusion.atSun(world.sunDirection, cam.position) - sunDimSmooth) * (1 - Math.exp(-dt * 1.5));
+        const occ = sunOcclusion.atSun(world.sunDirection, cam.position);
+        // a NaN here would stick in the smoothed value (and the key light colour) forever
+        if (Number.isFinite(occ)) sunDimSmooth += (occ - sunDimSmooth) * (1 - Math.exp(-dt * 1.5));
         f.sunDim = sunDimSmooth;
         renderer.getDrawingBufferSize(drawSize);
         shared.uPointScale.value = drawSize.y / (2 * Math.tan(((cam.fov || 55) * Math.PI) / 360));

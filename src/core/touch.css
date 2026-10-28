@@ -1,0 +1,243 @@
+/*
+ * Touch controls (src/core/touch.js): floating joystick, glass buttons,
+ * top bar (Chat / Menu), the menu sheet, the rotate overlay and the title
+ * full-screen button. Everything here only exists on touch devices
+ * (body[data-touch="1"]); desktop never creates these elements.
+ * Poster style: dark glass, thin warm-white strokes, cyan accents.
+ */
+
+/* --------------------------------------------------------------- layer */
+.touch-ui {
+  position: absolute; inset: 0; z-index: 15; pointer-events: none;
+  --tr: 52px; --tmain: 66px; --tsize: 54px;
+  -webkit-user-select: none; user-select: none;
+}
+.touch-safe-probe {
+  position: fixed; left: 0; top: 0; width: 0; height: 0; visibility: hidden; pointer-events: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+/* ------------------------------------------------------------ joystick */
+.touch-stick {
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  pointer-events: none; opacity: 0.38; will-change: transform;
+  transition: opacity 0.3s var(--ease);
+}
+.touch-stick.is-active { opacity: 1; transition-duration: 0.06s; }
+.touch-stick-ring {
+  position: absolute; left: calc(var(--tr) * -1); top: calc(var(--tr) * -1);
+  width: calc(var(--tr) * 2); height: calc(var(--tr) * 2); border-radius: 50%;
+  border: 1.5px solid rgba(236, 230, 220, 0.55);
+  background: radial-gradient(circle, rgba(10, 13, 19, 0.08) 0%, rgba(10, 13, 19, 0.34) 72%, rgba(10, 13, 19, 0.46) 100%);
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.28), 0 4px 22px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+/* inner guide ring + four tick marks (compass-like, as on the poster HUD) */
+.touch-stick-ring::before {
+  content: ''; position: absolute; inset: 22%; border-radius: 50%;
+  border: 1px solid rgba(236, 230, 220, 0.16);
+}
+.touch-stick-ring::after {
+  content: ''; position: absolute; inset: 5px; border-radius: 50%;
+  background:
+    linear-gradient(rgba(236, 230, 220, 0.5), rgba(236, 230, 220, 0.5)) 50% 0 / 1.5px 7px no-repeat,
+    linear-gradient(rgba(236, 230, 220, 0.5), rgba(236, 230, 220, 0.5)) 50% 100% / 1.5px 7px no-repeat,
+    linear-gradient(rgba(236, 230, 220, 0.5), rgba(236, 230, 220, 0.5)) 0 50% / 7px 1.5px no-repeat,
+    linear-gradient(rgba(236, 230, 220, 0.5), rgba(236, 230, 220, 0.5)) 100% 50% / 7px 1.5px no-repeat;
+}
+.touch-stick-knob {
+  position: absolute; left: calc(var(--tr) * -0.42); top: calc(var(--tr) * -0.42);
+  width: calc(var(--tr) * 0.84); height: calc(var(--tr) * 0.84); border-radius: 50%;
+  display: grid; place-items: center; color: rgba(11, 13, 18, 0.72);
+  background: radial-gradient(circle at 42% 34%, #fffdf8 0%, rgba(236, 230, 220, 0.94) 48%, rgba(196, 190, 180, 0.9) 100%);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 18px rgba(127, 224, 255, 0.18);
+  will-change: transform;
+}
+.touch-stick-knob .icon { stroke-width: 2; }
+.touch-stick:not(.is-active) .touch-stick-knob { transition: transform 0.18s var(--ease); }
+.touch-stick.is-sprint .touch-stick-ring {
+  border-color: var(--gold);
+  box-shadow: inset 0 0 22px rgba(240, 180, 106, 0.2), 0 0 22px rgba(240, 180, 106, 0.45);
+}
+.touch-stick.is-sprint .touch-stick-knob { box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45), 0 0 20px rgba(240, 180, 106, 0.65); }
+.touch-stick[hidden] { display: none; }
+
+/* ------------------------------------------------------------- buttons */
+.touch-btn {
+  --x: 0px; --y: 0px; --s: var(--tsize); --k: 1;
+  position: absolute; left: 0; top: 0; width: var(--s); height: var(--s);
+  transform: translate3d(var(--x), var(--y), 0) scale(var(--k));
+  display: grid; place-items: center; padding: 0; margin: 0;
+  border-radius: 50%; border: 1px solid rgba(236, 230, 220, 0.36);
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 62%),
+    rgba(10, 13, 19, 0.5);
+  color: var(--ink); cursor: pointer; pointer-events: auto;
+  backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  -webkit-tap-highlight-color: transparent; touch-action: none; outline: none;
+  transition: transform 0.12s var(--ease), background 0.15s, border-color 0.15s, box-shadow 0.2s, opacity 0.2s;
+}
+.touch-btn-icon { display: flex; pointer-events: none; }
+.touch-btn-icon .icon { stroke-width: 1.7; }
+.touch-btn.is-down {
+  --k: 0.93;
+  border-color: var(--cyan);
+  background: radial-gradient(circle at 50% 30%, rgba(127, 224, 255, 0.28), rgba(127, 224, 255, 0.08) 70%), rgba(10, 13, 19, 0.55);
+  box-shadow: 0 0 0 1px rgba(127, 224, 255, 0.35), 0 0 24px rgba(127, 224, 255, 0.4);
+}
+.touch-btn[hidden] { display: none; }
+.touch-btn-cap {
+  position: absolute; left: 50%; top: calc(100% + 3px); transform: translateX(-50%);
+  font-size: 9px; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase; white-space: nowrap;
+  color: rgba(236, 230, 220, 0.78); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+.touch-btn.is-main { border-color: rgba(236, 230, 220, 0.5); }
+.touch-btn.is-main .touch-btn-icon .icon { width: 28px; height: 28px; }
+.touch-btn.is-cyan { border-color: rgba(127, 224, 255, 0.6); color: #e9fbff; }
+.touch-btn.is-gold { border-color: rgba(240, 180, 106, 0.55); color: var(--gold-2); }
+.touch-btn.is-red { border-color: rgba(255, 122, 110, 0.55); color: #ffc3bc; }
+
+/* bottom-right cluster: anchored at the corner, buttons placed by touch.js */
+.touch-pad {
+  position: absolute; width: 0; height: 0;
+  right: calc(var(--sar, 0px) + 20px); bottom: calc(var(--sab, 0px) + 20px);
+}
+
+/* the contextual action button (prompt): cyan ring + label, hold progress */
+.touch-btn-act {
+  border-color: rgba(127, 224, 255, 0.75); color: #e9fbff;
+  background: radial-gradient(circle at 50% 30%, rgba(127, 224, 255, 0.22), rgba(127, 224, 255, 0.05) 70%), rgba(10, 13, 19, 0.55);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32), 0 0 18px rgba(127, 224, 255, 0.28);
+}
+.touch-btn-act.is-new { animation: touch-act-in 0.45s var(--ease); }
+@keyframes touch-act-in { from { opacity: 0; scale: 0.6; } to { opacity: 1; scale: 1; } }
+.touch-btn-act::before {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--cyan) calc(var(--p, 0) * 360deg), rgba(255, 255, 255, 0.14) 0);
+  -webkit-mask: radial-gradient(circle closest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(circle closest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  opacity: 0; transition: opacity 0.2s;
+}
+.touch-btn-act.is-hold::before { opacity: 1; }
+.touch-btn-act::after {
+  content: ''; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
+  border: 1.5px solid rgba(127, 224, 255, 0.7);
+  animation: touch-ping 2.2s ease-out infinite;
+}
+@keyframes touch-ping { 0% { transform: scale(1); opacity: 0.8; } 70%, 100% { transform: scale(1.45); opacity: 0; } }
+.touch-btn-act.is-down::after { animation: none; opacity: 0; }
+.touch-act-cap {
+  top: auto; bottom: calc(100% + 8px); max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(10, 13, 19, 0.62); border: 1px solid rgba(127, 224, 255, 0.35);
+  font-size: 11px; font-weight: 400; letter-spacing: 0.04em; text-transform: none; color: #fff;
+}
+
+/* --------------------------------------------------------- top bar */
+.touch-top {
+  position: absolute; top: calc(var(--sat, 0px) + 10px); right: calc(var(--sar, 0px) + 12px);
+  display: flex; gap: 10px; pointer-events: none;
+}
+.touch-btn-top {
+  position: relative; --s: 44px; transform: scale(var(--k));
+  background: rgba(10, 13, 19, 0.56);
+}
+.touch-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px;
+  display: grid; place-items: center; border-radius: 999px;
+  background: var(--violet); color: #fff; font-size: 10.5px; font-weight: 500; line-height: 1;
+  box-shadow: 0 0 10px rgba(180, 140, 255, 0.7);
+  pointer-events: none;
+}
+.touch-badge[hidden] { display: none; }
+
+/* title screen: full-screen toggle (Android / iPad) */
+.touch-fs {
+  position: absolute; z-index: 25;
+  top: calc(var(--sat, 0px) + 12px); right: calc(var(--sar, 0px) + 14px); left: auto;
+}
+
+/* ---------------------------------------------------- rotate overlay */
+.touch-rotate {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  padding: calc(var(--sat, 0px) + 24px) 28px calc(var(--sab, 0px) + 24px);
+  background: radial-gradient(ellipse at 50% 120%, #2a1a12 0%, #0b0d12 55%, #07090d 100%);
+  color: var(--ink); text-align: center; pointer-events: auto;
+  animation: touch-fade 0.35s var(--ease);
+}
+.touch-rotate[hidden] { display: none; }
+@keyframes touch-fade { from { opacity: 0; } to { opacity: 1; } }
+.touch-rotate-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; opacity: 0.9; }
+.touch-rotate-logo svg { width: 30px; height: 30px; display: block; }
+.touch-rotate-word { font-weight: 300; font-size: 18px; letter-spacing: 0.42em; margin-right: -0.42em; }
+.touch-rotate-art { width: 120px; height: 120px; color: var(--ink); }
+.touch-rotate-art svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.touch-rotate-device { transform-origin: 60px 60px; animation: touch-rotate-dev 2.8s var(--ease) infinite; }
+.touch-rotate-arrow { color: var(--cyan); stroke: var(--cyan); animation: touch-rotate-arrow 2.8s ease-in-out infinite; }
+@keyframes touch-rotate-dev { 0%, 22% { transform: rotate(0deg); } 52%, 84% { transform: rotate(-90deg); } 100% { transform: rotate(0deg); } }
+@keyframes touch-rotate-arrow { 0%, 12% { opacity: 0; } 24%, 46% { opacity: 1; } 60%, 100% { opacity: 0; } }
+.touch-rotate-title { font-size: 19px; font-weight: 400; letter-spacing: 0.28em; text-transform: uppercase; margin-right: -0.28em; }
+.touch-rotate-sub { font-size: 14px; color: var(--ink-2); letter-spacing: 0.02em; max-width: 280px; line-height: 1.45; }
+.touch-rotate-title::after {
+  content: ''; display: block; width: 64px; height: 1px; margin: 14px auto 0;
+  background: linear-gradient(90deg, rgba(127, 224, 255, 0), rgba(127, 224, 255, 0.9), rgba(127, 224, 255, 0));
+}
+
+/* ------------------------------------------------------------ menu sheet */
+.modal-wrap.touch-sheet-wrap { justify-content: flex-end; align-items: stretch; }
+.touch-sheet-wrap .modal-backdrop { background: linear-gradient(90deg, rgba(4, 6, 10, 0.25), rgba(4, 6, 10, 0.62)); }
+.touch-sheet-wrap .modal.touch-sheet {
+  width: min(430px, 100vw); max-width: none; max-height: none; height: 100%;
+  margin: 0; border-radius: 20px 0 0 20px; border-right: 0;
+  padding: calc(var(--sat, 0px) + 14px) calc(var(--sar, 0px) + 18px) calc(var(--sab, 0px) + 16px) 18px;
+  display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+  background: linear-gradient(180deg, rgba(14, 18, 26, 0.9), rgba(8, 10, 15, 0.94));
+  transform: translateX(36px);
+}
+.touch-sheet-wrap.show .modal.touch-sheet { transform: none; }
+.touch-sheet-head { display: flex; align-items: center; gap: 12px; padding: 2px 2px 12px; border-bottom: 1px solid var(--line); }
+.touch-sheet-mark { display: flex; width: 26px; height: 26px; color: var(--ink); }
+.touch-sheet-mark svg { width: 100%; height: 100%; }
+.touch-sheet-title { flex: 1; font-size: 15px; font-weight: 400; letter-spacing: 0.4em; text-transform: uppercase; }
+.touch-sheet-close { width: 44px; height: 44px; display: grid; place-items: center; margin: -6px -8px -6px 0; }
+.touch-sheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.touch-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  min-height: 88px; padding: 10px 6px; border-radius: 14px; cursor: pointer;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.035); color: var(--ink);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+.touch-tile:active { transform: scale(0.97); border-color: var(--cyan); background: rgba(127, 224, 255, 0.12); }
+.touch-tile-icon { display: flex; color: var(--cyan); }
+.touch-tile-icon .icon { stroke-width: 1.5; }
+.touch-tile-label { font-size: 10.5px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; text-align: center; line-height: 1.25; }
+.touch-tile-pause .touch-tile-icon, .touch-tile-help .touch-tile-icon, .touch-tile-fullscreen .touch-tile-icon { color: var(--ink-2); }
+.touch-sheet-tip {
+  margin: auto 0 0; padding: 10px 12px; border-radius: 10px;
+  background: rgba(127, 224, 255, 0.06); border: 1px solid rgba(127, 224, 255, 0.22);
+  font-size: 12.5px; line-height: 1.45; color: var(--ink-2);
+}
+/* short landscape phones: four compact columns so everything fits without scrolling */
+@media (max-height: 500px) {
+  .touch-sheet-wrap .modal.touch-sheet { width: min(470px, 62vw); gap: 10px; }
+  .touch-sheet-head { padding-bottom: 8px; }
+  .touch-sheet-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .touch-tile { min-height: 72px; gap: 6px; padding: 8px 4px; }
+  .touch-tile-icon .icon { width: 22px; height: 22px; }
+  .touch-tile-label { font-size: 9.5px; letter-spacing: 0.12em; }
+  .touch-sheet-tip { font-size: 11.5px; padding: 8px 10px; }
+}
+/* portrait: a bottom sheet over the full width */
+@media (max-width: 520px) and (orientation: portrait) {
+  .modal-wrap.touch-sheet-wrap { align-items: flex-end; justify-content: stretch; }
+  .touch-sheet-wrap .modal.touch-sheet {
+    width: 100vw; height: auto; max-height: 86vh; border-radius: 20px 20px 0 0; border-right: 1px solid var(--line);
+    padding: 14px calc(var(--sar, 0px) + 16px) calc(var(--sab, 0px) + 16px) calc(var(--sal, 0px) + 16px);
+    transform: translateY(36px);
+  }
+}

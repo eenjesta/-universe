@@ -1,0 +1,75 @@
+/* Vehicles module — HUD, key hints, garage modal (prefix .veh-). */
+.veh-hud {
+  min-width: 360px; padding: 12px 22px 12px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(8, 11, 16, 0) 0%, rgba(8, 11, 16, 0.5) 40%, rgba(8, 11, 16, 0.62) 100%);
+  border-radius: var(--radius); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+.veh-title { font-size: 11px; letter-spacing: var(--track); text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px; text-align: center; }
+.veh-row { display: flex; align-items: flex-end; gap: 18px; }
+.veh-row-2 { margin-top: 8px; align-items: center; justify-content: space-between; }
+.veh-speed { flex: 1; min-width: 190px; }
+.veh-speed-val { display: flex; align-items: baseline; gap: 6px; }
+.veh-num { font-size: 30px; font-weight: 300; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1; }
+.veh-unit { font-size: 14px; color: var(--ink-2); letter-spacing: 0.06em; }
+.veh-speedbar { position: relative; height: 3px; margin-top: 7px; border-radius: 3px; background: rgba(236, 230, 220, 0.16); overflow: hidden; }
+.veh-speedbar > i { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--cyan-2), var(--cyan)); box-shadow: 0 0 10px var(--cyan-glow); transition: width .12s linear; }
+.veh-boosting .veh-speedbar > i { background: linear-gradient(90deg, var(--gold), var(--orange)); box-shadow: 0 0 12px rgba(255, 154, 74, .55); }
+.veh-sep { width: 1px; align-self: stretch; background: var(--line-2); margin: 2px 0; }
+.veh-alt { min-width: 92px; }
+.veh-label { font-size: 10px; letter-spacing: var(--track); text-transform: uppercase; color: var(--cyan); }
+.veh-alt-val { display: flex; align-items: baseline; gap: 5px; margin-top: 4px; }
+.veh-boost { display: flex; align-items: center; gap: 10px; }
+.veh-boost .veh-label { color: var(--ink-3); }
+.veh-boostbar { width: 110px; height: 3px; border-radius: 3px; background: rgba(236, 230, 220, 0.14); overflow: hidden; }
+.veh-boostbar > i { display: block; height: 100%; width: 100%; background: var(--gold); box-shadow: 0 0 8px rgba(240, 180, 106, .5); }
+.veh-tags { display: flex; gap: 6px; }
+.veh-tag { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255, 122, 110, 0.5); color: var(--red); }
+.veh-tag-ok { border-color: rgba(127, 224, 255, 0.4); color: var(--cyan); }
+.veh-tag-gold { border-color: rgba(240, 180, 106, 0.55); color: var(--gold-2); }
+
+.veh-hints { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; pointer-events: none; padding: 10px 12px; }
+.veh-hint { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
+.veh-hint .kbd { min-width: 30px; height: 22px; font-size: 11px; background: rgba(10, 13, 19, 0.55); }
+.veh-hint-text { order: -1; }
+
+/* ---------------------------------------------------------------- garage */
+.veh-garage { width: min(1180px, calc(100vw - 32px)); padding: 22px 28px 18px; }
+.veh-garage-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.veh-garage-title { font-weight: 300; font-size: 26px; letter-spacing: 0.36em; text-transform: uppercase; }
+.veh-garage-sub { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); margin-top: 6px; }
+.veh-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.veh-card { display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; transition: border-color .2s, transform .2s var(--ease); }
+.veh-card:hover { border-color: var(--line-2); transform: translateY(-2px); }
+.veh-thumb { position: relative; aspect-ratio: 16 / 10; background: radial-gradient(ellipse at 50% 80%, #3a2a24 0%, #141820 60%, #0b0d12 100%); overflow: hidden; }
+.veh-thumb canvas, .veh-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.veh-thumb .veh-thumb-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-4); }
+.veh-card-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.veh-card-title { display: flex; align-items: center; gap: 10px; font-size: 17px; letter-spacing: 0.04em; }
+.veh-card-title .icon { color: var(--ink-2); }
+.veh-card-desc { font-size: 13.5px; line-height: 1.45; color: var(--ink-2); min-height: 2.9em; }
+.veh-stats { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; }
+.veh-stat { height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.veh-stat > i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan-2), var(--cyan)); border-radius: inherit; }
+.veh-skins { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-height: 26px; }
+.veh-skin { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line-2); cursor: pointer; pointer-events: auto; padding: 0; }
+.veh-skin.on { box-shadow: 0 0 0 2px var(--panel-solid), 0 0 0 3px var(--cyan); }
+.veh-skin[disabled] { opacity: .3; cursor: not-allowed; }
+.veh-skins-label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); margin-right: 2px; }
+.veh-card-actions { margin-top: auto; display: flex; gap: 8px; }
+.veh-card-actions .btn { flex: 1; }
+.veh-card-note { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+.veh-fleet { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.veh-fleet-row { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 3px; font-size: 11.5px; }
+.veh-card-where { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); letter-spacing: 0.03em; }
+.veh-card-where .icon, .veh-card-where svg { color: var(--cyan); flex: none; }
+.veh-fleet-row b { font-weight: 500; color: var(--ink); }
+.veh-garage-foot { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; }
+
+@media (max-width: 980px) {
+  .veh-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .veh-hud { min-width: 0; padding: 8px 14px; }
+  .veh-num { font-size: 24px; }
+  .veh-hints { display: none; }
+}

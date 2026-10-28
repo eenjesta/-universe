@@ -189,3 +189,67 @@
   .chr-cc-panel, .chr-cc-actions { width: 310px; }
   .chr-cc-hint { display: none; }
 }
+
+/* ------------------------------------------------------------ touch devices
+ * Safe areas, no key hints; short landscape phones get a compact left column
+ * and a shorter panel; portrait phones stack tabs (top), the model (middle)
+ * and a scrolling panel + buttons (bottom). Drag the model to turn it, pinch
+ * to zoom (src/core/touch.js feeds lookX / wheel in the customize mode).
+ */
+body[data-touch="1"] .chr-cc-left { left: calc(clamp(20px, 3.2vw, 56px) + var(--sal, 0px)); top: calc(clamp(22px, 5vh, 54px) + var(--sat, 0px)); }
+body[data-touch="1"] .chr-cc-panel { right: calc(clamp(16px, 2.2vw, 36px) + var(--sar, 0px)); top: calc(clamp(22px, 5vh, 50px) + var(--sat, 0px)); bottom: calc(clamp(92px, 15vh, 140px) + var(--sab, 0px)); }
+body[data-touch="1"] .chr-cc-actions { right: calc(clamp(16px, 2.2vw, 36px) + var(--sar, 0px)); bottom: calc(clamp(24px, 5vh, 50px) + var(--sab, 0px)); }
+body[data-touch="1"] .chr-cc-hint { display: none; }
+body[data-touch="1"] .chr-cc-chip { min-height: 40px; }
+body[data-touch="1"] .chr-cc-toggle { min-height: 44px; }
+
+@media (max-height: 500px) and (orientation: landscape) {
+  body[data-touch="1"] .chr-cc-left { top: calc(10px + var(--sat, 0px)); width: clamp(176px, 24vw, 210px); }
+  .chr-cc-logo-mark svg { width: 30px; }
+  .chr-cc-logo { gap: 10px; }
+  .chr-cc-word { font-size: 18px; }
+  .chr-cc-sub { display: none; }
+  .chr-cc-rule { margin: 8px 0 8px; }
+  .chr-cc-title { font-size: 10.5px; letter-spacing: 0.3em; }
+  .chr-cc-tabs { margin-top: 8px; }
+  .chr-cc-tab { height: 38px; gap: 12px; padding: 0 12px; font-size: 13px; }
+  .chr-cc-tab-icon svg { width: 20px; height: 20px; }
+  .chr-cc-name { margin-top: 8px; gap: 4px; }
+  .chr-cc-name-label { font-size: 9.5px; }
+  .chr-cc-input { height: 36px; }
+  body[data-touch="1"] .chr-cc-panel { top: calc(10px + var(--sat, 0px)); bottom: calc(66px + var(--sab, 0px)); width: clamp(270px, 36vw, 320px); }
+  .chr-cc-panel-title { padding: 10px 18px 2px; font-size: 12px; }
+  .chr-cc-panel-body { padding: 4px 16px 14px; }
+  .chr-cc-section { margin-top: 8px; }
+  .chr-cc-sec-title { margin: 4px 0 8px; font-size: 10px; }
+  body[data-touch="1"] .chr-cc-actions { bottom: calc(10px + var(--sab, 0px)); width: clamp(270px, 36vw, 320px); gap: 10px; }
+  .chr-cc-btn { height: 46px; font-size: 13px; gap: 8px; }
+}
+@media (max-width: 560px) and (orientation: portrait) {
+  .chr-creator {
+    background:
+      linear-gradient(180deg, rgba(5, 7, 10, 0.78) 0%, rgba(5, 7, 10, 0.2) 24%, rgba(5, 7, 10, 0) 40%, rgba(5, 7, 10, 0) 50%, rgba(5, 7, 10, 0.6) 60%);
+  }
+  body[data-touch="1"] .chr-cc-left { left: calc(12px + var(--sal, 0px)); right: calc(12px + var(--sar, 0px)); top: calc(8px + var(--sat, 0px)); width: auto; }
+  .chr-cc-logo { display: none; }
+  .chr-cc-rule { display: none; }
+  .chr-cc-title { font-size: 11px; letter-spacing: 0.34em; text-align: center; }
+  .chr-cc-tabs { flex-direction: row; margin-top: 8px; border-bottom: 1px solid rgba(236, 230, 220, 0.12); }
+  .chr-cc-tab {
+    flex: 1 1 0; min-width: 0; height: 58px; flex-direction: column; justify-content: center; gap: 4px; padding: 4px 2px;
+    border-left: 0; border-bottom: 0; font-size: 10.5px; letter-spacing: 0.04em; text-align: center;
+  }
+  .chr-cc-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chr-cc-tab.active::before { left: 8px; right: 8px; top: auto; bottom: -1px; width: auto; height: 2px; }
+  .chr-cc-tab-icon svg { width: 22px; height: 22px; }
+  .chr-cc-name { flex-direction: row; align-items: center; gap: 10px; margin-top: 8px; }
+  .chr-cc-input { flex: 1; min-width: 0; height: 40px; }
+  body[data-touch="1"] .chr-cc-panel {
+    left: calc(10px + var(--sal, 0px)); right: calc(10px + var(--sar, 0px)); width: auto;
+    top: auto; height: 38vh; height: 38dvh; bottom: calc(74px + var(--sab, 0px));
+  }
+  .chr-cc-panel-title { padding: 12px 18px 2px; font-size: 12px; }
+  .chr-cc-panel-body { padding: 4px 16px 14px; }
+  body[data-touch="1"] .chr-cc-actions { left: calc(10px + var(--sal, 0px)); right: calc(10px + var(--sar, 0px)); width: auto; bottom: calc(12px + var(--sab, 0px)); gap: 10px; }
+  .chr-cc-btn { height: 52px; font-size: 14px; }
+}

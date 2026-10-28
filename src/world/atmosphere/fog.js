@@ -37,11 +37,13 @@ export const HAZE_GLSL = /* glsl */ `
 float atmoSunAz( vec3 d, vec3 s ) {
 	float ld = length( d.xz );
 	float ls = length( s.xz );
-	return ( ld > 1e-4 && ls > 1e-4 ) ? 0.5 + 0.5 * dot( d.xz, s.xz ) / ( ld * ls ) : 1.0;
+	// clamped: exactly opposite the sun rounding can give a tiny negative value,
+	// and pow() of a negative base is NaN on real GPUs (a black line in sky + fog)
+	return ( ld > 1e-4 && ls > 1e-4 ) ? clamp( 0.5 + 0.5 * dot( d.xz, s.xz ) / ( ld * ls ), 0.0, 1.0 ) : 1.0;
 }
 // cool haze away from the sun, a warm band toward its azimuth that hugs the horizon
 vec3 atmoHazeColor( vec3 d, vec3 s, vec3 cool, vec4 warm, float falloff ) {
-	float w = pow( atmoSunAz( d, s ), warm.w ) * exp( - max( d.y, 0.0 ) / falloff );
+	float w = pow( max( atmoSunAz( d, s ), 0.0 ), warm.w ) * exp( - max( d.y, 0.0 ) / max( falloff, 1e-4 ) );
 	return mix( cool, warm.rgb, w );
 }
 // forward-scattering (Mie) glow around the sun: broad sheen → tight halo
@@ -84,7 +86,9 @@ const PARS_FRAGMENT = /* glsl */ `
 	float atmoFogAvg( float y0, float dy, float b ) {
 		float e0 = exp( - b * y0 );
 		float k = b * dy;
-		return abs( k ) > 1e-3 ? e0 * ( 1.0 - exp( - k ) ) / k : e0 * ( 1.0 - 0.5 * k );
+		// e0 * ( 1 - exp( -k ) ) written as a difference of the two end points: looking far
+		// down from very high up, exp( -k ) overflows to Inf while e0 underflows to 0 → NaN
+		return abs( k ) > 1e-3 ? ( e0 - exp( - b * ( y0 + dy ) ) ) / k : e0 * ( 1.0 - 0.5 * k );
 	}
 	${HAZE_GLSL}
 #endif

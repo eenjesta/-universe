@@ -98,3 +98,26 @@
   .sys-chat { width: min(300px, calc(100vw - 24px)); }
   .sys-chat-log { max-height: 84px; }
 }
+
+/* ------------------------------------------------------------ touch devices
+ * (body[data-touch="1"], src/core/touch.js) The chat never catches joystick
+ * touches: phones show it only while typing (the touch bar has a Chat button
+ * with an unread badge), tablets keep the log as a passive overlay. While
+ * typing, the panel moves to the top so the on-screen keyboard can't cover it.
+ */
+body[data-touch="1"] .sys-chat:not(.focused) { pointer-events: none; }
+body[data-touch="1"] .sys-chat:not(.focused) * { pointer-events: none; }
+body[data-device="tablet"] .sys-chat { width: 330px; }
+/* (kept focusable — display: none would stop chat.open() from focusing the input) */
+body[data-device="tablet"] .sys-chat:not(.focused) .sys-chat-row { height: 0; padding: 0; border: 0; overflow: hidden; opacity: 0; }
+body[data-device="phone"] .sys-chat:not(.focused) {
+  position: fixed; left: 0; top: 0; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; opacity: 0;
+}
+body[data-touch="1"] .sys-chat.focused {
+  position: fixed; z-index: 5; left: 50%; top: calc(var(--sat, 0px) + 10px); transform: translateX(-50%);
+  width: min(580px, calc(100vw - 24px - var(--sal, 0px) - var(--sar, 0px)));
+}
+body[data-touch="1"] .sys-chat.focused .sys-chat-log { max-height: min(230px, 30vh); }
+body[data-touch="1"] .sys-chat-input { font-size: 16px; padding: 6px 0; } /* ≥ 16 px: iOS does not zoom into the field */
+body[data-touch="1"] .sys-chat-send { width: 38px; height: 38px; border-radius: 10px; }
+body[data-touch="1"] .sys-chat-chip { padding: 7px 14px; font-size: 13px; }

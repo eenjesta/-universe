@@ -25,11 +25,25 @@
  *   --noFreeze        don't freeze the game loop while a screenshot is captured
  *                     (by default the loop is frozen so a slow SwiftShader frame
  *                     can't stall the capture; the canvas keeps the last frame)
+ *   --mobile          phone/tablet emulation: isMobile + hasTouch (combine with --size / --dpr)
+ *   --touch           hasTouch only (touch events on a desktop-like context)
+ *   --ua ios|android|STRING  user agent (ios = iPhone Safari, ipad = iPadOS Safari, android = Chrome)
+ *   Batch jobs may override per job: size ("844x390"), dpr, mobile, touch, ua.
  *
  * Steps: {"key":"KeyW","hold":1500} {"down":"KeyW"} {"up":"KeyW"} {"press":"KeyB"}
  *        {"wait":1000} {"frames":30} {"mouse":[x,y]} {"drag":[dx,dy],"steps":12}
  *        {"click":[x,y],"button":"left"} {"type":"hallo"} {"eval":"js"} {"shot":"file.png"}
  *        {"freeze":true|false}  (stop / resume the game loop, e.g. to inspect a frame)
+ * Touch steps (need --mobile or --touch; CDP Input.dispatchTouchEvent, multi-touch aware):
+ *        {"tap":[x,y]}                       quick tap
+ *        {"touchStart":[x,y],"id":1}          put finger `id` down (stays down across steps)
+ *        {"touchMove":[x,y],"id":1,"steps":8} move finger `id` there in n steps
+ *        {"touchEnd":1}                       lift finger `id`
+ *        {"touchHold":[x,y],"hold":800}       press, hold, release
+ *        {"touchDrag":[x1,y1,x2,y2],"steps":12,"hold":0}  press, move, (hold), release
+ *        {"pinch":[cx,cy,d0,d1],"steps":10}  two fingers, horizontal distance d0 → d1
+ *        {"tapSel":"css"}  {"touchStartSel":"css","id":2}   tap / press the centre of the first match
+ *        {"clickSel":"css"}                   mouse click on the centre of the first match
  *
  * Exit code: 0 ok, 2 if page errors / console errors occurred, 1 on harness failure.
  */
@@ -57,6 +71,11 @@ const args = parseArgs(process.argv);
 const base = (args.base || 'http://localhost:5199').replace(/\/$/, '');
 const [vw, vh] = String(args.size || '1280x720').split('x').map(Number);
 const verbose = !!args.log;
+const UAS = {
+  ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  ipad: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+};
 
 const jobs = args.batch
   ? JSON.parse(fs.readFileSync(args.batch, 'utf8'))
@@ -111,8 +130,49 @@ const killTimer = setTimeout(() => {
 try {
   for (const job of jobs) {
     const result = { path: job.path, shots: [], errors: [], warnings: [], evals: [] };
-    const context = await browser.newContext({ viewport: { width: vw, height: vh }, deviceScaleFactor: Number(args.dpr || 1) });
+    const [jw, jh] = job.size ? String(job.size).split('x').map(Number) : [vw, vh];
+    const mobile = !!(job.mobile ?? args.mobile);
+    const touch = mobile || !!(job.touch ?? args.touch);
+    const uaKey = job.ua ?? args.ua;
+    const ctxOpts = { viewport: { width: jw, height: jh }, deviceScaleFactor: Number(job.dpr ?? args.dpr ?? 1) };
+    if (mobile) ctxOpts.isMobile = true;
+    if (touch) ctxOpts.hasTouch = true;
+    if (uaKey && uaKey !== true) ctxOpts.userAgent = UAS[uaKey] || String(uaKey);
+    const context = await browser.newContext(ctxOpts);
     const page = await context.newPage();
+    // multi-touch state for the touch steps (CDP Input.dispatchTouchEvent wants every active point)
+    const fingers = new Map();
+    const fingerIds = new Map(); // step id (string) → numeric CDP touch id
+    let cdp = null;
+    const touchEvent = async (type) => {
+      cdp = cdp || (await context.newCDPSession(page));
+      const touchPoints = [...fingers.entries()].map(([id, p]) => {
+        if (!fingerIds.has(id)) fingerIds.set(id, fingerIds.size + 1);
+        return { x: p.x, y: p.y, id: fingerIds.get(id), radiusX: 6, radiusY: 6, force: 1 };
+      });
+      await cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+    };
+    const fingerDown = async (id, x, y) => {
+      fingers.set(id, { x, y });
+      await touchEvent('touchStart');
+    };
+    const fingerMove = async (id, x, y, steps = 1) => {
+      const f = fingers.get(id);
+      if (!f) return fingerDown(id, x, y);
+      const x0 = f.x;
+      const y0 = f.y;
+      for (let i = 1; i <= steps; i++) {
+        f.x = x0 + ((x - x0) * i) / steps;
+        f.y = y0 + ((y - y0) * i) / steps;
+        await touchEvent('touchMove');
+        if (steps > 1) await page.waitForTimeout(16);
+      }
+    };
+    const fingerUp = async (id) => {
+      if (!fingers.has(id)) return;
+      fingers.delete(id);
+      await touchEvent('touchEnd');
+    };
     page.on('console', (msg) => {
       const type = msg.type();
       const text = msg.text();
@@ -188,6 +248,52 @@ try {
           const r = await page.evaluate(`(async () => { ${step.eval.includes('return') ? step.eval : `return (${step.eval})`} })()`);
           result.evals.push(r);
           console.log(`[shot] eval → ${JSON.stringify(r)?.slice(0, 2000)}`);
+        } else if (step.tapSel || step.touchStartSel || step.clickSel) {
+          const sel = step.tapSel || step.touchStartSel || step.clickSel;
+          const box = await page.locator(sel).first().boundingBox({ timeout: 5000 });
+          if (!box) throw new Error(`no visible element for ${sel}`);
+          const cx = box.x + box.width / 2;
+          const cy = box.y + box.height / 2;
+          if (step.tapSel) await page.touchscreen.tap(cx, cy);
+          else if (step.clickSel) await page.mouse.click(cx, cy);
+          else await fingerDown(String(step.id ?? 1), cx, cy);
+          console.log(`[shot] ${step.tapSel ? 'tap' : step.clickSel ? 'click' : 'touchStart'} ${sel} @ ${Math.round(cx)},${Math.round(cy)}`);
+        } else if (step.tap) {
+          await page.touchscreen.tap(step.tap[0], step.tap[1]);
+        } else if (step.touchStart) {
+          await fingerDown(String(step.id ?? 1), step.touchStart[0], step.touchStart[1]);
+        } else if (step.touchMove) {
+          await fingerMove(String(step.id ?? 1), step.touchMove[0], step.touchMove[1], step.steps || 1);
+        } else if (step.touchEnd !== undefined) {
+          await fingerUp(String(step.touchEnd === true ? 1 : step.touchEnd));
+        } else if (step.touchHold) {
+          await fingerDown('h', step.touchHold[0], step.touchHold[1]);
+          await page.waitForTimeout(step.hold ?? 600);
+          await fingerUp('h');
+        } else if (step.touchDrag) {
+          const [x1, y1, x2, y2] = step.touchDrag;
+          await fingerDown('d', x1, y1);
+          await fingerMove('d', x2, y2, step.steps || 12);
+          if (step.hold) await page.waitForTimeout(step.hold);
+          await fingerUp('d');
+        } else if (step.pinch) {
+          const [cx, cy, d0, d1] = step.pinch;
+          const n = step.steps || 10;
+          fingers.set('p1', { x: cx - d0 / 2, y: cy });
+          await touchEvent('touchStart');
+          fingers.set('p2', { x: cx + d0 / 2, y: cy });
+          await touchEvent('touchStart');
+          for (let i = 1; i <= n; i++) {
+            const d = d0 + ((d1 - d0) * i) / n;
+            fingers.get('p1').x = cx - d / 2;
+            fingers.get('p2').x = cx + d / 2;
+            await touchEvent('touchMove');
+            await page.waitForTimeout(16);
+          }
+          fingers.delete('p2');
+          await touchEvent('touchEnd');
+          fingers.delete('p1');
+          await touchEvent('touchEnd');
         } else if (step.freeze !== undefined) {
           await setFrozen(page, !!step.freeze);
         } else if (step.shot) {

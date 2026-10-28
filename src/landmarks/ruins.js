@@ -331,7 +331,7 @@ export function buildRuins(env, zone) {
         vec4 t = texture2D(map, vUv);
         vec2 d = vUv - 0.5;
         float r = length(d);
-        float ang = atan(d.y, d.x);
+        float ang = r > 0.0 ? atan(d.y, d.x) : 0.0; // atan(0, 0) at the decal centre is undefined
         // reveal parameter along the engraving (ring + dotted ring: angle, slash: position)
         float onRing = max(1.0 - smoothstep(0.035, 0.06, abs(r - 0.31)), 1.0 - smoothstep(0.018, 0.03, abs(r - 0.37)));
         float pRing = fract(0.25 - ang / 6.2831853);

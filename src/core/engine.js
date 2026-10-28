@@ -133,7 +133,9 @@ const SanitizeShader = {
       return clamp(x, 0.0, uMax);
     }
     void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
+      // exact texel (no filtering): bilinear weights would turn 0 × Inf into NaN
+      // and spread one bad texel to its neighbours. Same size as the input target.
+      vec4 c = texelFetch(tDiffuse, ivec2(gl_FragCoord.xy), 0);
       gl_FragColor = vec4(clean(c.r), clean(c.g), clean(c.b), min(clean(c.a), 1.0));
     }
   `,
@@ -156,9 +158,15 @@ function readOverrides(params = {}) {
 }
 
 export class Engine {
-  constructor(canvas, qualityId = 'high', params = {}) {
+  /**
+   * options.presets: per-device patches merged over the QUALITY presets, e.g.
+   * { low: { pixelRatio: 1.1 } } for phones (src/core/touch.js deviceProfile);
+   * URL overrides still win. Desktop passes nothing (presets unchanged).
+   */
+  constructor(canvas, qualityId = 'high', params = {}, options = {}) {
     this.canvas = canvas;
     this.events = null; // injected by Game
+    this.presetPatches = options.presets || null;
     this.overrides = readOverrides(params);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -214,7 +222,9 @@ export class Engine {
   }
 
   _withOverrides(preset) {
-    return Object.keys(this.overrides).length ? { ...preset, ...this.overrides } : preset;
+    const patch = this.presetPatches?.[preset.id];
+    const base = patch ? { ...preset, ...patch } : preset;
+    return Object.keys(this.overrides).length ? { ...base, ...this.overrides } : base;
   }
 
   /** Sets the scene + camera that the next frames render. */
