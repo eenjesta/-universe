@@ -13,6 +13,7 @@
  *           radius, stun, carry, throwSpeed, fuse, gravity, bounce, color, boltSpeed }
  */
 import { HUB as WORLD_HUB } from '../../shared/defs/world.js';
+import { ENEMIES as SHARED_ENEMIES } from '../../shared/defs/enemies.js';
 
 /** PLATFORM.md §8 (+ client-only feel values: reload times, colours, bolt speeds). */
 export const FALLBACK_WEAPONS = [
@@ -123,6 +124,46 @@ export const ENEMIES = {
       [-0.78, 0.88, 0.5],
     ],
     marker: 2.05,
+  },
+  raider: {
+    type: 'raider',
+    name: SHARED_ENEMIES.raider?.name || { en: 'Pirate raider', nl: 'Piratenraider' },
+    hp: SHARED_ENEMIES.raider?.hp || 110,
+    // snapshot position = feet; legs / chest / head (the sim: capsule r 0.5, h 1.95, crit above 80 %)
+    volumes: [
+      [0, 0.55, 0.42],
+      [0, 1.15, 0.48],
+      [0, 1.72, 0.27],
+    ],
+    crouchVolumes: [
+      [0, 0.45, 0.45],
+      [0, 0.92, 0.46],
+      [0.05, 1.3, 0.27],
+    ],
+    marker: 2.25,
+  },
+  mite: {
+    type: 'mite',
+    name: SHARED_ENEMIES.mite?.name || { en: 'Crystal mite', nl: 'Kristalmijt' },
+    hp: SHARED_ENEMIES.mite?.hp || 26,
+    volumes: [[0, 0.45, 0.6]],
+    marker: 1.05,
+  },
+  warden: {
+    type: 'warden',
+    name: SHARED_ENEMIES.warden?.name || { en: 'De Wachter', nl: 'De Wachter' },
+    hp: SHARED_ENEMIES.warden?.hp || 4200,
+    boss: true,
+    volumes: [], // WARDEN_PARTS (shared) via the warden visual
+    marker: 21,
+  },
+  barrier: {
+    type: 'barrier',
+    name: SHARED_ENEMIES.barrier?.name || { en: 'Barrier', nl: 'Barrière' },
+    hp: SHARED_ENEMIES.barrier?.hp || 140,
+    prop: true,
+    volumes: [],
+    marker: 1.7,
   },
 };
 

@@ -8,17 +8,24 @@
  * Phones: one column with Inventory / Crafting tabs.
  */
 import { C } from '../../shared/protocol.js';
-import { RESOURCES, RESOURCE_IDS, AMMO, AMMO_IDS, ITEMS } from '../../shared/defs/items.js';
+import { RESOURCES, RESOURCE_IDS, AMMO, AMMO_IDS, ITEMS, GEAR_SLOTS, FOOD_ORDER, SURVIVAL } from '../../shared/defs/items.js';
 import { WEAPONS, WEAPON_SLOTS } from '../../shared/defs/weapons.js';
 import { RECIPES, RECIPE_RANGE } from '../../shared/defs/recipes.js';
+import { MARKET, SUPPLY_IDS as DEPOT_IDS } from '../../shared/defs/market.js';
 import { AMMO_MAX } from '../../shared/sim/inventory.js';
 import { t } from '../core/i18n.js';
 import { formatNumber } from '../core/math.js';
-import { ART, ICON_OF } from './icons.js';
-import { recipeList, recipeOutputs, recipeStatus, craftableCount } from './logic.js';
+import { ART, ICON_OF, itemIcon } from './icons.js';
+import { recipeList, recipeOutputs, recipeStatus, craftableCount, recipeGroup } from './logic.js';
 
 const MODAL = 'smp-inventory';
 const TXT = {
+  depot: { en: 'Supply depot · Ø-credits', nl: 'Voorraaddepot · Ø-credits' },
+  depotFar: { en: 'The depot trades in the hub (safe zone) — stock up before you head out.', nl: 'Het depot handelt in de hub (veilige zone) — sla in voor je vertrekt.' },
+  depotFull: { en: 'You can’t carry more', nl: 'Je kunt niet meer dragen' },
+  depotCredits: { en: 'Not enough Ø-credits', nl: 'Niet genoeg Ø-credits' },
+  buy: { en: 'Buy', nl: 'Kopen' },
+  bought: { en: 'Bought {name}', nl: '{name} gekocht' },
   title: { en: 'Inventory', nl: 'Inventaris' },
   tagline: { en: 'Survival gear', nl: 'Overlevingsuitrusting' },
   inventory: { en: 'Inventory', nl: 'Inventaris' },
@@ -53,9 +60,31 @@ const TXT = {
   tier: { en: 'Tier {n}', nl: 'Niveau {n}' },
   groupAmmo: { en: 'Ammo', nl: 'Munitie' },
   groupSupplies: { en: 'Survival', nl: 'Overleven' },
+  groupTools: { en: 'Tools — craft anywhere', nl: 'Gereedschap — overal te maken' },
+  groupGear: { en: 'Gear', nl: 'Uitrusting' },
+  gear: { en: 'Gear', nl: 'Uitrusting' },
+  slotArmor: { en: 'Armour', nl: 'Pantser' },
+  slotModule: { en: 'Shield module', nl: 'Schildmodule' },
+  noArmor: { en: 'None — craft Scout techwear at a workbench', nl: 'Geen — maak een verkennerspak aan een werkbank' },
+  noModule: { en: 'None — a Shield module Mk I adds +25 shield', nl: 'Geen — een schildmodule Mk I geeft +25 schild' },
+  unequip: { en: 'Take off', nl: 'Uitdoen' },
+  equipGear: { en: 'Equip', nl: 'Aantrekken' },
+  statHp: { en: 'Health {n}', nl: 'Gezondheid {n}' },
+  statSh: { en: 'Shield {n}', nl: 'Schild {n}' },
+  statDr: { en: 'Damage −{n} %', nl: 'Schade −{n} %' },
+  food: { en: 'Food', nl: 'Eten' },
+  foodHint: { en: 'Pick berries, glowcaps and fruit; cook them at a campfire for buffs.', nl: 'Pluk bessen, gloeikappen en fruit; kook ze op een kampvuur voor buffs.' },
+  eat: { en: 'Eat', nl: 'Eten' },
+  bag: { en: 'Bag', nl: 'Tas' },
+  bagEmpty: { en: 'Materials, schematics and spare gear show up here.', nl: 'Materialen, bouwtekeningen en reserve-uitrusting verschijnen hier.' },
+  needSchematic: { en: 'Needs the schematic (found at POIs)', nl: 'Heeft de bouwtekening nodig (te vinden bij bezienswaardigheden)' },
+  needTier3: { en: 'Needs a Workbench Mk III nearby', nl: 'Heeft een Werkbank Mk III in de buurt nodig' },
+  bench3: { en: 'Workbench Mk III · tier 3', nl: 'Werkbank Mk III · niveau 3' },
+  needUpgrade2: { en: 'Stand at your own Workbench Mk II', nl: 'Sta bij je eigen Werkbank Mk II' },
   groupWeapons: { en: 'Weapons', nl: 'Wapens' },
   groupUpgrades: { en: 'Upgrades', nl: 'Upgrades' },
   upgradeOut: { en: 'Workbench → Mk II', nl: 'Werkbank → Mk II' },
+  upgradeOut3: { en: 'Workbench Mk II → Mk III', nl: 'Werkbank Mk II → Mk III' },
   close: { en: 'Close', nl: 'Sluiten' },
   keys: { en: 'I close · 5–7 use supplies', nl: 'I sluiten · 5–7 voorraad gebruiken' },
 };
@@ -68,7 +97,9 @@ const RES_NAME_LC = {
   credits: { en: 'Ø-credits', nl: 'Ø-credits' },
 };
 
-const groupOf = (r) => (r.upgrade ? 'groupUpgrades' : r.out?.weapon ? 'groupWeapons' : r.out?.ammo ? 'groupAmmo' : 'groupSupplies');
+const GROUP_TXT = { tools: 'groupTools', supplies: 'groupSupplies', gear: 'groupGear', ammo: 'groupAmmo', weapons: 'groupWeapons', upgrades: 'groupUpgrades' };
+const groupOf = (r) => GROUP_TXT[recipeGroup(r)] || 'groupSupplies';
+const SUPPLY_IDS = ['medkit', 'shield-cell', 'bandage'];
 
 export function createScreen(ctx, smp) {
   const { ui, events } = ctx;
@@ -111,6 +142,9 @@ export function createScreen(ctx, smp) {
   }
 
   function build() {
+    parts.gear = h('div', { class: 'smp-gear' });
+    parts.food = h('div', { class: 'smp-tiles' });
+    parts.bag = h('div', { class: 'smp-tiles' });
     parts.weapons = h('div', { class: 'smp-weapons' });
     parts.supplies = h('div', { class: 'smp-supplies' });
     parts.ammo = h('div', { class: 'smp-list' });
@@ -118,11 +152,15 @@ export function createScreen(ctx, smp) {
     parts.station = h('div', { class: 'smp-station' });
     parts.recipes = h('div', { class: 'smp-recipes' });
     parts.notice = h('div', { class: 'smp-notice' });
+    parts.depot = h('div', { class: 'smp-recipes smp-depot' });
     const left = h(
       'section',
       { class: 'smp-inv-col smp-inv-left' },
-      h('div', { class: 'smp-sec' }, h('div', { class: 'smp-sec-title', text: t(TXT.weapons) }), parts.weapons),
+      h('div', { class: 'smp-sec' }, h('div', { class: 'smp-sec-title', text: t(TXT.gear) }), parts.gear),
+      h('div', { class: 'smp-sec' }, h('div', { class: 'smp-sec-title', text: t(TXT.food) }), parts.food),
       h('div', { class: 'smp-sec' }, h('div', { class: 'smp-sec-title', text: t(TXT.supplies) }), parts.supplies),
+      h('div', { class: 'smp-sec' }, h('div', { class: 'smp-sec-title', text: t(TXT.weapons) }), parts.weapons),
+      h('div', { class: 'smp-sec' }, h('div', { class: 'smp-sec-title', text: t(TXT.bag) }), parts.bag),
       h(
         'div',
         { class: 'smp-sec smp-sec-split' },
@@ -136,6 +174,7 @@ export function createScreen(ctx, smp) {
       h('div', { class: 'smp-sec-title smp-craft-title', text: t(TXT.crafting) }),
       parts.station,
       parts.recipes,
+      parts.depot,
     );
     root = h(
       'div',
@@ -199,7 +238,7 @@ export function createScreen(ctx, smp) {
   function renderSupplies(inv) {
     const el = parts.supplies;
     el.innerHTML = '';
-    for (const id of ['ration', 'medkit', 'shield-cell']) {
+    for (const id of SUPPLY_IDS) {
       const def = ITEMS[id];
       const n = inv.items?.[id] | 0;
       const card = h(
@@ -216,12 +255,87 @@ export function createScreen(ctx, smp) {
             disabled: n > 0 && smp.ready ? null : true,
             onclick: () => smp.use(id),
           },
-          ctx.device?.touch ? null : h('span', { class: 'kbd smp-kbd', text: String(def.hotkey) }),
+          ctx.device?.touch || !def.hotkey ? null : h('span', { class: 'kbd smp-kbd', text: String(def.hotkey) }),
           t(TXT.use),
         ),
       );
       el.appendChild(card);
     }
+  }
+
+  // ------------------------------------------------------------ gear, food, bag
+  function renderGear(inv) {
+    const el = parts.gear;
+    el.innerHTML = '';
+    for (const slot of GEAR_SLOTS) {
+      const id = inv.gear?.[slot] || null;
+      const def = id ? ITEMS[id] : null;
+      el.appendChild(
+        h(
+          'div',
+          { class: `smp-gslot${def ? ' on' : ''}`, dataset: { slot } },
+          h('span', { class: 'smp-gslot-icon', html: icon(def ? itemIcon(id) : slot === 'armor' ? 'smp-armor' : 'smp-module', 26) }),
+          h(
+            'span',
+            { class: 'smp-gslot-main' },
+            h('span', { class: 'smp-gslot-label', text: t(slot === 'armor' ? TXT.slotArmor : TXT.slotModule) }),
+            h('span', { class: 'smp-gslot-name', text: def ? t(def.name) : t(slot === 'armor' ? TXT.noArmor : TXT.noModule) }),
+            def ? h('span', { class: 'smp-gslot-desc', text: t(def.desc) }) : null,
+          ),
+          def ? h('button', { class: 'btn btn-sm', type: 'button', text: t(TXT.unequip), onclick: () => smp.equipGear(id, false) }) : null,
+        ),
+      );
+    }
+    const s = smp.stats || {};
+    let dr = 0;
+    for (const slot of GEAR_SLOTS) dr += ITEMS[inv.gear?.[slot]]?.gear?.dr || 0;
+    el.appendChild(
+      h(
+        'div',
+        { class: 'smp-gstats' },
+        h('span', { text: t(TXT.statHp, { n: s.maxHp ?? SURVIVAL.maxHp }) }),
+        h('span', { text: t(TXT.statSh, { n: s.maxSh ?? SURVIVAL.maxSh }) }),
+        dr > 0 ? h('span', { text: t(TXT.statDr, { n: Math.round(dr * 100) }) }) : null,
+      ),
+    );
+  }
+
+  function tile(id, n, actionText, onAction) {
+    const def = ITEMS[id];
+    return h(
+      'div',
+      { class: `smp-tile k-${def.kind}`, dataset: { item: id }, title: t(def.desc || def.name) },
+      h('span', { class: 'smp-tile-icon', html: icon(itemIcon(id), 22) }),
+      h('span', { class: 'smp-tile-main' }, h('span', { class: 'smp-tile-name', text: t(def.name) }), h('span', { class: 'smp-tile-n num', text: `×${n}` })),
+      actionText ? h('button', { class: 'btn btn-sm smp-tile-btn', type: 'button', disabled: smp.ready ? null : true, text: actionText, onclick: onAction }) : null,
+    );
+  }
+
+  function renderFood(inv) {
+    const el = parts.food;
+    el.innerHTML = '';
+    let any = false;
+    for (const id of FOOD_ORDER) {
+      const n = inv.items?.[id] | 0;
+      if (n <= 0) continue;
+      any = true;
+      el.appendChild(tile(id, n, t(TXT.eat), () => smp.use(id)));
+    }
+    if (!any) el.appendChild(h('div', { class: 'smp-tiles-empty', text: t(TXT.foodHint) }));
+  }
+
+  function renderBag(inv) {
+    const el = parts.bag;
+    el.innerHTML = '';
+    const order = { material: 0, schematic: 1, gear: 2, tool: 3 };
+    const ids = Object.keys(inv.items || {})
+      .filter((id) => (inv.items[id] | 0) > 0 && ITEMS[id] && order[ITEMS[id].kind] !== undefined)
+      .sort((a, b) => order[ITEMS[a].kind] - order[ITEMS[b].kind]);
+    for (const id of ids) {
+      const def = ITEMS[id];
+      el.appendChild(def.kind === 'gear' ? tile(id, inv.items[id] | 0, t(TXT.equipGear), () => smp.equipGear(id, true)) : tile(id, inv.items[id] | 0, null, null));
+    }
+    if (!ids.length) el.appendChild(h('div', { class: 'smp-tiles-empty', text: t(TXT.bagEmpty) }));
   }
 
   function row(iconName, color, name, value, max) {
@@ -250,7 +364,7 @@ export function createScreen(ctx, smp) {
     if (st) {
       el.append(
         h('span', { class: 'smp-station-icon', html: icon('smp-workbench', 22) }),
-        h('span', { class: 'smp-station-main' }, h('span', { class: 'smp-station-name', text: t(st.tier >= 2 ? TXT.bench2 : TXT.bench1) }), h('span', { class: 'smp-station-sub', text: t(TXT.inRange, { d: Math.max(1, Math.round(st.dist)) }) })),
+        h('span', { class: 'smp-station-main' }, h('span', { class: 'smp-station-name', text: t(st.tier >= 3 ? TXT.bench3 : st.tier >= 2 ? TXT.bench2 : TXT.bench1) }), h('span', { class: 'smp-station-sub', text: t(TXT.inRange, { d: Math.max(1, Math.round(st.dist)) }) })),
       );
     } else {
       el.append(
@@ -261,10 +375,11 @@ export function createScreen(ctx, smp) {
     return st;
   }
 
-  function reasonLine(st) {
+  function reasonLine(st, r) {
     if (st.reason === 'workbench') return t(TXT.needBench);
-    if (st.reason === 'tier') return t(TXT.needTier);
-    if (st.reason === 'upgrade') return t(TXT.needUpgrade);
+    if (st.reason === 'tier') return t((r?.tier | 0) >= 3 ? TXT.needTier3 : TXT.needTier);
+    if (st.reason === 'upgrade') return t(r?.upgrade === 'workbench-2' ? TXT.needUpgrade2 : TXT.needUpgrade);
+    if (st.reason === 'schematic') return t(TXT.needSchematic);
     if (st.reason === 'owned') return t(TXT.owned);
     if (st.reason === 'cost') {
       const k = Object.keys(st.missing)[0];
@@ -277,7 +392,7 @@ export function createScreen(ctx, smp) {
     const outs = recipeOutputs(r);
     const o = outs[0];
     if (!o) return t(r.name);
-    if (o.kind === 'upgrade') return t(TXT.upgradeOut);
+    if (o.kind === 'upgrade') return t(r.upgrade === 'workbench-2' ? TXT.upgradeOut3 : TXT.upgradeOut);
     return t(r.name);
   }
 
@@ -285,7 +400,7 @@ export function createScreen(ctx, smp) {
     const o = recipeOutputs(r)[0];
     if (!o) return 'smp-craft';
     if (o.kind === 'upgrade') return 'smp-workbench';
-    return ICON_OF[o.id] || 'smp-craft';
+    return ITEMS[o.id] ? itemIcon(o.id) : ICON_OF[o.id] || 'smp-craft';
   }
 
   function renderRecipes(station) {
@@ -309,7 +424,7 @@ export function createScreen(ctx, smp) {
           h(
             'span',
             { class: `smp-chip${st.missing[k] ? ' short' : ''}` },
-            h('span', { class: 'smp-chip-icon', html: icon(RESOURCES[k]?.icon || 'coin', 12), style: { color: RESOURCES[k]?.color || 'var(--gold)' } }),
+            h('span', { class: 'smp-chip-icon', html: icon(RESOURCES[k]?.icon || (ITEMS[k] ? itemIcon(k) : 'coin'), 12), style: { color: RESOURCES[k]?.color || (ITEMS[k] ? (ITEMS[k].kind === 'schematic' ? '#b48cff' : '#b9d98a') : 'var(--gold)') } }),
             String(v),
           ),
         ),
@@ -324,7 +439,7 @@ export function createScreen(ctx, smp) {
           { class: 'smp-recipe-main' },
           h('span', { class: 'smp-recipe-name' }, h('span', { text: outLabel(r) }), r.tier ? h('span', { class: `smp-tier t${r.tier}`, text: t(TXT.tier, { n: r.tier }) }) : null),
           cost,
-          st.ok ? null : h('span', { class: `smp-recipe-why ${st.reason}`, text: reasonLine(st) }),
+          st.ok ? null : h('span', { class: `smp-recipe-why ${st.reason}`, text: reasonLine(st, r) }),
         ),
         h(
           'span',
@@ -344,11 +459,67 @@ export function createScreen(ctx, smp) {
     const inv = smp.inv;
     parts.notice.textContent = smp.ready ? '' : t(TXT.offline);
     parts.notice.hidden = !!smp.ready;
+    renderGear(inv);
+    renderFood(inv);
     renderWeapons(inv);
     renderSupplies(inv);
+    renderBag(inv);
     renderLists(inv);
     const st = renderStation();
     renderRecipes(st);
+    renderDepot(inv);
+  }
+
+  // ------------------------------------------------------------ supply depot (credit sink, hub only)
+  function renderDepot(inv) {
+    const el = parts.depot;
+    el.innerHTML = '';
+    const inHub = smp.zone?.safe !== false;
+    el.appendChild(h('div', { class: 'smp-rgroup', text: t(TXT.depot) }));
+    if (!inHub) el.appendChild(h('div', { class: 'smp-recipe-why smp-depot-note', text: t(TXT.depotFar) }));
+    for (const id of DEPOT_IDS) {
+      const m = MARKET[id];
+      const [item, n] = Object.entries(m.give)[0];
+      const def = ITEMS[item];
+      const fits = !def || (inv.items?.[item] || 0) + n <= def.max;
+      const afford = (inv.credits || 0) >= m.price;
+      const waiting = busy.get(id) > 0;
+      const ok = inHub && fits && afford && smp.ready && !waiting;
+      el.appendChild(
+        h(
+          'div',
+          { class: `smp-recipe${ok ? ' ok' : ''}${inHub ? '' : ' gated'}`, dataset: { supply: id } },
+          h('span', { class: 'smp-recipe-icon', html: icon(def ? itemIcon(item) : 'coin', 22) }),
+          h(
+            'span',
+            { class: 'smp-recipe-main' },
+            h('span', { class: 'smp-recipe-name', text: t(m.name) }),
+            h('span', { class: 'smp-rcost' }, h('span', { class: `smp-chip${afford ? '' : ' short'}` }, h('span', { class: 'smp-chip-icon', html: icon('coin', 12), style: { color: 'var(--gold)' } }), formatNumber(m.price))),
+            inHub && !(fits && afford) ? h('span', { class: 'smp-recipe-why', text: t(fits ? TXT.depotCredits : TXT.depotFull) }) : null,
+          ),
+          h('span', { class: 'smp-recipe-actions' }, h('button', { class: 'btn btn-sm smp-craft', type: 'button', disabled: ok ? null : true, text: waiting ? '…' : t(TXT.buy), onclick: () => buy(id) })),
+        ),
+      );
+    }
+  }
+  function buy(id) {
+    const m = MARKET[id];
+    if (!m || !smp.ready || busy.get(id) > 0) return;
+    ctx.audio?.play?.('ui.click');
+    if (smp.send({ t: C.SPEND, reason: 'market', id, cost: { credits: m.price }, cid: `depot:${id}` })) {
+      busy.set(id, 2.5);
+      render();
+    }
+  }
+  /** S.INV ack / S.DENY of a depot purchase (src/smp/index.js). */
+  function depotDone(m, ok) {
+    const id = String(m.ack ?? m.cid ?? '').slice('depot:'.length);
+    busy.delete(id);
+    if (ok && MARKET[id]) {
+      ui.toast({ title: t(TXT.bought, { name: t(MARKET[id].name) }), icon: 'coin', kind: 'reward', duration: 2400 });
+      ctx.audio?.play?.('reward');
+    }
+    render();
   }
 
   // ------------------------------------------------------------ actions
@@ -406,7 +577,7 @@ export function createScreen(ctx, smp) {
     if (changed) render();
   }
 
-  return { open, close, toggle, isOpen, render, done, update, get tab() {
+  return { open, close, toggle, isOpen, render, done, depotDone, update, get tab() {
     return tab;
   } };
 }

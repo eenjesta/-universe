@@ -4,13 +4,19 @@
  * zone label, key hints, FPS/debug overlay). Owns `state.settings`.
  *
  * install(ctx) registers mode 'title' and returns the public API (ctx.shell):
- *   settings            get(key) / set(key, v) / onChange(fn)
+ *   settings            get(key) / set(key, v) / onChange(fn)  (camera, fov, headBob, hudScale, keyHints,
+ *                       minimapRotate, aimAssist, … — see settings.js)
  *   openPause(tab?) closePause() paused   openSettings()
  *   openMap() closeMap() toggleMap()      openHelp() closeHelp() toggleHelp()
  *   showZoneLabel(name, {iconName, sub})  track(markerId | null)
  *   currentZone()  fastTravel(zoneId)  goToTitle()  hasProgress()
  *   setHudVisible(bool)  refreshThumbnails()
- * Events: emits `title:start` {action, mode, params} and `pause` {open}.
+ *   wild      wilderness knowledge: inHub/hubDist, POIs (discovered or "?"), claims, beacon, bed, death crate
+ *             (+ time left), waypoint (setWaypoint(x, z) / clearWaypoint()), biome(x, z), highway waystones
+ *             — see wild.js
+ *   travel    hub Gateway + Return to hub (options(), go(to), cancel(), channel) — see travel.js
+ * Events: emits `title:start` {action, mode, params}, `pause` {open}, `shell:discover` {poi},
+ *   `shell:waypoint` {x, z} | null, `shell:travel` {phase, to, reason}.
  * URL hooks: ?pause[=settings|controls|about|reset], ?map, ?help, ?debug,
  *            ?thumbs=0 (no live card thumbnails) / ?thumbs (render at once).
  */
@@ -28,8 +34,11 @@ import { ScreenMarkers } from './hud/screenMarkers.js';
 import { ZoneLabel } from './hud/zoneLabel.js';
 import { KeyHints } from './hud/keyHints.js';
 import { DebugOverlay } from './hud/debugOverlay.js';
+import { HudLayout } from './hud/layout.js';
 import { MapImage } from './map/mapImage.js';
 import { WorldMap } from './map/worldMap.js';
+import { createWild } from './wild.js';
+import { createTravel } from './travel.js';
 import { PauseMenu } from './menu/pauseMenu.js';
 import { HelpOverlay } from './menu/help.js';
 import { registerTitleMode } from './title/titleMode.js';
@@ -42,6 +51,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
   registerShellIcons();
   const { modes, events, ui, state } = ctx;
   const shell = {}; // filled below; becomes ctx.shell
+  let keyHints = null;
   let sessionStarted = false;
   let resumePos = null;
 
@@ -50,38 +60,40 @@ export async function install(ctx, { progress = () => {} } = {}) {
   state.ensure('shell', { visited: [] });
   const frame = new HudFrame(ctx);
   const mapImage = new MapImage(ctx, { size: 2048 });
+  const wild = createWild(ctx);
+  frame.wild = wild;
+  const layout = new HudLayout(ctx);
+  layout.setScale(settings.get('hudScale'));
   progress(0.15);
 
   // ----------------------------------------------------------------- HUD
   const zoneLabel = new ZoneLabel(ctx, frame);
-  const minimap = new Minimap(ctx, frame, mapImage);
+  wild.zoneLabel = zoneLabel;
+  const minimap = new Minimap(ctx, frame, mapImage, wild, settings);
   const compass = new Compass(ctx, frame);
-  const screenMarkers = new ScreenMarkers(ctx, frame);
+  const screenMarkers = new ScreenMarkers(ctx, frame, { topBand: () => layout.top });
+  const travel = createTravel(ctx, { wild, shell });
   const debug = new DebugOverlay(ctx, frame, { verbose: !!ctx.params.debug });
   debug.setShowFps(settings.get('showFps'));
   settings.onChange((key) => {
     if (key === 'showFps' || key === '*') debug.setShowFps(settings.get('showFps'));
+    if (key === 'hudScale' || key === '*') layout.setScale(settings.get('hudScale'));
+    if (key === 'minimapRotate' || key === '*') minimap._force = true;
+    if (key === 'keyHints' || key === 'camera' || key === '*') keyHints?.sync();
   });
   progress(0.35);
 
   // --------------------------------------------------------------- menus
   const pause = new PauseMenu(ctx, shell);
   const help = new HelpOverlay(ctx);
-  const map = new WorldMap(ctx, shell, mapImage, frame);
+  const map = new WorldMap(ctx, shell, mapImage, frame, { wild, travel });
   // Clicking a key hint behaves exactly like pressing that key.
   const pressKey = (code) => {
     const key = code.replace(/^Key/, '').toLowerCase();
     window.dispatchEvent(new KeyboardEvent('keydown', { code, key, bubbles: true }));
     setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { code, key, bubbles: true })), 90);
   };
-  const keyHints = new KeyHints(ctx, {
-    B: () => pressKey('KeyB'),
-    F: () => pressKey('KeyF'),
-    G: () => pressKey('KeyG'),
-    J: () => pressKey('KeyJ'),
-    M: () => pressKey('KeyM'),
-    H: () => pressKey('KeyH'),
-  });
+  keyHints = new KeyHints(ctx, { press: pressKey, wild, settings });
   progress(0.55);
 
   // ---------------------------------------------------------- title mode
@@ -252,8 +264,11 @@ export async function install(ctx, { progress = () => {} } = {}) {
         minimap.update(dt);
         compass.update();
         zoneLabel.update(dt);
+        wild.update(dt, frame.focus);
+        travel.update();
         if (zoneLabel.zone) markVisited(zoneLabel.zone);
       }
+      if (modes.is('explore')) keyHints.update(dt);
       screenMarkers.enabled = hudVisible;
       screenMarkers.update();
       if (map.isOpen) map.update();
@@ -290,6 +305,9 @@ export async function install(ctx, { progress = () => {} } = {}) {
     zoneLabel,
     mapImage,
     frame,
+    wild,
+    travel,
+    layout,
     hasProgress,
     rememberPosition,
     titleAction,

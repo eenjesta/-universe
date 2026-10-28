@@ -17,7 +17,7 @@
  * 'raised' stands on an existing deck or wall.
  */
 import * as THREE from 'three';
-import { GeoBuilder, mergeParts } from './geo.js';
+import { GeoBuilder, mergeParts, rockGeometry } from './geo.js';
 import { Rng } from '../core/math.js';
 
 const FRAME = 0x1c1f24;
@@ -37,8 +37,15 @@ const NOT_IN_GHOST = new Set(['pool', 'flame', 'decal']);
 /** Pieces whose 'ground' variant differs (footings, skirts, own floor slab). */
 const HAS_GROUND = new Set(['floor', 'glass-floor', 'wood-deck', 'wall', 'glass-wall', 'window-wall', 'door-wall', 'half-wall', 'pillar', 'cube-module', 'stairs', 'canopy', 'workshop', 'tower']);
 const ALWAYS_GROUND = new Set(['foundation', 'landing-pad']);
+/** Pieces with an open / closed state (records carry `open`): variants 'closed' | 'open' (+ '-ground' footings). */
+export const STATEFUL = new Set(['door']);
 
-export function normVariant(id, variant) {
+export function normVariant(id, variant, open) {
+  if (STATEFUL.has(id)) {
+    const v = String(variant || '');
+    const isOpen = open ?? v.startsWith('open');
+    return `${isOpen ? 'open' : 'closed'}${v.endsWith('ground') ? '-ground' : ''}`;
+  }
   if (ALWAYS_GROUND.has(id)) return 'ground';
   if (!HAS_GROUND.has(id)) return 'raised';
   return variant === 'ground' ? 'ground' : 'raised';
@@ -734,6 +741,166 @@ const BUILD = {
     S.neon.box(0.12, 0.03, 0.02, 0.69, 0.84, -0.416, { color: 0x7fe0ff, intensity: 2.2 });
   },
 
+  'workbench-3'(S, ground, B) {
+    benchBase(S, B, 0xb48cff);
+    // fabricator gantry: an arch over the top with a violet field ring + a floating crystal core
+    for (const sx of [-1, 1]) S.metal.beam([sx * 0.95, 0.97, -0.32], [sx * 0.62, 1.72, -0.1], 0.06, { color: FRAME });
+    S.metal.geo(torus(0.66, 0.045, 8, 36), 0, 1.72, -0.1, { rx: Math.PI / 2, sy: 0.55, color: STEEL });
+    S.neon.geo(torus(0.36, 0.014, 4, 32), 0, 1.24, -0.14, { rx: Math.PI / 2, color: 0xb48cff, intensity: 2.4 });
+    S.neon.geo(torus(0.24, 0.01, 4, 28), 0, 1.5, -0.14, { rx: Math.PI / 2, color: 0x9fe8ff, intensity: 1.8 });
+    S.neon.geo(ico(0.11, 1), 0, 1.38, -0.14, { color: 0xd8b8ff, intensity: 3.2, sy: 1.6 });
+    // crystal tanks + three tier lights
+    for (const x of [0.6, 0.78, 0.96]) {
+      S.glass.cyl(0.07, 0.07, 0.4, x - 0.08, 1.3, 0.36, { seg: 10 });
+      S.neon.cyl(0.04, 0.04, 0.3, x - 0.08, 1.3, 0.36, { seg: 8, color: 0xb48cff, intensity: 2.0 });
+    }
+    for (const x of [0.48, 0.62, 0.76]) S.neon.box(0.11, 0.03, 0.02, x, 0.84, -0.416, { color: 0xb48cff, intensity: 2.4 });
+  },
+
+  campfire(S, ground, B) {
+    const rng = new Rng('campfire');
+    // stone ring
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2 + rng.range(-0.1, 0.1);
+      const g = rockGeometry(rng.range(0.15, 0.21), 0, rng, { squash: 0.62, jag: 0.25 });
+      S.matte.geo(g, Math.cos(a) * 0.64, 0.07, Math.sin(a) * 0.64, { color: rng.pick([0x77716a, 0x8e8a84, 0x66625c, 0x5d5853]), ry: rng.random() * 3 });
+      g.dispose();
+    }
+    S.matte.cyl(0.52, 0.55, 0.05, 0, 0.025, 0, { seg: 16, color: 0x2a2421 });
+    // log teepee + two lying logs
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + 0.25;
+      S.wood.beam([Math.cos(a) * 0.4, 0.05, Math.sin(a) * 0.4], [Math.cos(a) * 0.05, 0.6, Math.sin(a) * 0.05], 0.065, { color: k % 2 ? WOOD_D : 0x5a3e2a });
+    }
+    S.wood.cyl(0.07, 0.07, 0.9, -0.15, 0.08, 0.22, { seg: 7, rz: Math.PI / 2, ry: 0.4, color: WOOD_D });
+    S.wood.cyl(0.06, 0.06, 0.8, 0.18, 0.08, -0.2, { seg: 7, rz: Math.PI / 2, ry: -0.7, color: 0x5a3e2a });
+    // glowing embers
+    for (let k = 0; k < 9; k++) {
+      const a = rng.random() * Math.PI * 2;
+      const r = rng.range(0, 0.3);
+      const g = ico(rng.range(0.05, 0.09));
+      S.neon.geo(g, Math.cos(a) * r, 0.08, Math.sin(a) * r, { color: k % 3 ? 0xff5a18 : 0xffa040, intensity: 2.6, rx: rng.random() * 3 });
+      g.dispose();
+    }
+    for (let k = 0; k < 3; k++) {
+      const plane = new THREE.PlaneGeometry(0.8, 1.15).translate(0, 0.575, 0);
+      S.flame.geo(plane, 0, 0.08, 0, { uv: 'keep', ry: (k / 3) * Math.PI });
+      plane.dispose();
+    }
+    // cooking spit: two forked posts, a rod and a little pot
+    for (const sx of [-1, 1]) {
+      S.metal.beam([sx * 0.82, 0, 0], [sx * 0.78, 0.98, 0], 0.04, { color: FRAME });
+      S.metal.beam([sx * 0.78, 0.9, 0], [sx * 0.86, 1.06, 0], 0.025, { color: FRAME });
+      S.metal.beam([sx * 0.78, 0.9, 0], [sx * 0.7, 1.06, 0], 0.025, { color: FRAME });
+    }
+    S.metal.cyl(0.018, 0.018, 1.7, 0, 0.98, 0, { seg: 6, rz: Math.PI / 2, color: STEEL });
+    S.metal.beam([0.22, 0.98, 0], [0.22, 0.76, 0], 0.012, { color: STEEL });
+    S.metal.cyl(0.15, 0.12, 0.2, 0.22, 0.66, 0, { seg: 12, color: 0x2a2d33 });
+    S.metal.geo(torus(0.15, 0.018, 4, 18), 0.22, 0.76, 0, { rx: Math.PI / 2, color: STEEL });
+    S.pool.geo(hplane(7, 7), 0, 0.05, 0, { uv: 'keep', color: 0xff9a50, intensity: 1.35 });
+    B.push(bx(0, 0.2, 0, 1.5, 0.4, 1.5, true, false));
+  },
+
+  torch(S, ground, B) {
+    const rng = new Rng('torch');
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI * 2;
+      const g = rockGeometry(rng.range(0.13, 0.17), 0, rng, { squash: 0.7 });
+      S.matte.geo(g, Math.cos(a) * 0.14, 0.06, Math.sin(a) * 0.14, { color: rng.pick([0x77716a, 0x66625c]) });
+      g.dispose();
+    }
+    S.wood.cyl(0.042, 0.06, 1.55, 0, 0.78, 0, { seg: 7, color: WOOD_D });
+    S.matte.cyl(0.08, 0.07, 0.2, 0, 1.5, 0, { seg: 8, color: 0x5a4a32 });
+    S.metal.geo(torus(0.085, 0.016, 4, 14), 0, 1.4, 0, { rx: Math.PI / 2, color: FRAME });
+    S.neon.geo(ico(0.07), 0, 1.62, 0, { color: 0xff8a30, intensity: 2.8 });
+    for (let k = 0; k < 2; k++) {
+      const plane = new THREE.PlaneGeometry(0.42, 0.72).translate(0, 0.36, 0);
+      S.flame.geo(plane, 0, 1.56, 0, { uv: 'keep', ry: (k / 2) * Math.PI + 0.4 });
+      plane.dispose();
+    }
+    S.pool.geo(hplane(4.6, 4.6), 0, 0.05, 0, { uv: 'keep', color: 0xffa860, intensity: 0.9 });
+    B.push(bx(0, 0.8, 0, 0.2, 1.6, 0.2, true, false));
+  },
+
+  'sleeping-bag'(S, ground, B) {
+    S.matte.box(0.92, 0.03, 2.08, 0, 0.015, 0.05, { color: 0x262a30 });
+    S.matte.box(0.8, 0.15, 1.75, 0, 0.1, 0.12, { color: 0x3c564e });
+    S.matte.box(0.78, 0.05, 1.2, 0.01, 0.2, 0.38, { color: 0x4b6a60 });
+    S.matte.box(0.4, 0.05, 0.5, -0.2, 0.19, -0.16, { ry: 0.35, color: 0x4b6a60 }); // folded corner
+    S.matte.box(0.52, 0.12, 0.32, 0, 0.1, -0.8, { color: 0xe4e0d8 });
+    S.matte.box(0.04, 0.012, 1.2, 0.36, 0.23, 0.38, { color: 0xd8cdb8 }); // zipper seam
+    S.metal.geo(torus(0.07, 0.012, 4, 18), 0.05, 0.226, 0.62, { rx: Math.PI / 2, color: 0xd8d2c6 });
+    S.metal.beam([-0.02, 0.226, 0.69], [0.12, 0.226, 0.55], 0.012, { color: 0xd8d2c6 });
+    B.push(bx(0, 0.12, 0.05, 0.92, 0.24, 2.08, true, true));
+  },
+
+  bed(S, ground, B) {
+    // low platform bed: wood frame, mattress, navy blanket with a warm stripe, headboard with a reading light
+    S.wood.box(1.32, 0.2, 2.24, 0, 0.24, 0, { color: WOOD });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) S.metal.box(0.09, 0.16, 0.09, sx * 0.58, 0.08, sz * 1.04, { color: FRAME });
+    S.matte.box(1.22, 0.18, 2.06, 0, 0.43, 0.04, { color: 0xe2ded6 });
+    S.matte.box(1.26, 0.07, 1.34, 0, 0.55, 0.42, { color: 0x1f2a44 });
+    S.matte.box(1.27, 0.072, 0.09, 0, 0.552, -0.2, { color: 0xd8cdb8 });
+    S.matte.box(1.24, 0.25, 0.06, 0, 0.42, 1.09, { color: 0x1f2a44 }); // blanket hanging over the foot
+    S.matte.box(0.82, 0.13, 0.36, 0, 0.58, -0.76, { color: 0xf2efe8 });
+    S.wood.box(1.38, 0.95, 0.09, 0, 0.6, -1.13, { color: WOOD_D });
+    S.metal.box(1.42, 0.05, 0.13, 0, 1.08, -1.13, { color: FRAME });
+    S.glow.box(1.1, 0.025, 0.04, 0, 1.03, -1.075, { color: 0xffd6a0, intensity: 2.2 });
+    S.wood.box(1.36, 0.36, 0.07, 0, 0.36, 1.12, { color: WOOD_D });
+    B.push(bx(0, 0.3, 0, 1.32, 0.62, 2.24, true, true));
+    B.push(bx(0, 0.6, -1.13, 1.38, 1.0, 0.12, true, false));
+  },
+
+  'storage-chest'(S, ground, B) {
+    S.metal.box(1.16, 0.58, 0.66, 0, 0.35, 0, { color: 0x30343b });
+    S.metal.box(1.2, 0.06, 0.7, 0, 0.03, 0, { color: FRAME });
+    for (const sz of [-1, 1]) S.wood.box(1.0, 0.4, 0.02, 0, 0.34, sz * 0.335, { color: WOOD });
+    for (const sx of [-1, 1]) {
+      S.wood.box(0.02, 0.4, 0.5, sx * 0.585, 0.34, 0, { color: WOOD });
+      S.metal.box(0.04, 0.05, 0.3, sx * 0.61, 0.52, 0, { color: STEEL }); // handles
+      for (const sz of [-1, 1]) S.metal.box(0.07, 0.62, 0.07, sx * 0.565, 0.36, sz * 0.315, { color: FRAME });
+    }
+    S.metal.box(1.22, 0.13, 0.72, 0, 0.71, 0, { color: 0x2a2d33 });
+    S.metal.box(1.18, 0.03, 0.68, 0, 0.79, 0, { color: STEEL });
+    S.metal.box(0.18, 0.15, 0.04, 0, 0.6, -0.355, { color: STEEL });
+    S.neon.box(0.06, 0.03, 0.012, 0, 0.62, -0.378, { color: 0x7fe0ff, intensity: 2.2 });
+    S.neon.box(0.96, 0.018, 0.018, 0, 0.66, -0.362, { color: 0x7fe0ff, intensity: 1.5 });
+    S.metal.geo(torus(0.075, 0.013, 4, 18), 0.38, 0.4, -0.346, { color: 0xd8d2c6 });
+    S.metal.beam([0.3, 0.32, -0.346], [0.46, 0.48, -0.346], 0.012, { color: 0xd8d2c6 });
+    B.push(bx(0, 0.39, 0, 1.22, 0.78, 0.72, true, true));
+  },
+
+  door(S, ground, B, variant) {
+    // the door-wall frame + a lockable leaf; 'open' swings the leaf 90° inward (−Z) and frees the doorway
+    BUILD['door-wall'](S, ground, B);
+    const open = String(variant || '').startsWith('open');
+    const leaf = (L, ry, cx, cz) => {
+      const c = Math.cos(ry);
+      const sn = Math.sin(ry);
+      const at = (lx, lz) => [cx + lx * c + lz * sn, cz - lx * sn + lz * c];
+      let [x, z] = at(0, 0);
+      L.wood.box(1.2, 2.24, 0.07, x, 1.14, z, { ry, color: WOOD });
+      for (const ly of [0.06, 2.22]) L.metal.box(1.22, 0.06, 0.09, x, ly, z, { ry, color: FRAME });
+      for (const lx of [-0.58, 0.58]) {
+        [x, z] = at(lx, 0);
+        L.metal.box(0.06, 2.24, 0.09, x, 1.14, z, { ry, color: FRAME });
+      }
+      [x, z] = at(0, 0);
+      L.glass.box(0.5, 0.5, 0.075, x, 1.62, z, { ry });
+      [x, z] = at(0.44, -0.06);
+      L.metal.box(0.05, 0.22, 0.05, x, 1.08, z, { ry, color: STEEL });
+      [x, z] = at(0.44, -0.045);
+      L.neon.box(0.04, 0.06, 0.012, x, 1.26, z, { ry, color: 0x7fe0ff, intensity: 2.0 });
+    };
+    if (open) {
+      leaf(S, Math.PI / 2, -0.6, -0.62);
+      B.push(bx(-0.6, 1.14, -0.62, 0.1, 2.26, 1.2, true, false));
+    } else {
+      leaf(S, 0, 0, 0);
+      B.push(bx(0, 1.14, 0, 1.24, 2.28, 0.2, true, false));
+    }
+  },
+
   'claim-beacon'(S, ground, B) {
     S.concrete.box(1.2, 0.3, 1.2, 0, 0.15, 0, { color: CONC_D });
     S.concrete.box(0.84, 0.22, 0.84, 0, 0.41, 0, { color: CONC_L });
@@ -788,7 +955,7 @@ export function pieceInfo(id, variant = 'raised') {
   if (!fn) throw new Error(`build: unknown piece "${id}"`);
   const S = new PartSet();
   const boxes = [];
-  fn(S, v === 'ground', boxes);
+  fn(S, v === 'ground' || v.endsWith('-ground'), boxes, v);
   const parts = [];
   for (const mat of PART_ORDER) {
     const b = S.b[mat];

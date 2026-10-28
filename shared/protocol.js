@@ -50,7 +50,7 @@ export const C = {
   RELOAD: 'reload', // { w }
   EQUIP: 'equip', // { slot: 0..3 } (or { w: weaponId })
   RESPAWN: 'respawn', // { at: 'beacon' | 'base' | 'spawn' } — accepted 5 s after death
-  HARVEST: 'harvest', // { node: nodeId } — after the client's hold-E completes
+  HARVEST: 'harvest', // { node: nodeId } or { feature: worldFeatureId, tool?, hit? } — tool swings on trees/rocks/plants (gathering)
   CRAFT: 'craft', // { recipe, n? }
   USE: 'use', // { item } — consume (ration, medkit, shield cell)
   PICKUP: 'pickup', // { loot: lootId }
@@ -60,6 +60,8 @@ export const C = {
   SPEND: 'spend', // { reason: 'market' | 'sell' | <sink>, id, cost:{credits?, metal?…}, cid? } — server validates (prices: shared/defs/market.js)
   CHAT: 'chat', // { text, ch: 'global' | 'local' | 'party' }
   PROFILE: 'profile', // { name?, appearance? } — after the character creator
+  STORE: 'store', // { struct, op: 'put' | 'take', item? | res?, n } — storage chests (survival)
+
   TRAVEL: 'travel', // { to: 'hub' | 'wild' | 'base' | 'beacon', cid? } — 'hub' = "Return to hub" from anywhere (10 s channel, not in combat, 2 min cooldown); 'wild' | 'base' | 'beacon' = the hub Gateway (only inside the hub, instant). Cancel a channel: { to: 'cancel' }
   PING: 'ping', // { ct }
 };
@@ -86,6 +88,9 @@ export const S = {
   EVENT: 'event', // { kind: 'night-raid' | 'boss' | …, phase: 'start' | 'end', … }
   CHAT: 'chat', // { from, name, text, ch, ts, sys? }
   CORRECT: 'correct', // { p:[x,y,z], reason } — server rejected the client's position (snap back)
+  FEATURE: 'feature', // { id, state: 'ok' | 'hit' | 'felled' | 'broken' | 'picked', hp?, by?, regrowAt? } — world trees/rocks/plants (gathering)
+  STORAGE: 'storage', // { struct, items, res } — contents of a storage chest (to players allowed to open it)
+
   DENY: 'deny', // { of: messageType, reason, cid? } — request rejected (no ammo, not allowed, claim…)
   ERROR: 'error', // { code, msg } — fatal (bad version, banned, full)
   PONG: 'pong', // { ct, st }

@@ -6,8 +6,9 @@
  * or modal / in a safe zone / swimming — otherwise the weapon is holstered):
  *   1–4 equip (same key again = holster), wheel = next/previous weapon,
  *   RMB aim (touch: toggle), LMB fire (semi / auto / railgun charge), R reload,
- *   4 = shock grenade (hold LMB/RMB = arc preview, release = throw), V = quick
- *   grenade, Q dodge roll. LMB/RMB while holstered draw the last weapon.
+ *   4 = shock grenade (hold LMB/RMB = arc preview, release = throw), middle mouse
+ *   or Z = quick grenade (V is the camera toggle), Q dodge roll. LMB/RMB while
+ *   holstered draw the last weapon (unless gathering wants the click: ctx.gather.wantsClick).
  * Firing feels instant (muzzle flash, travelling energy bolt, impact, recoil,
  * camera kick, sound) and sends C.FIRE (+ C.HIT for an enemy hit-volume hit);
  * the server decides damage. Server events → FX + HUD: S.DAMAGE (hit markers,
@@ -22,6 +23,11 @@ import { clamp } from '../core/math.js';
 import { WeaponState, spreadDeg, spreadDir, simulateArc, readInv, mergeInv, ownedWeapons, assistPick } from './logic.js';
 import { ENEMIES, inSafeZone, HUB, inHub } from './weapon-data.js';
 import { createWeaponModel, HOLD } from './models.js';
+import { BOSS, ENEMIES as ENEMY_DEFS } from '../../shared/defs/enemies.js';
+
+/** [min, max] pitch of the camera rig's current view (recoil clamp); safe fallback for older rigs. */
+const pitchRange = (rig) => (Array.isArray(rig?.pitchRange) ? rig.pitchRange : [-1.25, 1.25]);
+import { poiCover, segCover } from '../../shared/sim/los.js';
 
 // The sim's safe-zone rule (what the server enforces on FIRE/THROW) and shared/worldgen (PLATFORM §11,
 // written by another engineer) — both optional: picked up when present.
@@ -44,6 +50,28 @@ const TXT = {
   nightRaid: { en: 'Night raid', nl: 'Nachtelijke aanval' },
   nightRaidSub: { en: 'Defend your base', nl: 'Verdedig je basis' },
   raidOver: { en: 'Raid repelled', nl: 'Aanval afgeslagen' },
+  bossWake: { en: 'De Wachter awakens', nl: 'De Wachter ontwaakt' },
+  bossWakeSub: { en: 'Dodge the stomps [Q] · shoot the glowing runes', nl: 'Ontwijk de stampen [Q] · schiet op de gloeiende runen' },
+  bossPhase: { en: 'De Wachter grows furious', nl: 'De Wachter wordt woedend' },
+  bossPhase2: { en: 'It calls its drones', nl: 'Hij roept zijn drones' },
+  bossPhase3: { en: 'Final phase — the runes burn', nl: 'Laatste fase — de runen branden' },
+  runeBroken: { en: 'Rune shattered', nl: 'Rune verbrijzeld' },
+  runeBrokenSub: { en: 'It staggers — open fire!', nl: 'Hij wankelt — vuur!' },
+  bossDown: { en: 'De Wachter has fallen', nl: 'De Wachter is gevallen' },
+  bossDownBy: { en: 'Felled by {name} · loot crates for every fighter', nl: 'Geveld door {name} · buitkisten voor elke strijder' },
+  bossDownSub: { en: 'Loot crates for every fighter', nl: 'Buitkisten voor elke strijder' },
+  bossReset: { en: 'De Wachter slumbers again', nl: 'De Wachter sluimert weer' },
+  hunted: { en: 'Something is hunting you', nl: 'Iets jaagt op je' },
+  huntStalker: { en: 'Stalkers picked up your trail', nl: 'Sluipers volgen je spoor' },
+  huntRaider: { en: 'A raider patrol is closing in', nl: 'Een piratenpatrouille nadert' },
+  huntMite: { en: 'The crystals are stirring', nl: 'De kristallen komen in beweging' },
+  huntDrone: { en: 'Drones are sweeping the area', nl: 'Drones doorzoeken het gebied' },
+  hunters: { en: 'Hunters', nl: 'Jagers' },
+  cleared: { en: 'Outpost cleared', nl: 'Buitenpost veroverd' },
+  clearedRuin: { en: 'Ruins secured', nl: 'Ruïnes veiliggesteld' },
+  clearedWreck: { en: 'Crash site secured', nl: 'Neerstortplek veiliggesteld' },
+  clearedSub: { en: 'A supply cache was left behind', nl: 'Er is een voorraadkist achtergebleven' },
+  cache: { en: 'Supply cache', nl: 'Voorraadkist' },
 };
 const DENY_TEXT = {
   ammo: TXT.noAmmo,
@@ -63,6 +91,34 @@ const COMBAT_DENIES = new Set([C.FIRE, C.HIT, C.THROW, C.RELOAD, C.EQUIP, C.RESP
 const SILENT_DENIES = new Set(['rate', 'reloading', 'invalid']);
 const SOUND_OF = { 'pulse-pistol': 'combat.pistol', 'plasma-rifle': 'combat.rifle', railgun: 'combat.rail' };
 const ENEMY_RED = [1, 0.16, 0.1];
+const BOLT_ORANGE = [1, 0.36, 0.1];
+/**
+ * Recoil patterns (learnable, not random): per shot [yaw, pitch] multipliers of the weapon's kick.
+ * The rifle climbs and drifts right then left; the pistol hops; the railgun bucks hard.
+ */
+const RECOIL = {
+  'plasma-rifle': [
+    [0, 1],
+    [0.1, 1.05],
+    [0.2, 1.1],
+    [0.35, 1.1],
+    [0.45, 1],
+    [0.3, 0.95],
+    [0, 0.9],
+    [-0.3, 0.9],
+    [-0.5, 0.85],
+    [-0.4, 0.85],
+    [-0.1, 0.8],
+    [0.25, 0.8],
+  ],
+  'pulse-pistol': [
+    [0.05, 1],
+    [-0.12, 1.05],
+    [0.15, 1],
+    [-0.08, 1.05],
+  ],
+  railgun: [[0.15, 1]],
+};
 const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
 
 function readVec(v, out) {
@@ -169,6 +225,8 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
   let chargeSnd = false;
   let zoomSaved = null;
   let lastDamageTargets = new Map(); // enemy id → time of my last hit (kill attribution fallback)
+  let recoilIdx = 0;
+  let recoilShotAt = -1e9;
   const vit = { hp: 100, sh: 50, en: 100, maxHp: 100, maxSh: 50 };
   const models = new Map();
   let held = { model: null, holstered: false };
@@ -398,7 +456,46 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     return near;
   }
 
-  /** Nearest hit along o + d·t (t ≤ maxD): enemies, terrain, water, structures → `hit`. */
+  // POI structures (outpost huts, palisade, crates, wreck hulls): the same boxes the server's hit validation and
+  // the enemies' line of sight use (shared/sim/los.js poiCover) — no shots through walls in either direction
+  const coverCache = new Map(); // poi id → { x, z, r, boxes }
+  let coverT = 0;
+  function refreshCover(dt) {
+    coverT -= dt;
+    if (coverT > 0) return;
+    coverT = 1;
+    const pois = ctx.frontier?.pois;
+    const pp = ctx.player?.position;
+    if (!pp) return;
+    for (const [id, c] of coverCache) if (Math.hypot(c.x - pp.x, c.z - pp.z) > 700) coverCache.delete(id);
+    // De Wachter's arena monoliths
+    if (!coverCache.has('arena') && Math.hypot(BOSS.site.x - pp.x, BOSS.site.z - pp.z) < 650) {
+      coverCache.set('arena', { x: BOSS.site.x, z: BOSS.site.z, r: 60, boxes: poiCover({ type: 'arena', variant: 0, x: BOSS.site.x, y: 0, z: BOSS.site.z, rot: 0 }, getH) });
+    }
+    if (!pois || typeof pois.forEach !== 'function') return;
+    pois.forEach((poi, id) => {
+      if (!poi || (poi.type !== 'outpost' && poi.type !== 'wreck') || coverCache.has(id)) return;
+      if (Math.hypot(poi.x - pp.x, poi.z - pp.z) > 450) return;
+      const boxes = poiCover(poi);
+      if (boxes.length) coverCache.set(id, { x: poi.x, z: poi.z, r: (poi.radius || 30) + 24, boxes });
+    });
+  }
+  /** Distance along o + d·t to the first POI structure (≤ maxD) or Infinity. */
+  function coverDist(o, d, maxD) {
+    if (!coverCache.size) return Infinity;
+    const bx = o.x + d.x * maxD;
+    const by = o.y + d.y * maxD;
+    const bz = o.z + d.z * maxD;
+    let best = Infinity;
+    for (const c of coverCache.values()) {
+      if (Math.min(o.x, bx) > c.x + c.r || Math.max(o.x, bx) < c.x - c.r || Math.min(o.z, bz) > c.z + c.r || Math.max(o.z, bz) < c.z - c.r) continue;
+      const f = segCover(o.x, o.y, o.z, bx, by, bz, c.boxes, 0.05);
+      if (f >= 0 && f * maxD < best) best = f * maxD;
+    }
+    return best;
+  }
+
+  /** Nearest hit along o + d·t (t ≤ maxD): enemies, terrain, water, POI structures, build structures → `hit`. */
   function trace(o, d, maxD, { enemiesToo = true } = {}) {
     hit.kind = 'none';
     hit.id = null;
@@ -438,6 +535,15 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
         }
       }
     }
+    const tc = coverDist(o, d, best);
+    if (tc < best) {
+      best = tc;
+      hit.kind = 'struct';
+      hit.id = null;
+      hit.rec = null;
+      hit.point.copy(o).addScaledVector(d, best);
+      hit.normal.copy(d).negate();
+    }
     const phys = ctx.physics;
     if (phys?.segmentHit) {
       _end.copy(o).addScaledVector(d, best);
@@ -476,10 +582,12 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     lastShotAt = performance.now();
     const near = aimRay();
     spreadDir(_d, spread, Math.random(), Math.random(), _sd);
-    // touch: light bullet magnetism toward an enemy close to the crosshair
-    if (touch && enemies) {
+    // touch: light bullet magnetism toward an enemy close to the crosshair (wider from the hip,
+    // tighter when aiming; boss runes are candidates too)
+    const assist = touch ? assistStrength() : 0;
+    if (assist > 0 && enemies) {
       const n = enemies.candidates(_cands, 16);
-      const i = assistPick(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, _cands, n, 4.5, def.range);
+      const i = assistPick(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, _cands, n, (aiming ? 4 : 6) * assist, def.range);
       if (i >= 0) {
         _sd.set(_cands[i * 4] - _o.x, _cands[i * 4 + 1] - _o.y, _cands[i * 4 + 2] - _o.z).normalize();
         spreadDir(_sd, spread * 0.5, Math.random(), Math.random(), _sd);
@@ -512,11 +620,20 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     // feel: recoil pitch kick + a little yaw, camera shake, arms
     const rig = ctx.cameraRig;
     if (rig) {
-      const k = def.kick * (aiming ? 0.6 : 1) * (0.8 + Math.random() * 0.4);
-      rig.pitch = clamp(rig.pitch + k, -1.15, 0.72);
-      rig.yaw += (Math.random() - 0.5) * def.kick * 0.6;
+      // a fixed per-weapon pattern (resets after a short pause) — learnable, with a touch of noise
+      const pat = RECOIL[def.id] || RECOIL['pulse-pistol'];
+      const now = performance.now();
+      if (now - recoilShotAt > 360) recoilIdx = 0;
+      recoilShotAt = now;
+      const [py, pp] = pat[Math.min(recoilIdx, pat.length - 1)];
+      recoilIdx++;
+      const fp = ctx.player?.view === 'first';
+      const k = def.kick * (aiming ? 0.62 : 1) * (fp ? 1.15 : 1) * pp * (0.93 + Math.random() * 0.14);
+      const [plo, phi] = pitchRange(rig);
+      rig.pitch = clamp(rig.pitch + k, plo, phi);
+      rig.yaw -= def.kick * (aiming ? 0.5 : 0.8) * (py + (Math.random() - 0.5) * 0.15);
       recoilAcc += k;
-      rig.shake?.(def.kind === 'charge' ? 0.42 : def.auto ? 0.1 : 0.16);
+      rig.shake?.(def.kind === 'charge' ? 0.42 : def.auto ? 0.08 : 0.14);
     }
     ctx.player?.playAction?.('shoot', { recoil: def.kind === 'charge' ? 1.6 : def.auto ? 0.7 : 1 });
     ctx.player?.aimAt?.(hit.point);
@@ -782,6 +899,7 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
   function update(dt) {
     updateSafe(dt);
     updateTrack();
+    refreshCover(dt);
     const reason = computeBlock();
     if (reason !== blockReason) {
       blockReason = reason;
@@ -853,8 +971,8 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
           wheelCd = 0.14;
         }
       } else wheelAcc *= 0.8;
-      // draw on click when holstered
-      if (!armed && (input.pressed('Mouse0') || input.pressed('Mouse2'))) {
+      // draw on click when holstered (the click belongs to gathering while you look at a tree / rock / plant)
+      if (!armed && !ctx.gather?.wantsClick && (input.pressed('Mouse0') || input.pressed('Mouse2'))) {
         const def = canUse(current) ? current : defs.list.find((d) => canUse(d));
         draw(def);
       } else if (armed) {
@@ -893,12 +1011,16 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
         autoReloadT -= dt;
         if (autoReloadT < 0) tryReload();
       }
-      // quick grenade (V or the touch Grenade button)
-      if (input.pressed('KeyV') && grenadeDef && ws[grenadeDef.id].reserve > 0) quickThrow = true;
+      // quick grenade (middle mouse / Z or the touch Grenade button; hold = arc preview, release = throw)
+      const qDown = input.down('Mouse1') || input.down('KeyZ');
+      if ((input.pressed('Mouse1') || input.pressed('KeyZ')) && grenadeDef) {
+        if (ws[grenadeDef.id].reserve > 0) quickThrow = true;
+        else hud.deny(TXT.noGrenades);
+      }
       if (quickThrow) {
         quickThrowT += dt;
         showArc = true;
-        if (input.released('KeyV') || (!input.down('KeyV') && quickThrowT > 0.05 && !touchHold)) {
+        if (input.released('Mouse1') || input.released('KeyZ') || (!qDown && quickThrowT > 0.05 && !touchHold)) {
           quickThrow = false;
           quickThrowT = 0;
           throwGrenade();
@@ -920,8 +1042,11 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
       }
     }
     updateArc(showArc && !dead);
-    // touch aim friction: ease toward an enemy near the crosshair while firing
-    if (touch && armed && aiming && input.down('Mouse0') && enemies && ctx.cameraRig) assistFriction(dt);
+    // touch aim friction: ease toward an enemy near the crosshair while firing (stronger when aiming)
+    if (touch && armed && current.kind !== 'throw' && input.down('Mouse0') && enemies && ctx.cameraRig) {
+      const a = assistStrength();
+      if (a > 0) assistFriction(dt, (aiming ? 1 : 0.55) * a, a);
+    }
 
     // HUD state
     state.armed = armed;
@@ -946,10 +1071,16 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
   let ownedBase = [...owned].sort().join(',');
   let lastGren = -1;
 
-  function assistFriction(dt) {
+  /** Touch aim assist 0..1 (Settings → Controls, state.settings.aimAssist; default 1, 0 = off). */
+  function assistStrength() {
+    const v = Number(ctx.state?.get?.('settings.aimAssist'));
+    return Number.isFinite(v) ? clamp(v, 0, 1) : 1;
+  }
+
+  function assistFriction(dt, strength = 1, cone = 1) {
     aimRay();
     const n = enemies.candidates(_cands, 16);
-    const i = assistPick(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, _cands, n, 7, 90);
+    const i = assistPick(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, _cands, n, 7 * Math.max(0.35, cone), 90);
     if (i < 0) return;
     const rig = ctx.cameraRig;
     const dx = _cands[i * 4] - _o.x;
@@ -961,9 +1092,10 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
     const dp = pitch - Math.asin(clamp(_d.y, -1, 1));
-    const k = Math.min(1, dt * 2.2);
+    const k = Math.min(1, dt * 2.6 * strength);
     rig.yaw += dyaw * k * 0.5;
-    rig.pitch = clamp(rig.pitch + dp * k * 0.5, -1.15, 0.72);
+    const [plo, phi] = pitchRange(rig);
+    rig.pitch = clamp(rig.pitch + dp * k * 0.5, plo, phi);
   }
 
   function dodge() {
@@ -1078,13 +1210,15 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     const rec = enemies?.onDamage(msg.target, msg);
     if (msg.by === myId) {
       const kill = !!msg.kill || (Number.isFinite(msg.hp) && msg.hp <= 0);
-      const kind = kill ? 'kill' : msg.crit ? 'crit' : 'hit';
-      hud.hitMarker(kind);
-      if (readVec(msg.at, _p)) hud.damageNumber(_p, amount, kind);
-      else if (rec) hud.damageNumber(_p.copy(rec.pos).setY(rec.markerY ?? rec.pos.y + 1), amount, kind);
-      ctx.audio?.play?.('combat.hit', { volume: 0.75, crit: !!msg.crit, kill });
+      const prop = rec?.type === 'barrier';
+      const kind = kill && !prop ? 'kill' : msg.weak ? 'weak' : msg.crit ? 'crit' : 'hit';
+      hud.hitMarker(kind === 'weak' ? 'crit' : kind);
+      if (readVec(msg.at, _p)) hud.damageNumber(_p, amount, kind, msg.target);
+      else if (rec) hud.damageNumber(_p.copy(rec.pos).setY(rec.markerY ?? rec.pos.y + 1), amount, kind, msg.target);
+      ctx.audio?.play?.(prop ? 'combat.barrier.hit' : 'combat.hit', { volume: 0.75, crit: !!msg.crit || !!msg.weak, kill: kill && !prop });
       lastDamageTargets.set(msg.target, performance.now());
       if (kill && rec) rec._killMarked = true;
+      if (kill && !prop) ctx.cameraRig?.shake?.(rec?.type === 'warden' ? 0.6 : 0.07);
     }
   }
 
@@ -1097,6 +1231,11 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     }
     const rec = enemies?.records.get(msg.id);
     const type = msg.type || rec?.type;
+    if (type === 'barrier') {
+      // a raider's shield wall collapsing (shot down or expired): no kill feed
+      if (rec) enemies.onDeath(msg.id);
+      return;
+    }
     if (rec) {
       const marked = rec._killMarked;
       enemies.onDeath(msg.id);
@@ -1184,10 +1323,36 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
 
   function onEnemyFire(msg) {
     if (!msg) return;
-    const em = enemies?.onFire(msg.id);
     const rec = enemies?.records.get(msg.id);
-    if (msg.w === 'claw' || rec?.type === 'stalker') {
-      if (rec) ctx.audio?.play?.('combat.claw', { position: rec.pos, volume: 0.9 });
+    const w = msg.w;
+    // telegraphs + boss attacks: visuals only (the hit, if any, comes later)
+    if ((w === 'laser' && msg.phase === 'charge') || w === 'aim') {
+      enemies?.onTelegraph(msg.id, msg);
+      if (rec && msg.target === me()) {
+        rec.targetsMe = Math.max(rec.targetsMe, 4);
+        onTarget(rec, true);
+      }
+      return;
+    }
+    if (w === 'stomp' || w === 'beam' || w === 'summon' || w === 'roar') {
+      const tp = w === 'beam' && msg.target != null ? enemies?.targetPos(msg.target, _p) : null;
+      enemies?.onTelegraph(msg.id, msg, tp);
+      return;
+    }
+    if (w === 'howl') {
+      if (rec) ctx.audio?.play?.('combat.stalker.howl', { position: rec.pos, volume: 1 });
+      return;
+    }
+    if (w === 'barrier') {
+      if (readVec(msg.at, _p)) {
+        fx.glow(_p.setY(_p.y + 0.8), BOLT_ORANGE, 0.4, 2.4, 0.4, 0, 0.9, 4);
+        ctx.audio?.play?.('combat.barrier.deploy', { position: _p, volume: 0.85 });
+      }
+      return;
+    }
+    const em = enemies?.onFire(msg.id);
+    if (w === 'claw' || w === 'bite' || rec?.type === 'stalker' || rec?.type === 'mite') {
+      if (rec) ctx.audio?.play?.(w === 'bite' || rec.type === 'mite' ? 'combat.mite.bite' : 'combat.claw', { position: rec.pos, volume: 0.9 });
       return;
     }
     if (!readVec(msg.o, _a)) {
@@ -1224,6 +1389,13 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
       impact = hit.kind === 'none' ? 0 : hit.kind === 'water' ? 'water' : 'terrain';
     }
     if (_a.distanceToSquared(camera.position) > 280 * 280) return;
+    if (w === 'bolt') {
+      // raider carbine: chunky orange-red plasma bolts, slower than a laser (you see them coming)
+      fx.glow(_a, BOLT_ORANGE, 0.22, 0.5, 0.08, 0, 1, 6);
+      fx.bolt(_a, _end, BOLT_ORANGE, { speed: 95, len: 1.6, width: 0.13, core: 2.2, intensity: 6, impact, normal: toMe ? null : hit.normal });
+      ctx.audio?.play?.('combat.raider.shot', { position: _a, volume: 0.8 });
+      return;
+    }
     fx.glow(_a, ENEMY_RED, 0.25, 0.55, 0.09, 0, 1, 6);
     fx.bolt(_a, _end, ENEMY_RED, { speed: 130, len: 3.4, width: 0.1, core: 2.5, intensity: 5, impact, normal: toMe ? null : hit.normal });
     ctx.audio?.play?.('combat.drone.laser', { position: _a, volume: 0.85 });
@@ -1283,15 +1455,78 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     }
   }
 
+  // ------------------------------------------------ boss + world events
+  const boss = { id: null, maxHp: ENEMY_DEFS.warden?.hp || 4200, name: BOSS.name, on: false, runes: 0 };
   function onEvent(msg) {
     if (!msg) return;
-    if (msg.kind === 'night-raid') {
+    const k = msg.kind;
+    if (k === 'night-raid') {
       if (msg.phase === 'start') hud.banner(TXT.nightRaid, TXT.nightRaidSub, { kind: 'danger', duration: 5 });
       else if (msg.phase === 'end') hud.banner(TXT.raidOver, '', { kind: 'wave', duration: 4 });
-    } else if (msg.kind === 'boss') {
-      if (msg.phase === 'end') hud.bossBar(null);
-      else hud.bossBar(msg.name || { en: 'De Wachter', nl: 'De Wachter' }, Number.isFinite(msg.hp) && msg.maxHp ? msg.hp / msg.maxHp : 1);
+    } else if (k === 'boss') {
+      if (msg.id != null) boss.id = msg.id;
+      if (Number.isFinite(msg.maxHp) && msg.maxHp > 0) boss.maxHp = msg.maxHp;
+      if (msg.phase === 'start') {
+        boss.on = true;
+        if (msg.name) boss.name = msg.name;
+        if (!msg.late) {
+          hud.banner(TXT.bossWake, TXT.bossWakeSub, { kind: 'danger', duration: 5 });
+          ctx.audio?.play?.('combat.boss.sting', { volume: 0.9 });
+        }
+        const rec = enemies?.records.get(boss.id);
+        if (rec) rec.maxHp = boss.maxHp;
+      } else if (msg.phase === 'phase' && msg.n >= 2) {
+        hud.banner(TXT.bossPhase, msg.n >= 3 ? TXT.bossPhase3 : TXT.bossPhase2, { kind: 'danger', duration: 3.5 });
+      } else if (msg.phase === 'rune') {
+        hud.banner(TXT.runeBroken, TXT.runeBrokenSub, { kind: 'wave', duration: 3 });
+      } else if (msg.phase === 'end') {
+        boss.on = false;
+        hud.bossBar(null);
+        if (msg.result === 'defeated') {
+          const by = msg.by === me() ? t(TXT.you) : msg.byName || '';
+          hud.banner(TXT.bossDown, by ? t(TXT.bossDownBy, { name: by }) : TXT.bossDownSub, { kind: 'wave', duration: 6 });
+          ctx.audio?.play?.('combat.boss.victory', { volume: 0.9 });
+        } else if (msg.result === 'reset') hud.banner(TXT.bossReset, '', { kind: 'wave', duration: 3 });
+      }
+    } else if (k === 'hunt' && msg.phase === 'start') {
+      const sub = msg.type === 'stalker' ? TXT.huntStalker : msg.type === 'raider' ? TXT.huntRaider : msg.type === 'mite' ? TXT.huntMite : TXT.huntDrone;
+      hud.banner(TXT.hunted, sub, { kind: 'danger', duration: 4.5 });
+      if (Array.isArray(msg.from)) {
+        const at = new THREE.Vector3(msg.from[0], getH(msg.from[0], msg.from[1]) + 1, msg.from[1]);
+        ctx.audio?.play?.(msg.type === 'stalker' ? 'combat.stalker.howl' : 'combat.hunt', { position: at, volume: 1 });
+        ctx.markers?.set?.('cbt-hunt', { position: at, label: t(TXT.hunters), kind: 'enemy', color: '#ff5a4e', icon: 'target', screen: false, compass: true });
+        clearTimeout(huntTimer);
+        huntTimer = setTimeout(() => ctx.markers?.remove?.('cbt-hunt'), 14000);
+      }
+    } else if (k === 'dodged') {
+      hud.dodged();
+      ctx.audio?.play?.('combat.dodged', { volume: 0.7 });
+    } else if (k === 'poi' && msg.phase === 'cleared') {
+      const title = msg.type === 'ruin' ? TXT.clearedRuin : msg.type === 'wreck' ? TXT.clearedWreck : TXT.cleared;
+      hud.banner(title, TXT.clearedSub, { kind: 'wave', duration: 4.5 });
+      ctx.audio?.play?.('combat.cleared', { volume: 0.85 });
+      if (Array.isArray(msg.at)) {
+        const at = new THREE.Vector3(msg.at[0], msg.at[1] + 0.8, msg.at[2]);
+        ctx.markers?.set?.('cbt-cache', { position: at, label: t(TXT.cache), kind: 'loot', color: '#ffd27f', icon: 'star', screen: true, compass: true });
+        clearTimeout(cacheTimer);
+        cacheTimer = setTimeout(() => ctx.markers?.remove?.('cbt-cache'), 120000);
+      }
     }
+  }
+  let huntTimer = 0;
+  let cacheTimer = 0;
+  // the boss's arena is a fixed landmark: always on the compass / map (kind 'boss')
+  const bossSite = new THREE.Vector3(BOSS.site.x, getH(BOSS.site.x, BOSS.site.z) + 12, BOSS.site.z);
+  ctx.markers?.set?.('cbt-boss', { position: bossSite, label: t(BOSS.name), kind: 'boss', color: '#ff3b2f', icon: 'target', screen: false, compass: true });
+  /** Per frame: the boss bar follows the boss record (hp, phase, runes) while you are near an awake boss. */
+  function updateBoss() {
+    const rec = boss.id != null ? enemies?.records.get(boss.id) : null;
+    const pp = ctx.player?.position;
+    const awake = rec && !rec.dead && (rec.flags & 3) > 0;
+    if (awake && pp && rec.pos.distanceTo(pp) < 330) {
+      const max = Math.max(boss.maxHp, rec.hp, 1);
+      hud.bossBar(boss.name, rec.hp / max, { phase: rec.flags & 3, runes: (rec.flags >> 3) & 7 });
+    } else if (!rec || rec.dead || !awake || (pp && rec.pos.distanceTo(pp) >= 360)) hud.bossBar(null);
   }
 
   // "Enemy" ping on the compass while an enemy targets me
@@ -1308,6 +1543,7 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
   }
   function updateTargets(dt) {
     if (!enemies) return;
+    updateBoss();
     const pp = ctx.player?.position;
     enemies.records.forEach((rec) => {
       // stalkers: chasing / attacking within 35 m and heading roughly at me
@@ -1394,7 +1630,8 @@ export function createController(ctx, { defs, fx, enemies, hud, death, getNet })
     const dy = y - _o.y;
     const dz = z - _o.z;
     rig.yaw = Math.atan2(-dx, -dz);
-    rig.pitch = clamp(Math.atan2(dy, Math.hypot(dx, dz)) * 0.9, -1.15, 0.72);
+    const [plo, phi] = pitchRange(rig);
+    rig.pitch = clamp(Math.atan2(dy, Math.hypot(dx, dz)) * 0.9, plo, phi);
   }
 
   return {

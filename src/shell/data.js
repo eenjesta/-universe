@@ -81,19 +81,18 @@ export const CONTROLS = [
   {
     id: 'foot', title: { en: 'On foot', nl: 'Te voet' }, icon: 'user', modes: ['explore'],
     rows: [
-      { k: 'W A S D', t: { en: 'Walk', nl: 'Lopen' } },
-      { k: '↑ ← ↓ →', t: { en: 'Walk with the arrow keys', nl: 'Lopen met de pijltjes' } },
+      { k: 'W A S D', t: { en: 'Walk', nl: 'Lopen' }, d: { en: 'Or the arrow keys', nl: 'Of de pijltjestoetsen' } },
       { k: 'Shift', t: { en: 'Sprint', nl: 'Sprinten' } },
       { k: SPACE, t: { en: 'Jump', nl: 'Springen' } },
       { k: '@mouse', t: { en: 'Look around', nl: 'Rondkijken' }, d: { en: 'Click to capture the mouse, Esc to release it', nl: 'Klik om de muis te vangen, Esc om los te laten' } },
-      { k: '@scroll', t: { en: 'Zoom', nl: 'Zoomen' } },
-      { k: 'E', t: { en: 'Interact', nl: 'Interactie' }, d: { en: 'Hold to scan or harvest', nl: 'Houd vast om te scannen of te oogsten' } },
+      { k: 'V', t: { en: 'First / third person', nl: 'Eerste / derde persoon' }, d: { en: 'Field of view and head bob: Settings → Camera', nl: 'Kijkhoek en hoofdbeweging: Instellingen → Camera' } },
+      { k: '@scroll', t: { en: 'Zoom (third person)', nl: 'Zoomen (derde persoon)' } },
+      { k: 'E', t: { en: 'Interact', nl: 'Interactie' }, d: { en: 'Talk, open crates; hold to scan', nl: 'Praten, kratten openen; vasthouden om te scannen' } },
       { k: 'F', t: { en: 'Enter / exit vehicle', nl: 'Voertuig in/uit' } },
       { k: 'G', t: { en: 'Garage', nl: 'Garage' } },
-      { k: 'B', t: { en: 'Build mode', nl: 'Bouwmodus' } },
       { k: 'Enter / T', t: { en: 'Chat', nl: 'Chat' } },
       { k: 'J', t: { en: 'Missions', nl: 'Missies' } },
-      { k: 'M', t: { en: 'Map', nl: 'Kaart' } },
+      { k: 'M', t: { en: 'Map & travel', nl: 'Kaart & reizen' }, d: { en: 'Gateway destinations in the hub, Return to hub outside it, waypoints', nl: 'Poort-bestemmingen in de hub, terug naar de hub daarbuiten, markeringen' } },
       { k: 'C', t: { en: 'Character', nl: 'Karakter' } },
       { k: 'K', t: { en: 'Marketplace', nl: 'Marktplaats' } },
       { k: 'H', t: { en: 'Help', nl: 'Help' } },
@@ -101,9 +100,33 @@ export const CONTROLS = [
     ],
   },
   {
+    id: 'combat', title: { en: 'Combat', nl: 'Gevechten' }, icon: 'swords', modes: ['explore'],
+    note: { en: 'Only in the wilderness — weapons stay holstered in the safe hub.', nl: 'Alleen in de wildernis — in de veilige hub blijven wapens weggeborgen.' },
+    rows: [
+      { k: '1 – 4', t: { en: 'Draw / switch weapon', nl: 'Wapen pakken / wisselen' }, d: { en: 'Same key again holsters it; the scroll wheel switches while armed', nl: 'Dezelfde toets nog eens bergt het op; het scrollwiel wisselt als je gewapend bent' } },
+      { k: '@right', t: { en: 'Aim', nl: 'Richten' } },
+      { k: '@click', t: { en: 'Fire', nl: 'Vuren' }, d: { en: 'Hold for automatic fire or to charge the railgun', nl: 'Vasthouden voor automatisch vuur of om de railgun te laden' } },
+      { k: 'R', t: { en: 'Reload', nl: 'Herladen' } },
+      { k: 'Q', t: { en: 'Dodge roll', nl: 'Ontwijkrol' }, d: { en: 'Rolls through stomps, beams, bolts and lasers — watch for the charge-up glow', nl: 'Rolt door stampen, stralen, schoten en lasers — let op de oplaadgloed' } },
+      { k: { en: '@middle or Z', nl: '@middle of Z' }, t: { en: 'Quick grenade', nl: 'Snelle granaat' }, d: { en: 'Hold to aim the arc, release to throw (4 takes the grenade in hand)', nl: 'Vasthouden om de boog te richten, loslaten om te gooien (4 neemt de granaat in de hand)' } },
+    ],
+  },
+  {
+    id: 'survival', title: { en: 'Survival', nl: 'Overleven' }, icon: 'shell-bag', modes: ['explore'],
+    rows: [
+      { k: { en: 'E or @click', nl: 'E of @click' }, t: { en: 'Gather (hold)', nl: 'Verzamelen (vasthouden)' }, d: { en: 'Look at a tree, rock, plant or crystal; an axe or pickaxe works faster', nl: 'Kijk naar een boom, rots, plant of kristal; een bijl of houweel gaat sneller' } },
+      { k: 'I', t: { en: 'Inventory & crafting', nl: 'Inventaris & maken' }, d: { en: 'Gear, food, tools; recipes need a workbench nearby', nl: 'Uitrusting, eten, gereedschap; recepten hebben een werkbank in de buurt nodig' } },
+      { k: '5', t: { en: 'Eat', nl: 'Eten' }, d: { en: 'The best food you carry; at 0 energy you lose health', nl: 'Het beste eten dat je bij je hebt; bij 0 energie verlies je gezondheid' } },
+      { k: '6 / 7', t: { en: 'Medkit · Shield cell', nl: 'Medkit · Schildcel' } },
+      { k: 'E', t: { en: 'Campfire · chest · bed · door', nl: 'Kampvuur · kist · bed · deur' }, d: { en: 'Cook and warm up, store items, sleep (your bed is where you respawn), open or close', nl: 'Koken en opwarmen, spullen opbergen, slapen (je bed is waar je respawnt), openen of sluiten' } },
+      { k: 'B', t: { en: 'Build your base', nl: 'Je basis bouwen' }, d: { en: 'At least 500 m outside the safe zone; a claim beacon protects it', nl: 'Minstens 500 m buiten de veilige zone; een claimbaken beschermt hem' } },
+      { k: { en: 'U or M', nl: 'U of M' }, t: { en: 'Return to hub', nl: 'Terug naar de hub' }, d: { en: '10 s, stand still, not in combat; 2 min cooldown. U again cancels', nl: '10 s, blijf staan, niet in gevecht; 2 min wachttijd. Nog eens U annuleert' } },
+    ],
+  },
+  {
     id: 'build', title: { en: 'Building', nl: 'Bouwen' }, icon: 'cube', modes: ['explore'],
     rows: [
-      { k: '1 – 6', t: { en: 'Category', nl: 'Categorie' } },
+      { k: '1 – 7', t: { en: 'Category', nl: 'Categorie' }, d: { en: '7 = Survival: workbench, claim and spawn beacons', nl: '7 = Overleven: werkbank, claim- en spawnbaken' } },
       { k: '@scroll / Tab', t: { en: 'Choose a piece', nl: 'Onderdeel kiezen' } },
       { k: 'R', t: { en: 'Rotate', nl: 'Draaien' } },
       { k: '@click', t: { en: 'Place', nl: 'Plaatsen' } },
@@ -147,15 +170,23 @@ export const CONTROLS = [
   },
 ];
 
-/** Bottom-right key hints while exploring on foot. */
-export const KEY_HINTS = [
-  { k: 'B', t: { en: 'Build', nl: 'Bouwen' } },
-  { k: 'F', t: { en: 'Vehicle', nl: 'Voertuig' } },
-  { k: 'G', t: { en: 'Garage', nl: 'Garage' } },
-  { k: 'J', t: { en: 'Missions', nl: 'Missies' } },
-  { k: 'M', t: { en: 'Map', nl: 'Kaart' } },
-  { k: 'H', t: { en: 'Help', nl: 'Help' } },
-];
+/** Labels of the contextual key hints (ids from logic.js hintKeys). */
+export const KEY_HINT_TEXT = {
+  travel: { en: 'Map & travel', nl: 'Kaart & reizen' },
+  map: { en: 'Map', nl: 'Kaart' },
+  missions: { en: 'Missions', nl: 'Missies' },
+  vehicle: { en: 'Vehicle', nl: 'Voertuig' },
+  first: { en: 'First person', nl: 'Eerste persoon' },
+  third: { en: 'Third person', nl: 'Derde persoon' },
+  help: { en: 'Help', nl: 'Help' },
+  draw: { en: 'Draw weapon', nl: 'Wapen pakken' },
+  inventory: { en: 'Inventory', nl: 'Inventaris' },
+  build: { en: 'Build', nl: 'Bouwen' },
+  reload: { en: 'Reload', nl: 'Herladen' },
+  dodge: { en: 'Dodge', nl: 'Ontwijken' },
+  grenade: { en: 'Grenade', nl: 'Granaat' },
+  hub: { en: 'Return to hub', nl: 'Naar de hub' },
+};
 
 /** Map / label icon per zone or region id (19_world_map.png). */
 export const PLACE_ICONS = {

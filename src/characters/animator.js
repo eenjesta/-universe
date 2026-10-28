@@ -17,6 +17,8 @@
  */
 import * as THREE from 'three';
 import { J, BONE_COUNT } from './skeleton.js';
+import { kf as kfTrack } from './tool-actions.js';
+import { poseFor, POSE_WIDTH } from './action-poses.js';
 
 const N = BONE_COUNT;
 const TAU = Math.PI * 2;
@@ -45,6 +47,10 @@ function kf(t, keys) {
 const ACTIONS = ['talk', 'wave', 'cheer', 'clap', 'tablet', 'sit'];
 const _e = new THREE.Euler();
 const _v = new THREE.Vector3();
+const _trk = new Float32Array(POSE_WIDTH);
+const _ePose = new THREE.Euler(0, 0, 0, 'XYZ');
+const _qPose = new THREE.Quaternion();
+const ACT_PIVOT = new THREE.Vector3(0.12, 1.4, 0); // shoulder line: aim pitch tilts the item about it
 
 // joint masks for upper-body overlays
 const UPPER = new Float32Array(N);
@@ -162,6 +168,46 @@ export class Animator {
     this.spawnT = 9;
     this.spawnDur = COMBAT_TIMING.materialize;
     this.spawnScale = 1; // root Y scale of the materialize effect (read by FX)
+    // ---- work / survival actions (chop, mine, gather, eat, use, build; see action-poses.js)
+    this.tool = null; // tool family in the hands ('axe' | 'pick' | 'laser' | null), set by the tool rig
+    this.actName = null; // running action (null = none)
+    this.actT = 0;
+    this.actDur = 1;
+    this.actPose = null; // keyframe track of the running / last action
+    this.actW = 0; // action layer weight (smoothed; rigs read it)
+    this.actHold = 0; // s the layer stays up after an action (chained swings flow on)
+    this.actPitch = 0; // aim pitch applied to the item frame (+ = up)
+    this.toolTwoW = 0; // left hand on the handle (0..1), read by the tool rig
+    this.itemPos = new THREE.Vector3(0.2, 1, -0.2); // item frame (character space), read by the rigs
+    this.itemQuat = new THREE.Quaternion();
+  }
+
+  // -------------------------------------------------------- work actions
+  /** Starts a work action (chop | mine | gather | eat | use | build) lasting `dur` seconds. */
+  action(name, dur = 1) {
+    const pose = poseFor(name, this.tool);
+    if (!pose) return false;
+    this.actName = name;
+    this.actPose = pose;
+    this.actT = 0;
+    this.actDur = clamp(dur, 0.15, 5);
+    this.actHold = 0.28;
+    return true;
+  }
+
+  /** Stops the running action (blends back out). */
+  stopAction() {
+    this.actName = null;
+    this.actHold = 0;
+  }
+
+  get acting() {
+    return this.actName !== null;
+  }
+
+  /** Progress of the running action 0..1 (1 = none). */
+  get actX() {
+    return this.actName ? clamp(this.actT / this.actDur, 0, 1) : 1;
   }
 
   // ------------------------------------------------------------ combat API
@@ -207,6 +253,8 @@ export class Animator {
     if (instant) this.deadW = 1;
     this.dodgeT = 9;
     this.reloadT = 9;
+    this.actName = null;
+    this.actHold = 0;
   }
 
   /** Back on the feet (pose snaps to standing; pair with materialize()). */
@@ -407,6 +455,8 @@ export class Animator {
       this.aimPose(O, t);
       this.blend(P, O, this.aimW * (1 - this.swimW * 0.5), UPPER);
     }
+    // work actions: torso + crouch here, the arms are solved onto the item frame by the rigs
+    this.updateAction(P, hip, dt);
     // reload: look down at the weapon (arms: WeaponRig IK path)
     if (this.reloadT < this.reloadDur) {
       this.reloadT += dt;
@@ -512,6 +562,59 @@ export class Animator {
     // ponytail spring
     this.updatePony(P, dt);
     this.apply();
+  }
+
+  /**
+   * Work action layer: samples the action's keyframes → item frame (itemPos / itemQuat, character
+   * space, tilted by actPitch about the shoulder line), torso twist / lean, head counter-turn, crouch.
+   */
+  updateAction(P, hip, dt) {
+    if (this.actName) {
+      this.actT += dt;
+      if (this.actT >= this.actDur) {
+        this.actName = null;
+        this.actHold = 0.28; // the ready pose holds briefly: a chained swing flows on without a dip
+      }
+    } else if (this.actHold > 0) this.actHold -= dt;
+    const want = !this.dead && this.swimW < 0.5 && (this.actName || this.actHold > 0) ? 1 : 0;
+    this.actW += (want - this.actW) * (1 - Math.exp(-(want ? 16 : 7) * dt));
+    if (this.actW < 0.002 || !this.actPose) {
+      this.actW = 0;
+      this.toolTwoW = 0;
+      return;
+    }
+    const v = kfTrack(this.actPose.keys, this.actName ? this.actT / this.actDur : 1, _trk);
+    const w = this.actW;
+    // item frame (+ aim pitch: chop high / low, the laser follows the aim fully)
+    _ePose.set(v[3], v[4], v[5]);
+    this.itemQuat.setFromEuler(_ePose);
+    this.itemPos.set(v[0], v[1], v[2]);
+    const pitch = clamp(this.actPitch, -1, 0.8) * (this.actPose.laser ? 1 : 0.3);
+    if (Math.abs(pitch) > 1e-4) {
+      _qPose.setFromAxisAngle(_v.set(1, 0, 0), pitch);
+      this.itemPos.sub(ACT_PIVOT).applyQuaternion(_qPose).add(ACT_PIVOT);
+      this.itemQuat.premultiply(_qPose);
+    }
+    // body: twist / lean into the swing, the head keeps looking at the target
+    P[J.spine * 3] += v[6] * w;
+    P[J.spine * 3 + 1] += v[7] * w;
+    P[J.chest * 3] += v[8] * w;
+    P[J.chest * 3 + 1] += v[9] * w;
+    P[J.head * 3] += v[10] * w;
+    P[J.head * 3 + 1] += v[11] * w;
+    this.toolTwoW = this.tool ? v[12] * w : 0;
+    // crouch: hips drop, knees bend, feet stay flat
+    const cr = v[13] * w;
+    if (cr > 1e-4) {
+      hip.y -= cr;
+      const k = cr / this.chr.frame.s;
+      P[J.thighL * 3] += 2.6 * k;
+      P[J.thighR * 3] += 2.6 * k;
+      P[J.shinL * 3] -= 5.2 * k;
+      P[J.shinR * 3] -= 5.2 * k;
+      P[J.footL * 3] += 2.6 * k;
+      P[J.footR * 3] += 2.6 * k;
+    }
   }
 
   // ---------------------------------------------------------------- layers

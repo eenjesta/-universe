@@ -12,6 +12,7 @@ import { ORIGIN_X, ORIGIN_Z, CELL } from '../defs/pieces.js';
 import { createStandin } from './standin.js';
 import { resolveWorld } from './world.js';
 import { damagePlayer } from './players.js';
+import { SURVIVAL } from '../defs/items.js';
 import { createSim } from './index.js';
 
 const rich = (p) => (p.inv.res = { metal: 5000, stone: 5000, wood: 5000, energy: 5000 });
@@ -128,8 +129,9 @@ test('the safe hub: no hunger, no damage, weapons holstered, no building — sur
   assert.equal(k.sim.snapshotFor('p1').pl.length, 0);
   // out in the wild everything is live again
   k.put(p, 0, 2900);
+  k.sim.setTime(12); // noon (no night chill)
   k.run(40, 0.25);
-  assert.ok(Math.abs(p.en - 99) < 0.05, `drains outside (${p.en})`);
+  assert.ok(Math.abs(p.en - (100 - 40 * SURVIVAL.energyDrain)) < 0.05, `drains outside (${p.en})`);
   assert.ok(damagePlayer(k.W, p, 10, 'e1', 'laser', null) > 0);
   assert.equal(k.send('p1', { t: C.FIRE, w: 'pulse-pistol', o: [0, 11.5, 2900], d: [0, 0, -1], seq: 2, ct: k.clock.t }), true);
 });

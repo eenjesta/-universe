@@ -5,6 +5,7 @@
  * energy parts — the 26_loadout_screen look, procedural SVG).
  */
 import { registerIcons } from '../ui/icons.js';
+import { ITEMS, RESOURCES } from '../../shared/defs/items.js';
 
 export const SMP_ICONS = {
   'smp-bag': '<path d="M6 8.5h12l1 11.5H5Z"/><path d="M9 8.5V7a3 3 0 0 1 6 0v1.5"/><path d="M9 13h6"/>',
@@ -26,7 +27,45 @@ export const SMP_ICONS = {
   'smp-safe': '<path d="M12 3.5 19 6v5.5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6Z"/><circle cx="12" cy="11.5" r="3.2"/><path d="m9.6 14.3 4.8-5.6"/>',
   'smp-wild': '<path d="m2.5 19.5 6-9.5 3.5 5 2.5-3.5 7 8Z"/><path d="M8.5 10 10 7.5l1.5 2.5"/><circle cx="17.5" cy="5.5" r="1.8"/>',
   'smp-craft': '<path d="M14.5 4.5 19.5 9.5 9.5 19.5H4.5v-5Z"/><path d="M12 7l5 5"/>',
+  // ---- food, materials, gear, schematics (survival depth)
+  'smp-food': '<path d="M7 3.5v6.5a2 2 0 0 0 4 0V3.5M9 3.5V21"/><path d="M16.5 21V3.5c-2 1.2-3 3.6-3 6.5 0 2 1 3 3 3"/>',
+  'smp-berries': '<circle cx="8.5" cy="14.5" r="3.2"/><circle cx="15.5" cy="14.5" r="3.2"/><circle cx="12" cy="9.5" r="3.2"/><path d="M12 6.3V3.5M12 4.5c1.2-1.4 3-1.6 4.5-1"/>',
+  'smp-mushroom': '<path d="M3.5 12.5C3.5 7.8 7.3 4.5 12 4.5s8.5 3.3 8.5 8Z"/><path d="M9.5 12.5v6a2.5 2.5 0 0 0 5 0v-6"/><circle cx="9" cy="8.8" r=".9"/><circle cx="14.5" cy="7.8" r=".9"/>',
+  'smp-fruit': '<path d="M12 7.5c4 0 6.5 3 6.5 6.5S15.7 20.5 12 20.5 5.5 17.5 5.5 14 8 7.5 12 7.5Z"/><path d="M12 7.5c0-2 .8-3.4 2.5-4M12 6c-1.5-1.8-3.6-2-5-1.5 1 1.6 2.8 2.3 5 1.5Z"/>',
+  'smp-meat': '<path d="M14.5 4c3.6 0 6 2.6 6 5.8 0 4.2-4 7.7-8.6 7.7-1.6 0-2.4.7-3.2 1.8a2.2 2.2 0 1 1-3-3c1.1-.8 1.8-1.6 1.8-3.2C7.5 8 10.8 4 14.5 4Z"/><circle cx="14.5" cy="10" r="2"/>',
+  'smp-meat-cooked': '<path d="M14.5 4c3.6 0 6 2.6 6 5.8 0 4.2-4 7.7-8.6 7.7-1.6 0-2.4.7-3.2 1.8a2.2 2.2 0 1 1-3-3c1.1-.8 1.8-1.6 1.8-3.2C7.5 8 10.8 4 14.5 4Z"/><path d="m11 9.5 5-3M11.5 13l6-3.6"/>',
+  'smp-meal': '<path d="M3.5 12.5h17a8.5 8.5 0 0 1-17 0Z"/><path d="M9 9.5c-.8-1.2.8-1.8 0-3.2M13 9.5c-.8-1.2.8-1.8 0-3.2M17 9.5c-.8-1.2.8-1.8 0-3.2"/>',
+  'smp-skewer': '<path d="M3.5 20.5 20.5 3.5"/><circle cx="8.5" cy="15.5" r="2.3"/><circle cx="12.5" cy="11.5" r="2.3"/><circle cx="16.3" cy="7.7" r="2"/>',
+  'smp-tea': '<path d="M5 9.5h11v5a5.5 5.5 0 0 1-11 0Z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H15.5"/><path d="m10.5 2.5 1.6 2.6-1.6 2.4-1.6-2.4Z"/>',
+  'smp-stew': '<path d="M4 11.5h16v2.5a6 6 0 0 1-6 6h-4a6 6 0 0 1-6-6Z"/><path d="M2.5 11.5h19M9 8.5c-.8-1.2.8-1.8 0-3.2M15 8.5c-.8-1.2.8-1.8 0-3.2"/>',
+  'smp-fiber': '<path d="M6 20.5c1-5 .5-11-2-16M10 20.5c.5-5 1.5-10 5-15M14 20.5c0-4 1.5-8 5.5-11"/><path d="M4 16h14.5"/>',
+  'smp-crystal': '<path d="m12 2.5 5 6-5 13-5-13Z"/><path d="M7 8.5h10M12 2.5v19"/>',
+  'smp-bandage': '<rect x="3" y="8" width="18" height="8" rx="4" transform="rotate(-35 12 12)"/><path d="m10.2 10.5 3.6 3M12.5 9.2l1.2 1.2M10.3 13.4l1.2 1.2"/>',
+  'smp-armor': '<path d="M8 3.5 5 5v6l2 9.5h10L19 11V5l-3-1.5-1.5 2.5h-5Z"/><path d="M9.5 6v5.5h5V6M12 11.5v9"/>',
+  'smp-armor-heavy': '<path d="M8 3.5 4.5 5v6.5L7 20.5h10l2.5-9V5L16 3.5l-1.5 2.5h-5Z"/><path d="M4.5 11.5h15M7.5 15.5h9M12 6v14.5"/>',
+  'smp-module': '<path d="m12 2.5 8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5Z"/><path d="M12 7.5 15.5 9.5v5L12 16.5 8.5 14.5v-5Z"/>',
+  'smp-module-2': '<path d="m12 2.5 8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5Z"/><path d="M9.5 9v6M14.5 9v6"/>',
+  'smp-schematic': '<path d="M6 3.5h9l3.5 3.5v13.5H6Z"/><path d="M15 3.5V7h3.5"/><path d="M8.5 11h7M8.5 14h7M8.5 17h4"/>',
+  'smp-grenade': '<circle cx="12" cy="13.5" r="6"/><path d="M9.5 7.5h5V5.5h-5ZM14.5 6.5h3"/>',
+  // ---- buffs + base structures
+  'smp-buff-fed': '<path d="M3.5 12.5h17a8.5 8.5 0 0 1-17 0Z"/><path d="m9 9.5 1.5-5M14 9.5l-1-5"/>',
+  'smp-buff-swift': '<path d="M13 3.5 6.5 13H12l-1 7.5L17.5 11H12Z"/><path d="M2.5 9h3M2 13.5h2.5M3 18h3"/>',
+  'smp-buff-charged': '<path d="M12 3.5 19 6v5.5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6Z"/><path d="m12.8 7.8-3 4.6h3.6l-1.2 4"/>',
+  'smp-buff-rested': '<path d="M15.5 4.5A7.5 7.5 0 1 0 19.5 15 6 6 0 0 1 15.5 4.5Z"/><path d="M17 3h3l-3 3h3"/>',
+  'smp-buff-warm': '<path d="M12 21c-3.6 0-5.8-2.4-5.8-5.4 0-3.5 2.8-5.2 3.5-8.9 2.3 1.7 2.9 3.8 2.7 5.5 1.3-.7 2.2-2 2.5-3.4 2 1.9 2.9 4 2.9 6.6C17.8 18.7 15.5 21 12 21Z"/>',
+  'smp-buff-cold': '<path d="M12 2.5v19M3.8 7.2l16.4 9.6M3.8 16.8l16.4-9.6"/><path d="m9.5 4 2.5 2 2.5-2M9.5 20l2.5-2 2.5 2"/>',
+  'smp-campfire': '<path d="M4 20.5 20 16M4 16l16 4.5"/><path d="M12 15.5c-2.6 0-4-1.7-4-3.8 0-2.4 2-3.6 2.4-6.2 1.6 1.2 2 2.6 1.9 3.8.9-.5 1.5-1.4 1.7-2.4 1.4 1.3 2 2.8 2 4.6 0 2.3-1.6 4-4 4Z"/>',
+  'smp-chest': '<rect x="3.5" y="9.5" width="17" height="10" rx="1.2"/><path d="M3.5 9.5 5 5.5h14l1.5 4M3.5 13h17"/><path d="M11 12h2v2.5h-2Z"/>',
+  'smp-bed': '<path d="M3 18.5V7M3 13.5h18v5M21 18.5V12a2.5 2.5 0 0 0-2.5-2.5H11v4"/><circle cx="7" cy="11" r="1.8"/>',
+  'smp-door': '<path d="M5 20.5V4.5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v16"/><path d="M3 20.5h18M8.5 6.5h7v14h-7Z"/><circle cx="14" cy="13.5" r=".9"/>',
+  'smp-lock': '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><path d="M12 14.5v2.5"/>',
+  'smp-gear': '<path d="M8 3.5 5 5v6l2 9.5h10L19 11V5l-3-1.5-1.5 2.5h-5Z"/>',
 };
+
+/** Icon name of an item / resource / ammo id (ITEMS[id].icon wins; tools register their own `tool-*` icons). */
+export function itemIcon(id) {
+  return ITEMS[id]?.icon || ICON_OF[id] || RESOURCES[id]?.icon || 'smp-bag';
+}
 
 const DEFS = `
 <defs>

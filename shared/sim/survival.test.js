@@ -30,12 +30,15 @@ test('damage takes the shield first, the shield regenerates after 4 s', () => {
 
 test('energy drains (faster while sprinting) and starvation hurts at 0', () => {
   const k = makeSim();
+  k.sim.setTime(12); // noon: no night chill
   const { p } = k.join('p1');
-  k.run(40);
-  assert.ok(Math.abs(p.en - 99) < 0.05, `1 per 40 s (${p.en})`);
+  const D = SURVIVAL.energyDrain;
+  k.run(24);
+  assert.ok(Math.abs(p.en - (100 - 24 * D)) < 0.05, `1 per 24 s (${p.en})`);
+  const e0 = p.en;
   p.a = 'run';
-  k.run(8);
-  assert.ok(Math.abs(p.en - (99 - 8 / 40 - 1)) < 0.05, `sprint (${p.en})`);
+  k.run(10);
+  assert.ok(Math.abs(p.en - (e0 - 10 * D - 10 * SURVIVAL.sprintDrain)) < 0.05, `sprint (${p.en})`);
   p.a = 'idle';
   p.en = 0;
   p.sh = 0;

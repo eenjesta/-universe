@@ -20,7 +20,9 @@
  *   points   contribution to the base level
  *   radius   footprint radius of 'free' pieces (overlap checks)
  *   hidden   not in the build bar (e.g. 'workbench-2', created by the server's upgrade recipe)
- *   smp      survival role: { station: 'workbench', tier } | { claim: radius } | { spawn: true }
+ *   smp      survival role: { station: 'workbench', tier } | { claim: radius } | { spawn: true } | { fire: warmth m,
+ *            station: 'campfire', cook: slots } | { bed } | { storage } | { door } | { light }
+ *   light    a warm point light at night (src/build/firelight.js picks the nearest few)
  *
  * The 'survival' category (key 7: Workbench, Claim Beacon, Spawn Beacon) is only
  * shown while a server is authoritative (ctx.build.setAuthority, online or
@@ -108,7 +110,7 @@ export const PIECES = [
   P('decor', 'bench', { en: 'Bench', nl: 'Bank' }, { wood: 6 }, 'free', { radius: 0.9, icon: 'bld-bench' }),
   P('decor', 'table', { en: 'Table', nl: 'Tafel' }, { wood: 6 }, 'free', { radius: 0.85, icon: 'bld-table' }),
   P('decor', 'banner', { en: 'Ø Banner', nl: 'Ø-banier' }, { wood: 2, metal: 2 }, 'free', { radius: 0.4, icon: 'bld-banner' }),
-  P('decor', 'brazier', { en: 'Fire Basket', nl: 'Vuurkorf' }, { metal: 4, wood: 4 }, 'free', { radius: 0.5, icon: 'bld-brazier' }),
+  P('decor', 'brazier', { en: 'Fire Basket', nl: 'Vuurkorf' }, { metal: 4, wood: 4 }, 'free', { radius: 0.5, icon: 'bld-brazier', smp: { fire: 5 }, light: { color: 0xff9a50, intensity: 16, range: 10, y: 1.2 } }),
   P('decor', 'crates', { en: 'Crates', nl: 'Kratten' }, { wood: 6 }, 'free', { radius: 0.8, icon: 'bld-crates' }),
   P('decor', 'statue', { en: 'Ø Statue', nl: 'Ø-standbeeld' }, { stone: 30 }, 'free', { radius: 1.0, unlock: 'decor-statue', points: 4, icon: 'bld-statue' }),
   P('decor', 'neon-tree', { en: 'Neon Tree', nl: 'Neonboom' }, { metal: 10, energy: 10 }, 'free', { radius: 1.0, unlock: 'decor-neon-tree', points: 4, icon: 'bld-neon-tree' }),
@@ -131,17 +133,45 @@ export const PIECES = [
     desc: { en: 'Crafting station (tier 1): ammo, rations, medkits, shield cells, weapons.', nl: 'Werkstation (niveau 1): munitie, rantsoenen, medkits, schildcellen, wapens.' },
     radius: 1.25, points: 3, icon: 'bld-workbench', smp: { station: 'workbench', tier: 1 },
   }),
-  P('survival', 'workbench-2', { en: 'Workbench Mk II', nl: 'Werkbank Mk II' }, { metal: 120, stone: 80, energy: 40 }, 'free', {
-    desc: { en: 'Upgraded crafting station (tier 2): railgun and advanced gear.', nl: 'Verbeterd werkstation (niveau 2): railgun en geavanceerde uitrusting.' },
-    radius: 1.35, points: 5, icon: 'bld-workbench', hidden: true, smp: { station: 'workbench', tier: 2 },
+  P('survival', 'campfire', { en: 'Campfire', nl: 'Kampvuur' }, { stone: 8, wood: 10 }, 'free', {
+    desc: { en: 'Warmth at night (heals you out of combat) and a cooking spot: [E] to cook meals.', nl: 'Warmte in de nacht (geneest je buiten gevechten) en een kookplek: [E] om maaltijden te koken.' },
+    radius: 0.95, points: 2, icon: 'bld-campfire', smp: { fire: 8, station: 'campfire', cook: 3 }, light: { color: 0xff9a4a, intensity: 28, range: 14, y: 0.9 },
   }),
   P('survival', 'claim-beacon', { en: 'Claim Beacon', nl: 'Claimbaken' }, { metal: 25, stone: 20, energy: 10 }, 'free', {
     desc: { en: 'Claims the land within 24 m: only you can build or remove there.', nl: 'Claimt het land binnen 24 m: alleen jij kunt daar bouwen of slopen.' },
     radius: 0.8, points: 2, icon: 'bld-claim', smp: { claim: CLAIM_RADIUS },
   }),
+  P('survival', 'sleeping-bag', { en: 'Sleeping Bag', nl: 'Slaapzak' }, { fiber: 10, wood: 2 }, 'free', {
+    desc: { en: 'A respawn point you can carry the cost of: [E] to rest and set home.', nl: 'Een goedkoop respawnpunt: [E] om te rusten en je thuis in te stellen.' },
+    radius: 0.6, points: 1, icon: 'bld-bag', smp: { bed: { side: 0.95 } },
+  }),
+  P('survival', 'storage-chest', { en: 'Storage Chest', nl: 'Opslagkist' }, { wood: 24, metal: 6 }, 'free', {
+    desc: { en: 'Keeps 24 stacks safe — only you can open it. Nothing is lost here when you fall.', nl: 'Bewaart 24 stapels veilig — alleen jij kunt hem openen. Hier gaat niets verloren als je valt.' },
+    radius: 0.7, points: 2, icon: 'bld-chest', smp: { storage: { stacks: 24 } },
+  }),
+  P('survival', 'bed', { en: 'Bed', nl: 'Bed' }, { wood: 18, fiber: 12, metal: 2 }, 'free', {
+    desc: { en: 'Respawn here after a defeat. Sleeping makes you Rested.', nl: 'Respawn hier na een nederlaag. Slapen maakt je Uitgerust.' },
+    radius: 1.05, points: 3, icon: 'bld-bed', smp: { bed: { side: 1.25 } },
+  }),
+  P('survival', 'door', { en: 'Door', nl: 'Deur' }, { wood: 12, metal: 6 }, 'edge', {
+    desc: { en: 'A wall with a lockable door: only you can open it.', nl: 'Een muur met een deur op slot: alleen jij kunt hem openen.' },
+    points: 2, icon: 'bld-door', smp: { door: true },
+  }),
+  P('survival', 'torch', { en: 'Torch', nl: 'Fakkel' }, { wood: 3, fiber: 2 }, 'free', {
+    desc: { en: 'A warm light for paths and doorways — no power needed.', nl: 'Warm licht voor paden en deuren — geen stroom nodig.' },
+    radius: 0.3, points: 1, icon: 'bld-torch', smp: { light: 'torch' }, light: { color: 0xffa860, intensity: 12, range: 9, y: 1.75 },
+  }),
   P('survival', 'spawn-beacon', { en: 'Spawn Beacon', nl: 'Spawnbaken' }, { metal: 20, energy: 15 }, 'free', {
     desc: { en: 'Your respawn point after a defeat.', nl: 'Je respawnpunt na een nederlaag.' },
     radius: 1.1, points: 2, icon: 'bld-spawn', smp: { spawn: true },
+  }),
+  P('survival', 'workbench-2', { en: 'Workbench Mk II', nl: 'Werkbank Mk II' }, { metal: 120, stone: 80, energy: 40 }, 'free', {
+    desc: { en: 'Upgraded crafting station (tier 2): railgun and advanced gear.', nl: 'Verbeterd werkstation (niveau 2): railgun en geavanceerde uitrusting.' },
+    radius: 1.35, points: 5, icon: 'bld-workbench', hidden: true, smp: { station: 'workbench', tier: 2 },
+  }),
+  P('survival', 'workbench-3', { en: 'Workbench Mk III', nl: 'Werkbank Mk III' }, { metal: 160, energy: 80 }, 'free', {
+    desc: { en: 'Fabricator (tier 3): shield module Mk II and the best gear.', nl: 'Fabricator (niveau 3): schildmodule Mk II en de beste uitrusting.' },
+    radius: 1.35, points: 7, icon: 'bld-workbench', hidden: true, smp: { station: 'workbench', tier: 3 },
   }),
 ];
 

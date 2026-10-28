@@ -265,10 +265,23 @@ export class PauseMenu {
     const zoneId = this.shell.currentZone?.() || st.get('player.zone');
     const here = place(zoneId);
     const inSpace = ctx.modes.is('space');
-    const where = inSpace ? t({ en: 'In space', nl: 'In de ruimte' }) : here?.label || t({ en: 'Out exploring', nl: 'Onderweg' });
-    const desc = inSpace
+    // out in the wilderness (PLATFORM.md §11): the biome, how far out, what you found
+    const w = this.shell.wild;
+    const fp = this.shell.frame?.focus;
+    const wild = !inSpace && w && fp && !w.inHub(fp.x, fp.z);
+    let where = inSpace ? t({ en: 'In space', nl: 'In de ruimte' }) : here?.label || t({ en: 'Out exploring', nl: 'Onderweg' });
+    let desc = inSpace
       ? t({ en: 'You are flying among the stars above the planet.', nl: 'Je vliegt tussen de sterren boven de planeet.' })
       : here?.desc || t({ en: 'Somewhere in the open world of Ø.', nl: 'Ergens in de open wereld van Ø.' });
+    if (wild) {
+      const b = w.biome(fp.x, fp.z);
+      where = b ? t(b.name) : t({ en: 'The wilderness', nl: 'De wildernis' });
+      const sites = w.discovered?.size || 0;
+      desc = t(
+        { en: 'Wilderness, {d} outside the safe zone · {n} wild sites discovered. Enemies roam out here, more at night.', nl: 'Wildernis, {d} buiten de veilige zone · {n} wilde plekken ontdekt. Hier zwerven vijanden, ’s nachts meer.' },
+        { d: formatDistance(w.hubDist(fp.x, fp.z)), n: sites },
+      );
+    }
 
     let questTitle = null;
     try {
@@ -293,7 +306,7 @@ export class PauseMenu {
       h(
         'div',
         { class: 'shell-ov-here' },
-        h('div', { class: 'shell-ov-here-icon', html: icon(inSpace ? 'rocket' : 'pin', 22) }),
+        h('div', { class: 'shell-ov-here-icon', html: icon(inSpace ? 'rocket' : wild ? 'shell-compass-rose' : 'pin', 22) }),
         h('div', null, h('div', { class: 'shell-ov-here-k', text: t({ en: 'Current location', nl: 'Huidige locatie' }) }), h('div', { class: 'shell-ov-here-name', text: where }), h('p', { class: 'shell-ov-here-desc', text: desc })),
       ),
       questTitle

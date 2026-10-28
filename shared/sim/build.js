@@ -9,6 +9,9 @@
  * C.BUILD_REMOVE {id, cid?} → owner only, 50 % refund → S.STRUCT {remove: [id], by, cid, ok: true} to '*'.
  * Claim beacon → claim {id: 'c3', owner, name, p: [x, z], r: 24, sid} (S.CLAIMS add/remove to '*').
  * Spawn beacon → the owner's respawn point (C.RESPAWN {at: 'beacon'}).
+ * Survival pieces (campfire, chest, bed, door, torch): per-player limits (PIECE[].limit → 'pieceLimit' + n);
+ * your first bed becomes your respawn bed; doors carry `open` in their record (C.STORE toggle → update(rec));
+ * removing a chest / campfire spills its contents (W.storage.onRemove).
  *
  * World rules (PLATFORM.md §11 / §11.2): no building in the safe hub nor in the
  * 500 m buffer around it, nor on highways / near POIs (static: W.world.isBuildable,
@@ -20,7 +23,7 @@
  * structures (S.STRUCT remove {reason: 'decay'}); the owner is told on login.
  */
 import { S } from '../protocol.js';
-import { PIECE, CELL, LEVEL_H, MAX_LEVEL, REACH, MAX_STRUCTURES_PER_PLAYER, ORIGIN_X, ORIGIN_Z, refundOf, protectedAt } from '../defs/pieces.js';
+import { PIECE, CELL, LEVEL_H, MAX_LEVEL, REACH, MAX_STRUCTURES_PER_PLAYER, ORIGIN_X, ORIGIN_Z, refundOf, protectedAt, UPGRADES } from '../defs/pieces.js';
 import { HUB, CLAIM_RULES, WORLD_LIMIT, hubDist } from '../defs/world.js';
 import { canAfford, pay, gain } from './inventory.js';
 import { isNum, isVec3, r2 } from './util.js';
@@ -135,6 +138,7 @@ export function createBuild(W) {
     const o = { id: rec.id, type: rec.type, x: rec.x, y: rec.y, z: rec.z, rot: rec.rot, level: rec.level, owner: rec.owner };
     if (rec.variant) o.variant = rec.variant;
     if (rec.ownerName) o.ownerName = rec.ownerName;
+    if (rec.open) o.open = true;
     return o;
   };
 
@@ -165,7 +169,10 @@ export function createBuild(W) {
     });
     const beacon = c.sid && W.structures.get(c.sid);
     if (beacon && !ids.includes(beacon)) ids.push(beacon);
-    for (const rec of ids) erase(rec);
+    for (const rec of ids) {
+      W.storage?.onRemove?.(rec);
+      erase(rec);
+    }
     W.claims.delete(c.id);
     if (ids.length) W.emit('*', { t: S.STRUCT, remove: ids.map((r) => r.id), by: null, reason: 'decay' });
     W.emit('*', { t: S.CLAIMS, remove: [c.id] });
@@ -247,6 +254,7 @@ export function createBuild(W) {
   const fail = (p, msg, reason, extra) => {
     const m = { t: S.STRUCT, cid: msg.cid, ok: false, reason };
     if (extra && extra.name) m.name = extra.name;
+    if (extra && extra.n) m.n = extra.n;
     W.emit(p.id, m);
     return false;
   };
@@ -289,6 +297,11 @@ export function createBuild(W) {
       if (foreign) return fail(p, msg, 'claimForeign');
     }
     if (def.smp?.spawn && p.spawnId && W.structures.has(p.spawnId)) return fail(p, msg, 'spawnLimit');
+    if (def.limit > 1) {
+      let n = 0;
+      for (const o of W.structures.values()) if (o.owner === p.id && o.type === def.id) n++;
+      if (n >= def.limit) return fail(p, msg, 'pieceLimit', { n: def.limit });
+    }
     // occupancy
     const keys = slotKeys(def, x, z, rot, level, variant);
     for (const k of keys) if (slots.has(k)) return fail(p, msg, 'occupied');
@@ -316,6 +329,10 @@ export function createBuild(W) {
       W.emit('*', { t: S.CLAIMS, add: [claimView(c)] });
     }
     if (def.smp?.spawn) p.spawnId = rec.id;
+    if (def.smp?.bed && !(p.bedId && W.structures.has(p.bedId))) {
+      p.bedId = rec.id; // the first bed is home
+      p.fxDirty = true; // S.STATS carries `home`
+    }
     W.flushInv(p);
     return true;
   }
@@ -331,6 +348,7 @@ export function createBuild(W) {
     }
     if (Math.hypot(rec.x - p.x, rec.z - p.z) > REACH + 10) return W.deny(p, msg, 'far');
     const def = PIECE[rec.type];
+    W.storage?.onRemove?.(rec);
     erase(rec);
     if (rec.owner === p.id) p.structCount = Math.max(0, p.structCount - 1);
     const refund = refundOf(def?.cost);
@@ -370,6 +388,7 @@ export function createBuild(W) {
     if (!set.size) return [];
     const claims = [];
     for (const rec of set) {
+      W.storage?.onRemove?.(rec);
       erase(rec);
       const o = W.players.get(rec.owner);
       if (o) {
@@ -390,11 +409,19 @@ export function createBuild(W) {
     return removed;
   }
 
-  /** Workbench → Workbench Mk II (recipe 'workbench-t2'); upsert broadcast. */
+  /** One station tier up (recipes 'workbench-t2' / 'workbench-t3': UPGRADES decides the next type); upsert broadcast. */
   function upgrade(rec, type) {
+    const next = UPGRADES[rec.type] || type;
+    if (!PIECE[next]) return false;
     erase(rec);
-    rec.type = type;
+    rec.type = next;
     insert(rec);
+    W.emit('*', { t: S.STRUCT, add: [view(rec)], upd: true });
+    return true;
+  }
+
+  /** A record's state changed (door open / closed): upsert broadcast. */
+  function update(rec) {
     W.emit('*', { t: S.STRUCT, add: [view(rec)], upd: true });
   }
 
@@ -410,6 +437,14 @@ export function createBuild(W) {
     p.structCount = n;
     p.claimId = null;
     for (const c of W.claims.values()) if (c.owner === p.id) p.claimId = c.id;
+    // the respawn bed: the saved one while it still stands, else the newest own bed
+    const bed = p.bedId && W.structures.get(p.bedId);
+    if (!bed || !PIECE[bed.type]?.smp?.bed) {
+      p.bedId = null;
+      let best = null;
+      for (const rec of W.structures.values()) if (rec.owner === p.id && PIECE[rec.type]?.smp?.bed && (!best || (rec.t || 0) > (best.t || 0))) best = rec;
+      if (best) p.bedId = best.id;
+    }
   }
 
   function importSave(save) {
@@ -417,6 +452,7 @@ export function createBuild(W) {
       if (!r || typeof r.id !== 'string' || !PIECE[r.type] || !isNum(r.x) || !isNum(r.y) || !isNum(r.z)) continue;
       const rec = { id: r.id, type: r.type, x: r.x, y: r.y, z: r.z, rot: isNum(r.rot) ? r.rot : 0, level: isNum(r.level) ? r.level : 0, owner: r.owner ?? null, ownerName: r.ownerName, t: r.t || 0 };
       if (r.variant) rec.variant = r.variant;
+      if (r.open) rec.open = true;
       insert(rec);
     }
     for (const c of Array.isArray(save.claims) ? save.claims : []) {
@@ -468,6 +504,8 @@ export function createBuild(W) {
     remove,
     adminRemove,
     upgrade,
+    update,
+    view,
     attachPlayer,
     importSave,
     claimAt,

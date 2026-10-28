@@ -21,9 +21,16 @@
  *   zone {kind: 'safe' | 'leaving' | 'buffer' | 'wild', safe, d (signed distance to the hub border)}
  *   me() → own player id, send(msg) → bool
  * Keys: I inventory, 5 / 6 / 7 ration / medkit / shield cell (not while building, in dialogue or typing).
+ *   fx {buffId: until (server ms) | 1} (buffs + warm / cold statuses from S.STATS), bedId (home bed),
+ *   eat() → bool (best food: meals → ration → raw), respawnOptions() → [{at, title, sub, ok, icon}],
+ *   base (campfire / chest / bed / door interactions + panels: src/smp/base.js),
+ *   stats.dead (S.STATS `dead`), screen "Supply depot" (hub only: MARKET 'supply-*' via C.SPEND market — credit sink)
+ * Onboarding: the survival quest chain (src/systems/quests/data.js wild1 … wild6) listens to smp:zone, smp:crafted,
+ *   smp:cooked, smp:ate, smp:claimed, smp:slept, smp:kill, smp:pickup + gather:done / build:placed.
  * Events: smp:ready, smp:inv {changed}, smp:stats, smp:crafted {recipe, n}, smp:used {item},
- *   smp:pickup {loot, got}, smp:claimed {id, x, z, r}, smp:claims, smp:kill {type, id},
- *   smp:screen {open, tab}, smp:equip {slot, weapon}, smp:zone {kind, safe, d, crossed}.
+ *   smp:pickup {loot, got, kind ('drop' | 'chest' | 'cache' …)}, smp:claimed {id, x, z, r}, smp:claims, smp:kill {type, id},
+ *   smp:screen {open, tab}, smp:equip {slot, weapon}, smp:zone {kind, safe, d, crossed},
+ *   smp:fx {fx}, smp:cooked {struct, got}, smp:slept {struct}, smp:chest {struct}, smp:ate {item}.
  * Files: logic + zone (pure, node --test) · bridge (server messages + build authority) · screen · hud ·
  *   loot · claims · world (rules provider) · border (Ø beacons on the hub border) · icons · smp.css.
  * URL (dev): ?smphub=<half>[,<buffer>] shrinks the stand-in hub (test building near the old base plot).
@@ -36,7 +43,8 @@ import { REASONS } from '../../shared/defs/reasons.js';
 import { WEAPON_SLOTS } from '../../shared/defs/weapons.js';
 import { t } from '../core/i18n.js';
 import { registerSmpIcons } from './icons.js';
-import { emptyInv, mergeInv, stationNear, claimAt } from './logic.js';
+import { emptyInv, mergeInv, stationNear, claimAt, bestFood } from './logic.js';
+import { createBase } from './base.js';
 import { createBridge, reasonText, noticeText, lostText } from './bridge.js';
 import { createClaims } from './claims.js';
 import { createLoot } from './loot.js';
@@ -52,6 +60,7 @@ const TXT = {
   craftFail: { en: 'Can’t craft', nl: 'Kan niet maken' },
   useFail: { en: 'Can’t use that', nl: 'Kan dat niet gebruiken' },
   pickupFail: { en: 'Can’t open the crate', nl: 'Kan de krat niet openen' },
+  depotFail: { en: 'Can’t buy that', nl: 'Kan dat niet kopen' },
   used: { en: '{name} used', nl: '{name} gebruikt' },
   none: { en: 'No {name} left', nl: 'Geen {name} meer' },
   upgraded: { en: 'Workbench upgraded to Mk II', nl: 'Werkbank geüpgraded naar Mk II' },
@@ -61,6 +70,24 @@ const TXT = {
   claimText: { en: 'Only you can build or demolish within 24 m of your beacon.', nl: 'Alleen jij kunt binnen 24 m van je baken bouwen of slopen.' },
   spawnDone: { en: 'Spawn beacon set', nl: 'Spawnbaken ingesteld' },
   spawnText: { en: 'After a defeat you can respawn here.', nl: 'Na een nederlaag kun je hier respawnen.' },
+  bedDone: { en: 'Home set', nl: 'Thuis ingesteld' },
+  bedText: { en: 'Your first bed: after a defeat you respawn here. [E] to sleep and rest.', nl: 'Je eerste bed: na een nederlaag respawn je hier. [E] om te slapen en te rusten.' },
+  noFood: { en: 'No food left', nl: 'Geen eten meer' },
+  noFoodText: { en: 'Pick berries and glowcaps, or cook a meal at a campfire.', nl: 'Pluk bessen en gloeikappen, of kook een maaltijd op een kampvuur.' },
+  ate: { en: '{name}', nl: '{name}' },
+  gearOn: { en: 'Equipped', nl: 'Uitgerust' },
+  gearOff: { en: 'Taken off', nl: 'Uitgedaan' },
+  rBed: { en: 'Bed', nl: 'Bed' },
+  rBedSub: { en: 'Your home', nl: 'Je thuis' },
+  rNoBed: { en: 'No bed placed', nl: 'Geen bed geplaatst' },
+  rBeacon: { en: 'Spawn beacon', nl: 'Spawnbaken' },
+  rBeaconSub: { en: 'Your placed beacon', nl: 'Je geplaatste baken' },
+  rNoBeacon: { en: 'No beacon placed', nl: 'Geen baken geplaatst' },
+  rBase: { en: 'Base', nl: 'Basis' },
+  rBaseSub: { en: 'Your claimed base', nl: 'Je geclaimde basis' },
+  rNoBase: { en: 'No base claimed yet', nl: 'Nog geen basis geclaimd' },
+  rSpawn: { en: 'Overlook', nl: 'Uitzichtpunt' },
+  rSpawnSub: { en: 'Safe ridge in the hub', nl: 'Veilige richel in de hub' },
 };
 
 export async function install(ctx) {
@@ -99,6 +126,9 @@ export async function install(ctx) {
   smp.loot = createLoot(ctx, smp);
   smp.hud = createSmpHud(ctx, smp);
   const screen = createScreen(ctx, smp);
+  smp.base = createBase(ctx, smp);
+  smp.fx = {};
+  smp.bedId = null;
 
   // ------------------------------------------------------------ helpers
   const records = () => ctx.build?.registry?.records?.values?.() || [];
@@ -109,9 +139,29 @@ export async function install(ctx) {
     return stationNear(records(), p.x, p.z, RECIPE_RANGE, own ? smp.me() : null);
   };
   smp.hasBeacon = () => {
+    // the server's 'beacon' respawn falls back to your bed, so a bed counts (combat's death screen asks this)
     const me = smp.me();
-    for (const r of records()) if (r.type === 'spawn-beacon' && r.owner != null && r.owner === me) return true;
+    for (const r of records()) if ((r.type === 'spawn-beacon' || r.def?.smp?.bed) && r.owner != null && r.owner === me) return true;
     return false;
+  };
+  smp.hasBed = () => {
+    if (smp.bedId && ctx.build?.registry?.records?.has?.(smp.bedId)) return true;
+    const me = smp.me();
+    for (const r of records()) if (r.def?.smp?.bed && r.owner != null && r.owner === me) return true;
+    return false;
+  };
+  /** Respawn choices for the death screen (combat): bed first when you have one. */
+  smp.respawnOptions = () => {
+    const me = smp.me();
+    let beacon = false;
+    for (const r of records()) if (r.type === 'spawn-beacon' && r.owner === me) beacon = true;
+    const base = (smp.claims?.list || []).some((c) => c && c.owner === me);
+    return [
+      { at: 'bed', icon: 'smp-bed', title: TXT.rBed, sub: smp.hasBed() ? TXT.rBedSub : TXT.rNoBed, ok: smp.hasBed() },
+      { at: 'beacon', icon: 'cbt-beacon', title: TXT.rBeacon, sub: beacon ? TXT.rBeaconSub : TXT.rNoBeacon, ok: beacon },
+      { at: 'base', icon: 'home', title: TXT.rBase, sub: base ? TXT.rBaseSub : TXT.rNoBase, ok: base },
+      { at: 'spawn', icon: 'cbt-ridge', title: TXT.rSpawn, sub: TXT.rSpawnSub, ok: true },
+    ];
   };
   smp.claimAt = (x, z) => claimAt(smp.claims.list, x, z);
   smp.inOwnClaim = (x, z) => {
@@ -145,7 +195,13 @@ export async function install(ctx) {
     tracker.reset();
     smp.inv = emptyInv();
     mergeInv(smp.inv, m.inv || {});
-    if (m.stats) Object.assign(smp.stats, m.stats);
+    smp.base.reset();
+    if (m.stats) {
+      Object.assign(smp.stats, m.stats);
+      smp.stats.dead = !!m.stats.dead;
+      smp.fx = m.stats.fx && typeof m.stats.fx === 'object' ? m.stats.fx : {};
+      smp.bedId = m.stats.home ?? null;
+    }
     syncAuthority();
     ctx.build?.applyRemote?.({ reset: true, add: Array.isArray(m.structures) ? m.structures : [] });
     smp.claims.reset(m.claims);
@@ -173,17 +229,32 @@ export async function install(ctx) {
 
   smp.onInv = (m) => {
     const changed = mergeInv(smp.inv, m);
+    if (typeof m.ack === 'string' && m.ack.startsWith('depot:')) screen.depotDone?.(m, true);
     if (!changed.length) return;
     smp.hud.refreshBar();
-    if (changed.includes('res') || changed.includes('items') || changed.includes('ammo') || changed.includes('weapons') || changed.includes('credits') || changed.includes('slot')) screen.render();
+    if (changed.includes('res') || changed.includes('items') || changed.includes('ammo') || changed.includes('weapons') || changed.includes('credits') || changed.includes('slot') || changed.includes('gear')) screen.render();
+    smp.base.onInv();
     events.emit('smp:inv', { changed });
   };
 
   smp.onStats = (m) => {
     for (const k of ['hp', 'sh', 'en', 'maxHp', 'maxSh']) if (Number.isFinite(+m[k])) smp.stats[k] = +m[k];
+    smp.stats.dead = !!m.dead; // S.STATS is a full payload: `dead` only while dead
+    if (m.fx && typeof m.fx === 'object') {
+      const before = JSON.stringify(smp.fx);
+      smp.fx = m.fx;
+      if (JSON.stringify(m.fx) !== before) events.emit('smp:fx', { fx: smp.fx });
+    }
+    if ('home' in m) {
+      const prev = smp.bedId;
+      smp.bedId = m.home ?? null;
+      // your very first bed becomes home automatically (sleeping in another bed toasts in base.js)
+      if (!prev && smp.bedId && smp.ready) ui.toast({ title: t(TXT.bedDone), text: t(TXT.bedText), icon: 'smp-bed', kind: 'success', duration: 5200 });
+    }
     smp.hud.onStats(smp.stats);
     events.emit('smp:stats', smp.stats);
   };
+  smp.onStorage = (m) => smp.base.onStorage(m);
 
   smp.onStructures = (m) => {
     // my own claim / spawn beacon confirmations (the placer gets cid + ok)
@@ -223,6 +294,12 @@ export async function install(ctx) {
       ctx.audio?.play?.('ui.error');
     } else if (m.of === C.PICKUP) {
       ui.toast({ title: t(TXT.pickupFail), text, icon: 'smp-crate', kind: 'warn', duration: 2200 });
+    } else if (m.of === C.SPEND && String(m.cid || '').startsWith('depot:')) {
+      screen.depotDone?.(m, false);
+      ui.toast({ title: t(TXT.depotFail), text, icon: 'coin', kind: 'warn', duration: 2400 });
+      ctx.audio?.play?.('ui.error');
+    } else if (m.of === C.STORE) {
+      smp.base.onDeny(m);
     }
   };
 
@@ -246,6 +323,7 @@ export async function install(ctx) {
   let useT = 0;
   smp.use = (item) => {
     if (!smp.ready || !ITEMS[item]) return false;
+    if (ITEMS[item].gear) return smp.equipGear(item, smp.inv.gear?.[ITEMS[item].gear.slot] !== item);
     if ((smp.inv.items?.[item] | 0) <= 0) {
       smp.hud.flashSlot(item, false);
       ui.toast({ title: t(TXT.useFail), text: t(TXT.none, { name: t(ITEMS[item].name).toLowerCase() }), icon: 'smp-bag', kind: 'warn', duration: 2000 });
@@ -259,7 +337,39 @@ export async function install(ctx) {
     if (ok) {
       smp.hud.flashSlot(item, true);
       ctx.audio?.play?.('ui.click');
+      const kind = ITEMS[item].kind;
+      try {
+        ctx.player?.playAction?.(kind === 'food' || kind === 'meal' || item === 'ration' ? 'eat' : 'use');
+      } catch {
+        /* optional (fp-anim) */
+      }
       events.emit('smp:used', { item });
+      if (kind === 'food' || kind === 'meal' || item === 'ration') events.emit('smp:ate', { item });
+    }
+    return ok;
+  };
+  /** Eats the best food you carry (quick bar slot 5). */
+  smp.eat = () => {
+    const f = bestFood(smp.inv);
+    if (!f) {
+      smp.hud.flashSlot('food', false);
+      ui.toast({ title: t(TXT.noFood), text: t(TXT.noFoodText), icon: 'smp-food', kind: 'warn', duration: 2600 });
+      ctx.audio?.play?.('ui.error');
+      return false;
+    }
+    return smp.use(f.id);
+  };
+  /** Equip / take off a gear item (C.USE on gear; {op: 'unequip'}). */
+  smp.equipGear = (item, on = true) => {
+    if (!smp.ready || !ITEMS[item]?.gear) return false;
+    const ok = bridge.send(on ? { t: C.USE, item } : { t: C.USE, item, op: 'unequip' });
+    if (ok) {
+      ctx.audio?.play?.(on ? 'ui.open' : 'ui.close');
+      try {
+        ctx.player?.playAction?.('use');
+      } catch {
+        /* optional */
+      }
     }
     return ok;
   };
@@ -353,7 +463,7 @@ export async function install(ctx) {
         if (smp.ready && !ctx.build?.active && !ctx.dialogue?.isOpen) {
           for (let k = 0; k < CONSUMABLES.length; k++) {
             const id = CONSUMABLES[k];
-            if (input.pressed(`Digit${ITEMS[id].hotkey}`)) smp.use(id);
+            if (input.pressed(`Digit${5 + k}`)) id === 'food' ? smp.eat() : smp.use(id);
           }
         }
       }
@@ -364,6 +474,7 @@ export async function install(ctx) {
       }
       smp.claims.update(dt);
       smp.loot.update(dt);
+      smp.base.update(dt);
       smp.hud.update(dt);
       screen.update(dt);
       benchAcc += dt;

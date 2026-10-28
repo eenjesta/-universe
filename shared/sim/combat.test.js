@@ -187,9 +187,11 @@ test('kills drop loot, count kills and send the killfeed death', () => {
   assert.equal(p.kills, 1);
   // pick it up
   k.put(p, loot.p[0], loot.p[2]);
+  p.inv.ammo.pulse = 0; // room for the dropped pulse cells, so the crate empties
   const before = p.inv.res.metal;
+  const metal = loot.items.res.metal; // (ammo that does not fit stays in the crate and replaces its items)
   assert.equal(k.send('p1', { t: C.PICKUP, loot: death.drop }), true);
-  assert.equal(p.inv.res.metal, before + loot.items.res.metal);
+  assert.equal(p.inv.res.metal, before + metal);
   assert.equal(k.W.loot.get(death.drop), undefined);
 });
 

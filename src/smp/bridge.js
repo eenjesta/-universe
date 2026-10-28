@@ -30,6 +30,7 @@ export const TXT = {
   notYours: { en: 'Not yours — built by {name}', nl: 'Niet van jou — gebouwd door {name}' },
   notYoursAnon: { en: 'Not your structure', nl: 'Niet jouw bouwwerk' },
   connecting: { en: 'Connecting to the server…', nl: 'Verbinden met de server…' },
+  pieceLimit: { en: 'You can place at most {n} of these', nl: 'Je kunt er hoogstens {n} van plaatsen' },
   // claim decay (§11.2) + moderation
   backTitle: { en: 'Welcome back', nl: 'Welkom terug' },
   restored: { en: 'Your base had started to decay — it is protected again now that you are back.', nl: 'Je basis begon te vervallen — nu je terug bent, is hij weer beschermd.' },
@@ -46,6 +47,7 @@ export function reasonText(code, m = {}) {
   if (code === 'claimOverlap' && m.name) return t(TXT.overlap, { name: m.name });
   if (code === 'claimGap' && m.name) return t(TXT.gap, { name: m.name });
   if (code === 'limit' && (m.piece === 'claim-beacon' || m.piece === 'spawn-beacon')) return t(m.piece === 'claim-beacon' ? TXT.claimLimit : TXT.spawnLimit);
+  if (code === 'pieceLimit' && m.n) return t(TXT.pieceLimit, { n: m.n });
   if (code === 'offline') return t(TXT.connecting);
   return t(REASONS[code] || REASONS.invalid);
 }
@@ -240,6 +242,7 @@ export function createBridge(ctx, smp) {
     ctx.build?.applyHarvest?.({ node: m.node, res: m.res, respawnIn, mine: m.by != null && m.by === me() });
   });
   on(S.CRAFTED, (m) => smp.onCrafted(m));
+  on(S.STORAGE, (m) => smp.onStorage?.(m));
   on(S.DEATH, (m) => smp.onDeath(m));
   on(S.RESPAWNED, (m) => smp.onRespawned(m));
   on(S.LOOT, (m) => smp.loot?.onMessage?.(m));

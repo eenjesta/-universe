@@ -1,7 +1,14 @@
 /**
  * Enemy visuals driven by ctx.net.enemies (server AI): security drones
- * (floating sentinel: red eye, thruster pods, laser emitter) and jungle
- * stalkers (alien quadruped with bioluminescent markings).
+ * (floating sentinel: red eye, thruster pods, laser emitter), jungle
+ * stalkers (alien quadruped with bioluminescent markings), pirate raiders
+ * (humanoid combat robots with carbines: walk / crouch in cover / aim / recoil /
+ * flinch / collapse; captains wear a crest), crystal mites (skittering swarm),
+ * raider barriers (energy walls) and De Wachter (warden.js). Snapshot flags
+ * (row index 9, shared/defs/enemies.js FLAG) drive crouch / aim / retreat poses.
+ * Telegraphs: drone charge-up glow + targeting line, raider aim laser.
+ * Hit reactions: flash, hit-stop (frozen pose for a few frames), a spring push
+ * along the shot.
  *
  * Every body part is an InstancedMesh shared by all enemies of a type (drone:
  * 1 draw call, stalker: 6), with a patched MeshStandardMaterial: per-vertex
@@ -23,9 +30,15 @@ import { damp, dampAngle, angleDiff, clamp } from '../core/math.js';
 import { box, rbox, cyl, sphere, torus, cone, paint, merge, lin, hash3, place, ALONG_Z } from './geo.js';
 import { ENEMIES } from './weapon-data.js';
 import { enemyState, enemyVolumes, raySphere } from './logic.js';
+import { raiderGeometries, miteGeometries, barrierGeometries, RAIDER, MITE, BARRIER } from './enemy-models.js';
+import { createWarden } from './warden.js';
+import { FLAG } from '../../shared/defs/enemies.js';
 
 const MAX_DRONES = 40;
 const MAX_STALKERS = 24;
+const MAX_RAIDERS = 32;
+const MAX_MITES = 48;
+const MAX_BARRIERS = 12;
 const DRAW_DIST = 320;
 
 // ------------------------------------------------------------ material
@@ -304,12 +317,61 @@ export function stalkerGeometries() {
 
 // -------------------------------------------------------------- manager
 const typeOf = (v) => {
-  if (v === 'drone' || v === 'stalker') return v;
+  if (v === 'drone' || v === 'stalker' || v === 'raider' || v === 'mite' || v === 'warden' || v === 'barrier') return v;
   if (v === 0 || v === 'd' || v === 'security-drone') return 'drone';
   if (v === 1 || v === 's' || v === 'jungle-stalker') return 'stalker';
-  if (typeof v === 'string') return v.includes('stalk') ? 'stalker' : 'drone';
+  if (typeof v === 'string') return v.includes('stalk') ? 'stalker' : v.includes('raid') || v.includes('pirate') ? 'raider' : v.includes('mite') ? 'mite' : 'drone';
   return 'drone';
 };
+
+/** Barrier pane: hex energy wall (additive), per instance flash + fade. */
+function barrierPaneMaterial() {
+  return new THREE.ShaderMaterial({
+    name: 'cbt-barrier-pane',
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: /* glsl */ `
+      attribute float iFlash;
+      attribute float iFade;
+      varying vec2 vUv;
+      varying float vFlash;
+      varying float vFade;
+      void main() {
+        vUv = uv;
+        vFlash = iFlash;
+        vFade = iFade;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      varying vec2 vUv;
+      varying float vFlash;
+      varying float vFade;
+      float hexDist(vec2 p) {
+        p = abs(p);
+        return max(dot(p, normalize(vec2(1.0, 1.7320508))), p.x);
+      }
+      void main() {
+        vec2 uv = vUv * vec2(9.0, 5.2);
+        vec2 r = vec2(1.0, 1.7320508);
+        vec2 h = r * 0.5;
+        vec2 a = mod(uv, r) - h;
+        vec2 b = mod(uv - h, r) - h;
+        vec2 g = dot(a, a) < dot(b, b) ? a : b;
+        float edge = smoothstep(0.38, 0.47, hexDist(g));
+        float border = 1.0 - smoothstep(0.0, 0.06, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)));
+        float scan = 0.5 + 0.5 * sin(vUv.y * 40.0 - uTime * 6.0);
+        float top = smoothstep(1.0, 0.55, vUv.y);
+        float k = (0.16 + edge * 0.55 + border * 0.9 + scan * 0.06) * (0.55 + 0.45 * top) + vFlash * 0.9;
+        vec3 col = vec3(2.2, 0.62, 0.22) * k * vFade;
+        if (max(col.r, max(col.g, col.b)) < 0.003) discard;
+        gl_FragColor = vec4(min(col, vec3(12.0)), 1.0);
+      }`,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
+}
 
 export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
   const scene = ctx.world.scene;
@@ -326,8 +388,42 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
     thigh: new Part('cbt-stalker-thigh', sg.thigh, stalkMat, MAX_STALKERS * 4),
     shin: new Part('cbt-stalker-shin', sg.shin, stalkMat, MAX_STALKERS * 4),
   };
-  const parts = [drone, ...Object.values(st)];
+  const raiderMat = enemyMaterial('raider', { metalness: 0.32, roughness: 0.42 });
+  const miteMat = enemyMaterial('mite', { metalness: 0.25, roughness: 0.3 });
+  const rg = raiderGeometries();
+  const rd = {
+    torso: new Part('cbt-raider-torso', rg.torso, raiderMat, MAX_RAIDERS),
+    head: new Part('cbt-raider-head', rg.head, raiderMat, MAX_RAIDERS),
+    upperArm: new Part('cbt-raider-uarm', rg.upperArm, raiderMat, MAX_RAIDERS * 2),
+    foreArm: new Part('cbt-raider-farm', rg.foreArm, raiderMat, MAX_RAIDERS * 2),
+    thigh: new Part('cbt-raider-thigh', rg.thigh, raiderMat, MAX_RAIDERS * 2),
+    shin: new Part('cbt-raider-shin', rg.shin, raiderMat, MAX_RAIDERS * 2),
+    rifle: new Part('cbt-raider-rifle', rg.rifle, raiderMat, MAX_RAIDERS),
+    crest: new Part('cbt-raider-crest', rg.crest, raiderMat, MAX_RAIDERS, { shadow: false }),
+  };
+  const mg = miteGeometries();
+  const mt = {
+    body: new Part('cbt-mite-body', mg.body, miteMat, MAX_MITES),
+    leg: new Part('cbt-mite-leg', mg.leg, miteMat, MAX_MITES * 6, { shadow: false }),
+  };
+  const bg = barrierGeometries();
+  const barrierBase = new Part('cbt-barrier-base', bg.base, raiderMat, MAX_BARRIERS);
+  const paneMat = barrierPaneMaterial();
+  const paneFlash = new Float32Array(MAX_BARRIERS);
+  const paneFade = new Float32Array(MAX_BARRIERS);
+  bg.pane.setAttribute('iFlash', new THREE.InstancedBufferAttribute(paneFlash, 1).setUsage(THREE.DynamicDrawUsage));
+  bg.pane.setAttribute('iFade', new THREE.InstancedBufferAttribute(paneFade, 1).setUsage(THREE.DynamicDrawUsage));
+  const pane = new THREE.InstancedMesh(bg.pane, paneMat, MAX_BARRIERS);
+  pane.name = 'cbt-barrier-pane';
+  pane.count = 0;
+  pane.frustumCulled = false;
+  pane.renderOrder = 6;
+  pane.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  let paneN = 0;
+  const parts = [drone, ...Object.values(st), ...Object.values(rd), ...Object.values(mt), barrierBase];
   for (const p of parts) scene.add(p.mesh);
+  scene.add(pane);
+  const warden = createWarden(ctx, { fx });
 
   const records = new Map();
   let frame = 0;
@@ -383,6 +479,23 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
       init: false,
       groundY: 0,
       leapK: 0,
+      flags: 0,
+      tgtId: null,
+      hitStop: 0,
+      offX: 0,
+      offZ: 0,
+      offVX: 0,
+      offVZ: 0,
+      tilt: 0,
+      aimT: 0,
+      aimK: 0,
+      crouchK: 0,
+      chargeT: 0,
+      chargeMax: 0.55,
+      recoil: 0,
+      walk: Math.random(),
+      deathDir: Math.random() < 0.5 ? -1 : 1,
+      telTarget: null,
     };
   }
 
@@ -418,12 +531,21 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
       rec.state = s;
       if ((s === 'chase' || s === 'attack') && rec.prevState !== 'chase' && rec.prevState !== 'attack') {
         if (rec.type === 'stalker') ctx.audio?.play?.('combat.stalker', { position: _snd.copy(rec.tgt), volume: 0.9 });
+        else if (rec.type === 'raider' && Math.random() < 0.7) ctx.audio?.play?.('combat.raider.alert', { position: _snd.copy(rec.tgt), volume: 0.8 });
+        else if (rec.type === 'mite' && Math.random() < 0.4) ctx.audio?.play?.('combat.mite', { position: _snd.copy(rec.tgt), volume: 0.7 });
       }
     }
     if ((v.dead || s === 'dead') && rec.init) {
       onDeath(id);
       return;
     }
+    // flags (row 9) + target (row 8) straight from the newest snapshot row
+    const tr = e.track;
+    const row = tr && tr.size > 0 ? tr.d[tr.newest] : null;
+    if (row) {
+      rec.flags = row[9] | 0;
+      rec.tgtId = row[8] ?? null;
+    } else rec.tgtId = v.target ?? null;
     const hp = v.hp ?? e.hp;
     if (Number.isFinite(hp)) rec.hp = hp;
     const mx = v.maxHp ?? e.maxHp;
@@ -646,6 +768,182 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
     rec.markerY = groundY + rec.def.marker;
   }
 
+  // ------------------------------------------------------------ raider (humanoid robot)
+  const _mT = new THREE.Matrix4();
+  const _mA = new THREE.Matrix4();
+  const _mz = new THREE.Vector3();
+  function animRaider(rec, dt) {
+    const f = rec.flags;
+    const aimOn = !!(f & FLAG.AIM) || rec.aimT > 0;
+    const retreat = !!(f & FLAG.RETREAT);
+    rec.crouchK = damp(rec.crouchK, rec.dead ? 0 : f & FLAG.CROUCH ? 1 : 0, 9, dt);
+    rec.aimK = damp(rec.aimK, rec.dead ? 0 : aimOn || rec.recoil > 0 ? 1 : rec.state === 'attack' ? 0.55 : 0.12, 10, dt);
+    const sp = rec.dead ? 0 : rec.speed;
+    const freq = 0.85 + sp * 0.24;
+    rec.walk = (rec.walk + dt * freq) % 1;
+    const ph = rec.walk * Math.PI * 2;
+    const stride = clamp(sp / 5.4, 0, 1.25);
+    const ck = rec.crouchK;
+    const ak = rec.aimK;
+    let hipY = rec.groundY + RAIDER.hipY - ck * 0.4 + (sp > 0.3 ? Math.abs(Math.sin(ph)) * 0.06 * stride - 0.03 * stride : Math.sin(time * 1.7 + rec.seed) * 0.008);
+    let pitch = -0.1 * stride - ck * 0.22 + (retreat ? 0.05 : 0) + rec.tilt;
+    let roll = sp > 0.3 ? Math.sin(ph) * 0.035 * stride : 0;
+    let lean = 0;
+    let legsOut = 0;
+    let dis = 0;
+    if (rec.dead) {
+      const k = clamp(rec.dying / 0.75, 0, 1);
+      const e = k * k * (3 - 2 * k);
+      hipY = rec.groundY + RAIDER.hipY - e * 0.72;
+      pitch = e * 0.25;
+      lean = e * 1.15;
+      legsOut = e;
+      roll = e * 0.22 * rec.deathDir;
+      dis = clamp((rec.dying - 1.0) / 0.85, 0, 1);
+    }
+    if (rec.spawn > 0) {
+      dis = Math.max(dis, rec.spawn);
+      rec.spawn = Math.max(0, rec.spawn - dt * 1.5);
+    }
+    if (rec.fadeOut > 0) dis = Math.max(dis, 1 - rec.fadeOut);
+    composeBody(rec, rec.pos.x + rec.offX, hipY, rec.pos.z + rec.offZ, rec.h, pitch, roll);
+    const fl = rec.flash;
+    const glow = rec.dead ? Math.max(0, 1 - rec.dying * 1.6) : aimOn ? 1.7 + Math.sin(time * 28) * 0.25 : retreat ? 0.8 : 1;
+    const rc = rec.recoil;
+    // torso (pivot at the pelvis): leans into the aim, jolts with recoil, slumps back when destroyed
+    _mT.multiplyMatrices(_mb, local(0, 0, 0, lean + rc * 0.05 - ak * 0.04, 0, 0));
+    rd.torso.push(_mT, fl, glow, dis);
+    if (rec.elite) rd.crest.push(_mT, fl, glow, dis);
+    // head: down the sights when aiming, glances around otherwise
+    const look = ak > 0.5 ? 0 : Math.sin(time * 0.7 + rec.seed) * 0.5;
+    _m.multiplyMatrices(_mT, local(RAIDER.neck[0], RAIDER.neck[1], RAIDER.neck[2], -pitch * 0.6 - lean * 0.3 + ck * 0.15, look, 0, 'YXZ'));
+    rd.head.push(_m, fl, glow, dis);
+    // rifle: low ready → shouldered; kicks up and back on each bolt
+    const rx = 0.16 - ak * 0.06;
+    const ry = 0.28 + ak * 0.16;
+    const rz = -0.16 - ak * 0.1 + rc * 0.07;
+    const rp = -0.62 * (1 - ak) + rc * 0.2 - lean * 0.4;
+    _mA.multiplyMatrices(_mT, local(rx, ry, rz, rp, -0.08 * (1 - ak), 0, 'YXZ'));
+    rd.rifle.push(_mA, fl, glow, dis);
+    rec.muzzle = rec.muzzle || new THREE.Vector3();
+    rec.muzzle.set(0, 0.035, -RAIDER.muzzle).applyMatrix4(_mA);
+    // arms reach the rifle: right hand on the grip, left on the handguard
+    const armUp = 0.55 + ak * 0.75 + rc * 0.1;
+    for (const side of [1, -1]) {
+      const sx = RAIDER.shoulder[0] * side;
+      const fwd = side > 0 ? armUp : armUp + 0.25;
+      const inward = side > 0 ? -0.18 - ak * 0.1 : 0.42 + ak * 0.18;
+      const sw = sp > 0.3 && ak < 0.5 ? Math.sin(ph + (side > 0 ? 0 : Math.PI)) * 0.25 * stride : 0;
+      _m.multiplyMatrices(_mT, local(sx, RAIDER.shoulder[1], RAIDER.shoulder[2], fwd + sw - lean * 0.6, 0, inward, 'XYZ'));
+      rd.upperArm.push(_m, fl, glow, dis);
+      _m3.multiplyMatrices(_m, local(0, -RAIDER.upper, 0, side > 0 ? 0.85 + ak * 0.35 : 0.55 + ak * 0.25, 0, 0));
+      rd.foreArm.push(_m3, fl, glow, dis);
+    }
+    // legs: walk cycle, crouch, splayed when down
+    for (const side of [1, -1]) {
+      const p2 = ph + (side > 0 ? 0 : Math.PI);
+      const sw = sp > 0.3 ? Math.sin(p2) * 0.55 * stride : 0;
+      const bend = sp > 0.3 ? Math.max(0, -Math.cos(p2)) * 0.9 * stride : 0;
+      const thighA = sw + ck * (side > 0 ? 1.25 : 0.9) + legsOut * 1.35;
+      const kneeA = -(bend + ck * (side > 0 ? 2.0 : 1.4) + 0.04) + legsOut * 0.9;
+      _m.multiplyMatrices(_mb, local(RAIDER.hip[0] * side, RAIDER.hip[1], RAIDER.hip[2], thighA, 0, side * (0.04 + legsOut * 0.12)));
+      rd.thigh.push(_m, fl, glow, dis);
+      _m3.multiplyMatrices(_m, local(0, -RAIDER.thigh, 0, kneeA, 0, 0));
+      rd.shin.push(_m3, fl, glow, dis);
+    }
+    rec.glow = glow;
+    rec.markerY = rec.groundY + rec.def.marker - ck * 0.4;
+  }
+
+  // ------------------------------------------------------------ crystal mite
+  function animMite(rec, dt) {
+    const sp = rec.dead ? 0 : rec.speed;
+    rec.walk = (rec.walk + dt * (1.6 + sp * 0.75)) % 1;
+    const ph = rec.walk * Math.PI * 2;
+    const windup = !!(rec.flags & FLAG.WINDUP);
+    const airborne = rec.state === 'leap' && !windup;
+    let y = rec.groundY + MITE.bodyY + (sp > 0.5 ? Math.abs(Math.sin(ph * 2)) * 0.05 : Math.sin(time * 3 + rec.seed) * 0.012) - (windup ? 0.15 : 0);
+    if (airborne) y = Math.max(y, rec.pos.y + MITE.bodyY);
+    let pitch = (windup ? -0.28 : airborne ? clamp(rec.vel.y / 7, -0.7, 0.7) : 0) + rec.tilt;
+    let roll = sp > 0.5 ? Math.sin(ph * 2) * 0.06 : 0;
+    let dis = 0;
+    if (rec.dead) {
+      dis = clamp(rec.dying / 0.55, 0, 1);
+      roll = rec.dying * 5 * rec.deathDir;
+      y -= rec.dying * 0.35;
+    }
+    if (rec.spawn > 0) {
+      dis = Math.max(dis, rec.spawn);
+      rec.spawn = Math.max(0, rec.spawn - dt * 2);
+    }
+    if (rec.fadeOut > 0) dis = Math.max(dis, 1 - rec.fadeOut);
+    composeBody(rec, rec.pos.x + rec.offX, y, rec.pos.z + rec.offZ, rec.h, pitch, roll);
+    const fl = rec.flash;
+    const glow = rec.dead ? 2.4 * (1 - dis) : rec.state === 'attack' || windup ? 1.6 + Math.sin(time * 22 + rec.seed) * 0.3 : 0.95 + Math.sin(time * 2.4 + rec.seed) * 0.15;
+    mt.body.push(_mb, fl, glow, dis);
+    for (let i = 0; i < 6; i++) {
+      const [hx, hz] = MITE.hips[i];
+      const side = hx < 0 ? -1 : 1;
+      const tri = (i === 0 || i === 2 || i === 4) ^ (side < 0) ? 0 : Math.PI;
+      const p2 = ph * 2 + tri;
+      const swing = sp > 0.3 ? Math.sin(p2) * 0.42 : Math.sin(time * 1.7 + i + rec.seed) * 0.05;
+      const lift = sp > 0.3 ? Math.max(0, Math.cos(p2)) * 0.32 : windup ? -0.2 : 0;
+      const spread = (i % 3 === 0 ? -0.45 : i % 3 === 2 ? 0.45 : 0) * side;
+      _m.multiplyMatrices(_mb, local(hx, 0, hz, 0, (side < 0 ? Math.PI : 0) + (swing + spread) * side * (side < 0 ? -1 : 1), lift + (rec.dead ? 0.6 : 0), 'YXZ'));
+      mt.leg.push(_m, fl, glow, dis);
+    }
+    rec.glow = glow;
+    rec.markerY = rec.groundY + rec.def.marker;
+  }
+
+  // ------------------------------------------------------------ barrier
+  function animBarrier(rec) {
+    const age = time - rec.born;
+    let fade = Math.min(1, age * 3);
+    if (rec.dead) fade = Math.max(0, 1 - rec.dying * 2.4);
+    if (rec.fadeOut > 0) fade *= rec.fadeOut;
+    const grow = Math.min(1, age * 4);
+    composeBody(rec, rec.pos.x, rec.groundY, rec.pos.z, rec.h, 0, 0);
+    barrierBase.push(_mb, rec.flash, 1, rec.dead ? clamp(rec.dying * 2, 0, 1) : 0);
+    if (paneN < MAX_BARRIERS) {
+      _m.copy(_mb).multiply(_l.makeScale(1, Math.max(0.02, grow), 1));
+      pane.setMatrixAt(paneN, _m);
+      paneFlash[paneN] = rec.flash;
+      paneFade[paneN] = fade * (0.85 + 0.15 * Math.sin(time * 9 + rec.seed));
+      paneN++;
+    }
+    rec.markerY = rec.groundY + rec.def.marker;
+  }
+
+  // ------------------------------------------------------------ telegraphs (drone charge, raider aim line)
+  const _tp = new THREE.Vector3();
+  const _te = new THREE.Vector3();
+  const TEL_RED = [1, 0.12, 0.06];
+  function targetPos(id, out) {
+    if (id == null) return null;
+    const n = getNet();
+    if (id === n?.id) {
+      const p = ctx.player?.position;
+      return p ? out.set(p.x, p.y + 1.25, p.z) : null;
+    }
+    const v = n?.players?.get?.(id)?.view?.p;
+    return v ? out.set(v.x, v.y + 1.25, v.z) : null;
+  }
+  function telegraph(rec, dt) {
+    if (!fx || rec.dead || rec.dist > 130) return;
+    if (rec.type === 'drone' && (rec.chargeT > 0 || rec.flags & FLAG.AIM)) {
+      const k = rec.chargeMax > 0 ? 1 - rec.chargeT / rec.chargeMax : 0.5;
+      _te.copy(onFire(rec.id, true) || rec.pos);
+      _fxp.x = _te.x;
+      _fxp.y = _te.y;
+      _fxp.z = _te.z;
+      fx.glow(_fxp, TEL_RED, 0.25 + k * 0.55, 0.3 + k * 0.6, 0.05, 0, 0.6 + k * 0.4, 4 + k * 4);
+      if (targetPos(rec.tgtId, _tp)) fx.beam(_te, _tp, TEL_RED, 0.012 + k * 0.012, 0.04, 1.2 + k * 2.5);
+    } else if (rec.type === 'raider' && (rec.aimT > 0 || rec.flags & FLAG.AIM) && rec.muzzle) {
+      if (targetPos(rec.tgtId, _tp)) fx.beam(rec.muzzle, _tp, TEL_RED, 0.011, 0.04, 2.2);
+    }
+  }
+
   /**
    * A stalker's feet: the server's y (snapshot = feet). On the ground the local terrain is used when it
    * agrees (no floating / sinking between snapshots); in a leap or where the terrains differ, the server y.
@@ -677,7 +975,7 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
     }
     if (rec.dead) {
       rec.dying += dt;
-      const end = rec.type === 'drone' ? 0.05 : 1.9;
+      const end = rec.type === 'drone' ? 0.05 : rec.type === 'warden' ? 6 : rec.type === 'barrier' ? 0.45 : rec.type === 'mite' ? 0.9 : 1.9;
       if (rec.dying > end) {
         removeRec(rec);
         return;
@@ -708,15 +1006,43 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
       rec.vel.multiplyScalar(Math.max(0, 1 - dt * 4));
       rec.speed = Math.hypot(rec.vel.x, rec.vel.z);
     }
-    if (rec.type === 'stalker') rec.groundY = stalkerGround(rec);
-    rec.flash = Math.max(0, rec.flash - dt * 7);
+    if (rec.type === 'stalker' || rec.type === 'raider' || rec.type === 'mite') rec.groundY = stalkerGround(rec);
+    else if (rec.type === 'barrier' || rec.type === 'warden') rec.groundY = rec.pos.y;
+    rec.flash = Math.max(0, rec.flash - dt * 9);
     rec.targetsMe = Math.max(0, rec.targetsMe - dt);
+    // hit reaction: a spring push along the shot + a little tilt
+    const kx = -60 * rec.offX - 11 * rec.offVX;
+    const kz = -60 * rec.offZ - 11 * rec.offVZ;
+    rec.offVX += kx * dt;
+    rec.offVZ += kz * dt;
+    rec.offX += rec.offVX * dt;
+    rec.offZ += rec.offVZ * dt;
+    rec.tilt = damp(rec.tilt, 0, 9, dt);
+    rec.recoil = Math.max(0, rec.recoil - dt * 7);
+    rec.aimT = Math.max(0, rec.aimT - dt);
+    rec.chargeT = Math.max(0, rec.chargeT - dt);
     const d2 = rec.pos.distanceToSquared(camPos);
     rec.dist = Math.sqrt(d2);
-    rec.visible = d2 < DRAW_DIST * DRAW_DIST;
-    if (!rec.visible) return;
-    if (rec.type === 'stalker') animStalker(rec, dt);
-    else animDrone(rec, dt);
+    rec.visible = d2 < (rec.type === 'warden' ? 600 * 600 : DRAW_DIST * DRAW_DIST);
+    if (!rec.visible) {
+      if (rec.type === 'warden' && warden.on) warden.hide();
+      return;
+    }
+    // hit-stop: the pose holds for a few frames on a heavy hit
+    let adt = dt;
+    if (rec.hitStop > 0) {
+      rec.hitStop -= dt;
+      adt = dt * 0.08;
+    }
+    if (rec.type === 'stalker') animStalker(rec, adt);
+    else if (rec.type === 'raider') animRaider(rec, adt);
+    else if (rec.type === 'mite') animMite(rec, adt);
+    else if (rec.type === 'barrier') animBarrier(rec, dt);
+    else if (rec.type === 'warden') {
+      warden.sync(rec, dt);
+      rec.markerY = rec.pos.y + 21;
+    } else animDrone(rec, adt);
+    telegraph(rec, dt);
   };
   updRec.dt = 0;
 
@@ -736,12 +1062,69 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
     const src = net?.enemies;
     if (src && typeof src.forEach === 'function') src.forEach(syncOne);
     updRec.dt = dt;
+    paneN = 0;
     records.forEach(updRec);
     for (const p of parts) p.commit();
+    pane.count = paneN;
+    if (paneN) {
+      pane.instanceMatrix.needsUpdate = true;
+      bg.pane.attributes.iFlash.needsUpdate = true;
+      bg.pane.attributes.iFade.needsUpdate = true;
+    }
+    paneMat.uniforms.uTime.value = t;
+    if (warden.on && !wardenRec()) warden.hide();
   }
+  const wardenRec = () => {
+    for (const r of records.values()) if (r.type === 'warden') return r;
+    return null;
+  };
 
   // -------------------------------------------------------------- queries
-  const vols = new Float32Array(16);
+  const vols = new Float32Array(16 * 4);
+  const wparts = new Float64Array(16 * 5);
+  /** Client hit spheres [x, y, z, r] × n (warden: shared WARDEN_PARTS, barrier: 3 along the wall). */
+  function volumesOf(rec, out) {
+    if (rec.type === 'warden') {
+      const n = warden.parts(rec, wparts);
+      for (let i = 0; i < n; i++) {
+        out[i * 4] = wparts[i * 5];
+        out[i * 4 + 1] = wparts[i * 5 + 1];
+        out[i * 4 + 2] = wparts[i * 5 + 2];
+        out[i * 4 + 3] = wparts[i * 5 + 3];
+      }
+      return n;
+    }
+    if (rec.type === 'barrier') {
+      const c = Math.cos(rec.h);
+      const sn = Math.sin(rec.h);
+      for (let i = 0; i < 3; i++) {
+        const lx = (i - 1) * (BARRIER.w / 3);
+        out[i * 4] = rec.pos.x + lx * c;
+        out[i * 4 + 1] = rec.groundY + BARRIER.h / 2;
+        out[i * 4 + 2] = rec.pos.z - lx * sn;
+        out[i * 4 + 3] = BARRIER.h / 2;
+      }
+      return 3;
+    }
+    const baseY = rec.type === 'drone' ? rec.pos.y : rec.groundY;
+    const v = rec.type === 'raider' && rec.crouchK > 0.5 ? rec.def.crouchVolumes : rec.def.volumes;
+    return enemyVolumes(v, rec.pos.x, baseY, rec.pos.z, rec.h, out);
+  }
+  /** Which warden part (1..3 = runes) a world point is on (client hint for crit feedback). */
+  function partAt(rec, x, y, z) {
+    if (rec?.type !== 'warden') return 0;
+    const n = warden.parts(rec, wparts);
+    let best = 0;
+    let bd = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = Math.hypot(x - wparts[i * 5], y - wparts[i * 5 + 1], z - wparts[i * 5 + 2]) - wparts[i * 5 + 3];
+      if (d < bd) {
+        bd = d;
+        best = wparts[i * 5 + 4];
+      }
+    }
+    return best;
+  }
   function raycast(o, d, maxDist, out) {
     let best = maxDist;
     let hit = null;
@@ -753,8 +1136,7 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
       // cheap reject: farther than the best hit or behind
       const along = dx * d.x + dy * d.y + dz * d.z;
       if (along < -3 || along > best + 3) return;
-      const baseY = rec.type === 'stalker' ? rec.groundY : rec.pos.y;
-      const n = enemyVolumes(rec.def.volumes, rec.pos.x, baseY, rec.pos.z, rec.h, vols);
+      const n = volumesOf(rec, vols);
       for (let i = 0; i < n; i++) {
         const cx = vols[i * 4];
         const cy = vols[i * 4 + 1];
@@ -784,12 +1166,28 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
   function candidates(out, max = 16) {
     let n = 0;
     records.forEach((rec) => {
-      if (n >= max || rec.dead || rec.gone || !rec.visible || rec.dist > 140) return;
-      const baseY = rec.type === 'stalker' ? rec.groundY + 0.95 : rec.pos.y;
+      if (n >= max || rec.dead || rec.gone || !rec.visible || rec.type === 'barrier') return;
+      if (rec.type === 'warden') {
+        // the unbroken runes first (weak points), else the chest
+        const k = warden.parts(rec, wparts);
+        const broken = (rec.flags >> 3) & 7;
+        for (let i = 0; i < k && n < max; i++) {
+          const part = wparts[i * 5 + 4];
+          if (part === 0 || broken & (1 << (part - 1))) continue;
+          out[n * 4] = wparts[i * 5];
+          out[n * 4 + 1] = wparts[i * 5 + 1];
+          out[n * 4 + 2] = wparts[i * 5 + 2];
+          out[n * 4 + 3] = wparts[i * 5 + 3];
+          n++;
+        }
+        return;
+      }
+      if (rec.dist > 140) return;
+      const baseY = rec.type === 'stalker' ? rec.groundY + 0.95 : rec.type === 'raider' ? rec.groundY + (rec.crouchK > 0.5 ? 0.92 : 1.15) : rec.type === 'mite' ? rec.groundY + 0.45 : rec.pos.y;
       out[n * 4] = rec.pos.x;
       out[n * 4 + 1] = baseY;
       out[n * 4 + 2] = rec.pos.z;
-      out[n * 4 + 3] = rec.type === 'stalker' ? 0.8 : 0.85;
+      out[n * 4 + 3] = rec.type === 'stalker' ? 0.8 : rec.type === 'raider' ? 0.5 : rec.type === 'mite' ? 0.6 : 0.85;
       n++;
     });
     return n;
@@ -799,9 +1197,23 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
   function onDamage(id, msg) {
     const rec = records.get(id);
     if (!rec) return null;
-    rec.flash = 1;
+    const amount = Number(msg?.amount) || 0;
+    // flash by weight: a rifle bolt blinks, a railgun slug / kill / weak spot flares (auto fire must not glow white)
+    rec.flash = Math.max(rec.flash, msg?.kill || msg?.crit || msg?.weak ? 1 : clamp(amount / 24, 0.32, 1));
     rec.lastHit = time;
     if (Number.isFinite(msg?.hp)) rec.hp = msg.hp;
+    // hit reaction: hit-stop on heavy hits, a push along the shot (from the camera), a flinch
+    if (rec.type !== 'warden' && rec.type !== 'barrier') {
+      const k = clamp(amount / 18, 0.15, rec.type === 'mite' ? 2 : 1.2);
+      const dx = rec.pos.x - camPos.x;
+      const dz = rec.pos.z - camPos.z;
+      const l = Math.hypot(dx, dz) || 1;
+      rec.offVX += (dx / l) * k * 3.2;
+      rec.offVZ += (dz / l) * k * 3.2;
+      rec.tilt += k * 0.16;
+      if (msg?.kill || msg?.crit || amount >= 30) rec.hitStop = msg?.kill ? 0.075 : 0.045;
+      if (rec.type === 'raider' && rec.aimT > 0) rec.aimT += 0.15;
+    } else if (rec.type === 'warden' && (msg?.weak || msg?.crit)) rec.hitStop = 0.03;
     return rec;
   }
 
@@ -820,6 +1232,38 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
         fx.debris(rec.pos, 12, 8, 0.45);
       }
       ctx.audio?.play?.('combat.boom', { position: _snd, volume: 0.85, size: 0.8 });
+    } else if (rec.type === 'raider') {
+      if (fx) {
+        _fxp.x = rec.pos.x;
+        _fxp.y = (rec.groundY || rec.pos.y) + 1.3;
+        _fxp.z = rec.pos.z;
+        fx.sparks(_fxp, _snd.set(0, 1, 0), 16, [1, 0.45, 0.15], 7, 1, 0.55);
+        fx.glow(_fxp, [1, 0.3, 0.12], 0.5, 2.6, 0.35, 0, 1, 6);
+        fx.smoke(_fxp, 0.6, 2.2, 1.6, [0.18, 0.18, 0.2], 0.5, { x: 0, y: 1.2, z: 0 });
+        fx.debris(_fxp, 6, 5, 0.35);
+      }
+      ctx.audio?.play?.('combat.raider.die', { position: _snd.copy(rec.pos), volume: 0.9 });
+    } else if (rec.type === 'mite') {
+      if (fx) {
+        _fxp.x = rec.pos.x;
+        _fxp.y = (rec.groundY || rec.pos.y) + 0.45;
+        _fxp.z = rec.pos.z;
+        fx.sparks(_fxp, _snd.set(0, 1, 0), 14, [0.3, 1, 1.25], 6, 1, 0.45, 0.03, 6);
+        fx.glow(_fxp, [0.3, 1, 1.3], 0.3, 1.8, 0.3, 0, 1, 6);
+        fx.glow(_fxp, [0.3, 1, 1.3], 0.4, 2.4, 0.4, 1, 0.8, 4);
+      }
+      ctx.audio?.play?.('combat.mite.die', { position: _snd.copy(rec.pos), volume: 0.8 });
+    } else if (rec.type === 'barrier') {
+      if (fx) {
+        _fxp.x = rec.pos.x;
+        _fxp.y = rec.groundY + 0.8;
+        _fxp.z = rec.pos.z;
+        fx.glow(_fxp, [1, 0.4, 0.12], 0.8, 3.2, 0.3, 0, 0.9, 5);
+        fx.sparks(_fxp, _snd.set(0, 1, 0), 12, [1, 0.45, 0.15], 5, 1, 0.45);
+      }
+      ctx.audio?.play?.('combat.barrier.break', { position: _snd.copy(rec.pos), volume: 0.8 });
+    } else if (rec.type === 'warden') {
+      warden.die();
     } else {
       ctx.audio?.play?.('combat.stalker.die', { position: _snd, volume: 0.9 });
       if (fx) {
@@ -834,10 +1278,19 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
 
   const _em = new THREE.Vector3();
   /** Enemy shot: kick + returns the emitter position for the laser FX. */
-  function onFire(id) {
+  function onFire(id, peek = false) {
     const rec = records.get(id);
     if (!rec || rec.dead) return null;
-    rec.kick = 1;
+    if (!peek) {
+      rec.kick = 1;
+      rec.recoil = 1;
+    }
+    if (rec.type === 'raider' && rec.muzzle) return _em.copy(rec.muzzle);
+    if (rec.type === 'mite') {
+      _em.set(rec.pos.x - Math.sin(rec.h) * 0.55, (rec.groundY || rec.pos.y) + 0.35, rec.pos.z - Math.cos(rec.h) * 0.55);
+      return _em;
+    }
+    if (rec.type === 'warden') return warden.eyeWorld(_em);
     if (rec.type === 'drone') {
       _em.set(0, -0.25, -0.46);
       _e.set(0, rec.h, 0, 'YXZ');
@@ -849,6 +1302,25 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
       _em.z += rec.pos.z;
     }
     return _em;
+  }
+
+  /** Server telegraphs (S.ENEMY_FIRE): drone charge-up, raider aim, boss attacks. */
+  function onTelegraph(id, msg, extra = null) {
+    const rec = records.get(id);
+    if (!rec || rec.dead) return null;
+    if (msg.w === 'laser' && msg.phase === 'charge') {
+      rec.chargeT = rec.chargeMax = Number(msg.ct) || 0.55;
+      ctx.audio?.play?.('combat.drone.charge', { position: _snd.copy(rec.pos), volume: 0.75, duration: rec.chargeT });
+    } else if (msg.w === 'aim') {
+      rec.aimT = Number(msg.ct) || 0.45;
+      if (rec.dist < 70) ctx.audio?.play?.('combat.raider.aim', { position: _snd.copy(rec.pos), volume: 0.6 });
+    } else if (rec.type === 'warden') {
+      if (msg.w === 'stomp') warden.stomp(msg);
+      else if (msg.w === 'beam') warden.beam(msg, extra);
+      else if (msg.w === 'summon') warden.summon(msg);
+      else if (msg.w === 'roar') warden.roar(msg);
+    }
+    return rec;
   }
 
   function clear() {
@@ -864,6 +1336,12 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
     }
     droneMat.dispose();
     stalkMat.dispose();
+    raiderMat.dispose();
+    miteMat.dispose();
+    pane.removeFromParent();
+    pane.geometry.dispose();
+    paneMat.dispose();
+    warden.dispose();
   }
 
   return {
@@ -874,6 +1352,10 @@ export function createEnemies(ctx, { fx, getNet, onTargetChange = null }) {
     onDamage,
     onDeath,
     onFire,
+    onTelegraph,
+    partAt,
+    targetPos,
+    warden,
     clear,
     dispose,
     parts,

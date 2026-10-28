@@ -7,7 +7,7 @@
 /* --------------------------------------------------------------- minimap */
 .shell-minimap {
   position: relative;
-  width: clamp(152px, 26vh, 224px); aspect-ratio: 1;
+  width: calc(clamp(152px, 26vh, 224px) * var(--shell-hud-scale, 1)); aspect-ratio: 1;
   pointer-events: none;
   filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.45));
 }
@@ -15,7 +15,7 @@
 
 /* --------------------------------------------------------------- compass */
 .shell-compass {
-  width: clamp(300px, 38vw, 580px); height: 56px;
+  width: calc(clamp(300px, 38vw, 580px) * var(--shell-hud-scale, 1)); height: 56px;
   pointer-events: none;
   -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0%, #000 13%, #000 87%, transparent 100%);
@@ -65,6 +65,49 @@
   0%, 100% { box-shadow: 0 0 10px rgba(127, 224, 255, 0.75), inset 0 0 6px rgba(127, 224, 255, 0.4); }
   50% { box-shadow: 0 0 18px rgba(127, 224, 255, 0.95), inset 0 0 8px rgba(127, 224, 255, 0.6); }
 }
+/* waypoint (gold), boss (red), quest markers in their own colour (the gold death crate) */
+.shell-sm[data-kind='waypoint'] .shell-sm-gem, .shell-sm[data-kind='boss'] .shell-sm-gem, .shell-sm[data-kind='quest-alt'] .shell-sm-gem {
+  width: 14px; height: 14px; left: -7px; top: -7px; background: rgba(14, 12, 8, 0.75);
+}
+.shell-sm[data-kind='waypoint'] { --sm-c: #ffd27a; }
+.shell-sm[data-kind='boss'] { --sm-c: #ff5a4e; }
+.shell-sm[data-kind='quest-alt'] { --sm-c: var(--sm-color, #f0b46a); }
+.shell-sm[data-kind='waypoint'] .shell-sm-gem, .shell-sm[data-kind='boss'] .shell-sm-gem, .shell-sm[data-kind='quest-alt'] .shell-sm-gem {
+  border-color: var(--sm-c); box-shadow: 0 0 10px var(--sm-c);
+}
+.shell-sm[data-kind='waypoint'] .shell-sm-stem, .shell-sm[data-kind='boss'] .shell-sm-stem, .shell-sm[data-kind='quest-alt'] .shell-sm-stem {
+  background: linear-gradient(0deg, var(--sm-c), transparent);
+}
+.shell-sm[data-kind='waypoint'] .shell-sm-dist, .shell-sm[data-kind='boss'] .shell-sm-dist, .shell-sm[data-kind='quest-alt'] .shell-sm-dist { color: var(--sm-c); }
+.shell-sm[data-kind='waypoint'].is-edge .shell-sm-arrow::before, .shell-sm[data-kind='boss'].is-edge .shell-sm-arrow::before, .shell-sm[data-kind='quest-alt'].is-edge .shell-sm-arrow::before {
+  border-left-color: var(--sm-c); filter: drop-shadow(0 0 4px var(--sm-c));
+}
+/* loot (a cleared POI's cache): gold, short stem */
+.shell-sm[data-kind='loot'] { --sm-c: #ffd27f; }
+.shell-sm[data-kind='loot'] .shell-sm-gem { border-color: var(--sm-c); background: rgba(20, 16, 6, 0.7); box-shadow: 0 0 10px var(--sm-c); }
+.shell-sm[data-kind='loot'] .shell-sm-stem { height: 26px; background: linear-gradient(0deg, var(--sm-c), transparent); }
+.shell-sm[data-kind='loot'] .shell-sm-text { bottom: 40px; }
+.shell-sm[data-kind='loot'] .shell-sm-label { font-size: 13px; color: #fff3d6; }
+.shell-sm[data-kind='loot'] .shell-sm-dist { color: var(--sm-c); }
+/* wilderness POIs: coloured diamond once discovered, a "?" until then */
+.shell-sm[data-kind^='wild-'] .shell-sm-stem { height: 30px; }
+.shell-sm[data-kind^='wild-'] .shell-sm-text { bottom: 44px; }
+.shell-sm[data-kind='wild-ruin'] { --sm-c: #6fe9ff; }
+.shell-sm[data-kind='wild-outpost'] { --sm-c: #ff8a5c; }
+.shell-sm[data-kind='wild-wreck'] { --sm-c: #ffd36e; }
+.shell-sm[data-kind^='wild-'] .shell-sm-gem { border-color: var(--sm-c); box-shadow: 0 0 8px var(--sm-c); }
+.shell-sm[data-kind^='wild-'] .shell-sm-label { font-size: 13px; }
+.shell-sm[data-kind='unknown'] .shell-sm-stem { height: 22px; background: linear-gradient(0deg, rgba(236, 230, 220, 0.55), rgba(236, 230, 220, 0.1)); }
+.shell-sm[data-kind='unknown'] .shell-sm-text { bottom: 34px; }
+.shell-sm[data-kind='unknown'] .shell-sm-gem { border-style: dashed; border-color: rgba(236, 230, 220, 0.75); }
+.shell-sm[data-kind='unknown'] .shell-sm-gem::after {
+  content: '?'; position: absolute; inset: 0; display: grid; place-items: center; transform: rotate(-45deg);
+  font-size: 9px; font-weight: 600; color: #fff;
+}
+/* labels that would hit the top HUD band sit below the diamond */
+.shell-sm.is-flip .shell-sm-stem { bottom: auto; top: 10px; height: 18px; background: linear-gradient(180deg, rgba(236, 230, 220, 0.75), rgba(236, 230, 220, 0.15)); }
+.shell-sm.is-flip .shell-sm-text { bottom: auto; top: 30px; }
+
 /* clamped to the screen edge: arrow pointing toward the target */
 .shell-sm.is-edge .shell-sm-stem { display: none; }
 .shell-sm.is-edge .shell-sm-text { bottom: auto; top: 14px; }
@@ -121,9 +164,50 @@
   transition: color 0.2s;
 }
 .shell-keyhint:hover { color: #fff; }
+/* dims a few seconds after the context changed; hovering brings it back */
+.shell-keyhints { transition: opacity 0.6s var(--ease); }
+.shell-keyhints.is-dim { opacity: 0.46; }
+.shell-keyhints.is-dim:hover { opacity: 1; }
 .shell-keyhint:hover .kbd { border-color: var(--cyan); color: #fff; }
 .shell-keyhints .kbd.shell-kbd { min-width: 24px; height: 24px; font-size: 12px; }
 .shell-keyhints-dot { width: 3px; height: 3px; border-radius: 50%; background: rgba(236, 230, 220, 0.25); }
+
+/* ------------------------------------------------------ travel channel bar */
+.shell-travel {
+  display: flex; align-items: center; gap: 12px;
+  min-width: min(420px, calc(100vw - 32px)); padding: 10px 12px 10px 14px;
+  background: linear-gradient(90deg, rgba(10, 16, 24, 0.86), rgba(10, 14, 20, 0.74));
+  border: 1px solid rgba(127, 224, 255, 0.35); border-radius: 12px;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--shadow), 0 0 24px rgba(127, 224, 255, 0.12);
+  opacity: 0; transform: translateY(8px);
+  transition: opacity 0.3s var(--ease), transform 0.35s var(--ease);
+}
+.shell-travel.is-on { opacity: 1; transform: none; }
+.shell-travel-icon { display: flex; color: var(--cyan); filter: drop-shadow(0 0 6px rgba(127, 224, 255, 0.6)); animation: shell-travel-pulse 1.6s ease-in-out infinite; }
+@keyframes shell-travel-pulse { 50% { opacity: 0.55; } }
+.shell-travel-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.shell-travel-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.shell-travel-title { font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: #fff; }
+.shell-travel-secs { font-size: 15px; color: var(--cyan); }
+.shell-travel-bar { height: 4px; border-radius: 3px; background: rgba(236, 230, 220, 0.14); overflow: hidden; }
+.shell-travel-fill { display: block; height: 100%; background: linear-gradient(90deg, #4fc8ff, #9cf0ff); transform-origin: 0 50%; transform: scaleX(0); box-shadow: 0 0 10px rgba(127, 224, 255, 0.8); }
+.shell-travel-sub { font-size: 11.5px; color: var(--ink-2); }
+.shell-travel-cancel {
+  flex: none; padding: 7px 12px; border-radius: 8px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line-2); color: var(--ink);
+  font: inherit; font-size: 12px; letter-spacing: 0.06em;
+}
+.shell-travel-cancel:hover { border-color: var(--cyan); color: #fff; }
+
+/* ------------------------------------------------------- toasts below the top band
+ * the core toast layer starts at 22 px — right on the compass strip and the zone pill;
+ * while playing it starts below whatever the top-center slot shows (hud/layout.js) */
+body:has(.shell-compass:not([hidden])) .layer-toasts { padding-top: max(22px, calc(var(--shell-top-band, 0px) + 10px)); }
+
+/* ---------------------------------------------------------------- HUD scale
+ * settings.hudScale → --shell-hud-scale (hud/layout.js); minimap + compass scale their own size */
+#hud .hud-slot:not(.hud-slot-center) > .hud-widget:not(.shell-minimap):not(.shell-compass) { zoom: var(--shell-hud-scale, 1); }
 
 /* --------------------------------------------------------------- FPS/debug */
 .shell-fps {
@@ -168,7 +252,12 @@ body[data-touch="1"] .shell-minimap {
 body[data-touch="1"]:has(.shell-minimap:not([hidden])) .hud-slot-top-left { top: calc(var(--sat, 0px) + 18px + var(--mm)); }
 body[data-touch="1"] .shell-keyhints { display: none !important; }
 body[data-touch="1"] .shell-fps { right: calc(var(--sar, 0px) + 120px); top: calc(var(--sat, 0px) + 4px); }
-body[data-device="phone"] .shell-compass { width: clamp(220px, 36vw, 340px); height: 48px; }
+body[data-device="phone"] .shell-compass { width: calc(clamp(220px, 36vw, 340px) * var(--shell-hud-scale, 1)); height: 48px; }
+body[data-touch="1"] { --mm: calc(clamp(92px, 24vh, 148px) * var(--shell-hud-scale, 1)); }
+/* phones: the core draws slot widgets at 80 % — keep that, times the player's HUD scale */
+body[data-device="phone"] #hud .hud-slot:not(.hud-slot-center) > .hud-widget:not(.shell-minimap):not(.shell-compass):not(.sys-chat) { zoom: calc(0.8 * var(--shell-hud-scale, 1)); }
+body[data-device="phone"] .shell-travel { min-width: min(340px, calc(100vw - 2 * 190px)); padding: 7px 10px; }
+body[data-device="phone"] .shell-travel-sub { display: none; }
 body[data-device="phone"] .shell-zone-inner { min-width: 0; padding: 8px 16px 8px 11px; }
 body[data-device="phone"] .shell-sm-label { font-size: 12.5px; }
 body[data-device="phone"] .shell-sm-dist { font-size: 12px; }

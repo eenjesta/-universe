@@ -11,9 +11,21 @@
  * narrower FOV and finer mouse look (settings in rig.aim); aimRay() → { origin, dir,
  * near } is the camera-centre ray (near = distance to the followed target along it, so
  * hits in front of the player can be ignored). Without aiming nothing changes.
+ * First person: setFirstPerson({ target, eye(out, rig) → Vector3, pitchOff, roll }) registers the
+ * eye provider (first-person.js); setView('first' | 'third') eases between the over-the-shoulder
+ * framing and the eye (rig.fpW 0…1, ~0.3 s) — same yaw/pitch, wider pitch range, FOV = rig.fov
+ * (settings.fov), tiny near plane, gentler shake, aimRay from the eye. While zoom is enabled,
+ * scrolling in past the closest distance enters first person and scrolling out leaves it
+ * (rig.onViewRequest(view) is called so the owner can persist it). fpBlock (e.g. 'dead') suspends FP.
+ * pitchRange → [min, max] of the current view (clamp external pitch changes such as recoil with it).
  */
 import * as THREE from 'three';
 import { clamp, damp, dampAngle } from '../core/math.js';
+
+const FP_TIME = 0.32; // s for a full third ↔ first transition
+const NEAR_3P = 0.15;
+const NEAR_FP = 0.06;
+const sstep = (x) => x * x * (3 - 2 * x);
 
 export function createCameraRig(ctx) {
   const camera = ctx.camera;
@@ -39,6 +51,14 @@ export function createCameraRig(ctx) {
   let aimOn = false;
   const ray = { origin: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1), near: 0, direction: null };
   ray.direction = ray.dir; // alias
+  // ---- first person
+  let fpProv = null; // eye provider { target, eye(out, rig), pitchOff, roll }
+  let fpP = 0; // linear transition progress (fpW = smoothstep(fpP))
+  let zoomInAcc = 0;
+  const eye = new THREE.Vector3();
+  const pRange = [-1.15, 0.72];
+  const qFp = new THREE.Quaternion();
+  const eFp = new THREE.Euler(0, 0, 0, 'YXZ');
 
   const rig = {
     camera,
@@ -61,9 +81,15 @@ export function createCameraRig(ctx) {
     swayPhase: 0,
     rightVec: new THREE.Vector3(1, 0, 0), // camera right on the XZ plane (read by others)
     _zoom: 3.4,
-    /** Aim framing (combat): distance, shoulder offset, extra height, FOV, look sensitivity, blend rate. */
-    aim: { distance: 1.5, shoulder: 0.64, height: 0.06, fov: 45, look: 0.78, rate: 9 },
+    /** Aim framing (combat): distance, shoulder offset, extra height, FOV, look sensitivity, blend rate; fpZoom = FP aim FOV factor. */
+    aim: { distance: 1.5, shoulder: 0.64, height: 0.06, fov: 45, look: 0.78, rate: 9, fpZoom: 0.74 },
     aimW: 0, // 0 explore … 1 fully aimed (smoothed)
+    // ---- first person
+    view: 'third', // requested view ('third' | 'first'); setView()
+    fpW: 0, // 0 third … 1 first (eased)
+    fpBlock: null, // reason FP is suspended (e.g. 'dead' → death cam in third person)
+    fov: 70, // first-person FOV (settings.fov); third person uses baseFov + (fov − 70) × 0.5
+    onViewRequest: null, // (view) => void — scroll-zoom asked for another view
 
     /** Over-the-shoulder aim mode on/off (smooth transition). */
     setAim(on) {
@@ -73,13 +99,42 @@ export function createCameraRig(ctx) {
       return aimOn;
     },
 
+    /** Registers the first-person eye provider { target: Object3D, eye(out, rig), pitchOff?, roll? }. */
+    setFirstPerson(provider) {
+      fpProv = provider || null;
+    },
+
+    /** 'first' | 'third' — eases there (instant with snap). */
+    setView(v, { snap = false } = {}) {
+      rig.view = v === 'first' ? 'first' : 'third';
+      zoomInAcc = 0;
+      if (snap) {
+        fpP = rig.view === 'first' && rig.fpAllowed ? 1 : 0;
+        rig.fpW = sstep(fpP);
+      }
+    },
+
+    /** True when FP can show now (provider registered, following its target, not blocked). */
+    get fpAllowed() {
+      return !!fpProv && rig.target === fpProv.target && !rig.fpBlock;
+    },
+    /** The camera is (mostly) at the eye. */
+    get firstPerson() {
+      return rig.fpW > 0.5;
+    },
+    /** [min, max] pitch of the current view (first person looks almost straight up / down); reused array. */
+    get pitchRange() {
+      return pRange;
+    },
+
     /** The camera-centre ray { origin, dir (= direction), near } (reused object; valid after update()). */
     aimRay() {
       const cam = camera;
       ray.origin.setFromMatrixPosition(cam.matrixWorld);
       ray.dir.set(0, 0, -1).transformDirection(cam.matrixWorld);
       ray.near = 0;
-      if (rig.target) {
+      if (rig.fpW > 0.5) ray.near = 0.22; // the eye: only the own capsule lies in front
+      else if (rig.target) {
         rig.target.getWorldPosition(tmp);
         tmp.y += rig.height;
         ray.near = Math.max(0, tmp.sub(ray.origin).dot(ray.dir));
@@ -152,17 +207,41 @@ export function createCameraRig(ctx) {
       rig.aimW = damp(rig.aimW, aimOn ? 1 : 0, rig.aim.rate, dt);
       if (rig.aimW < 0.001 && !aimOn) rig.aimW = 0;
       const aw = rig.aimW;
+      // ---- first person blend (constant-time, eased)
+      const fpWant = rig.view === 'first' && rig.fpAllowed ? 1 : 0;
+      fpP = clamp(fpP + (fpWant ? dt : -dt) / FP_TIME, 0, 1);
+      rig.fpW = sstep(fpP);
+      const fw = rig.fpW;
+      // FP looks almost straight up / down; leaving FP pulls the pitch back into the 3P range smoothly
+      const pMin = -1.15 - 0.37 * fw;
+      const pMax = 0.72 + 0.73 * fw;
+      pRange[0] = pMin;
+      pRange[1] = pMax;
       if (rig.lookEnabled) {
         const ls = 1 + (rig.aim.look - 1) * aw;
         const lx = (input.lookX || 0) * ls;
         const ly = (input.lookY || 0) * ls;
         rig.yaw -= lx * 0.0026;
-        rig.pitch = clamp(rig.pitch - ly * 0.0021, -1.15, 0.72);
+        rig.pitch -= ly * 0.0021;
         if (Math.abs(lx) + Math.abs(ly) > 0.5) idleLook = 0;
       }
+      rig.pitch = clamp(rig.pitch, pMin, pMax);
       idleLook += dt;
       if (rig.zoomEnabled && input.wheel && !aimOn) {
-        rig._zoom = clamp(rig._zoom * (1 + input.wheel * 0.14), rig.minDistance, rig.maxDistance);
+        const wv = input.wheel;
+        if (fpProv && rig.target === fpProv.target && rig.onViewRequest) {
+          // Roblox-style: scroll in past the closest distance → first person; scroll out of it → third
+          if (rig.view === 'first') {
+            if (wv > 0) {
+              rig._zoom = rig.minDistance;
+              rig.onViewRequest('third');
+            }
+          } else if (wv < 0 && rig._zoom <= rig.minDistance + 0.01) {
+            zoomInAcc += -wv;
+            if (zoomInAcc >= 1.5) rig.onViewRequest('first');
+          } else zoomInAcc = 0;
+        }
+        if (rig.view !== 'first') rig._zoom = clamp(rig._zoom * (1 + wv * 0.14), rig.minDistance, rig.maxDistance);
       }
       rig.distance = damp(rig.distance, rig._zoom, 10, dt);
 
@@ -240,29 +319,50 @@ export function createCameraRig(ctx) {
 
       // ---- sway + shake
       rig.swayPhase += dt;
-      const sw = rig.sway;
+      const sw = rig.sway * (1 - fw);
       desired.y += Math.sin(rig.swayPhase * 9.5) * 0.012 * sw;
       desired.addScaledVector(right, Math.sin(rig.swayPhase * 4.75) * 0.01 * sw);
       camera.position.copy(desired);
       look.copy(pivot);
       look.y += rig.aimHeight * clamp(dist / 4, 0.4, 1.4);
       camera.lookAt(look);
+      // ---- first person: the eye (provider) + yaw / pitch (+ the provider's dip / roll), blended in
+      if (fw > 0 && fpProv) {
+        fpProv.eye(eye, rig);
+        eFp.set(rig.pitch + (fpProv.pitchOff || 0), rig.yaw, fpProv.roll || 0, 'YXZ');
+        qFp.setFromEuler(eFp);
+        if (fw >= 0.999) {
+          camera.position.copy(eye);
+          camera.quaternion.copy(qFp);
+        } else {
+          camera.position.lerp(eye, fw);
+          camera.quaternion.slerp(qFp, fw);
+        }
+      }
       if (trauma > 0) {
         shakeT += dt;
         const s = trauma * trauma;
+        const rs = 1 - 0.45 * fw; // at the eye: less rotation, almost no translation
+        const ts = 1 - 0.9 * fw;
         e.setFromQuaternion(camera.quaternion);
-        e.x += Math.sin(shakeT * 41.3) * 0.035 * s;
-        e.y += Math.sin(shakeT * 37.1 + 1.7) * 0.035 * s;
-        e.z += Math.sin(shakeT * 29.7 + 0.4) * 0.05 * s;
+        e.x += Math.sin(shakeT * 41.3) * 0.035 * s * rs;
+        e.y += Math.sin(shakeT * 37.1 + 1.7) * 0.035 * s * rs;
+        e.z += Math.sin(shakeT * 29.7 + 0.4) * 0.05 * s * rs;
         camera.quaternion.setFromEuler(e);
-        camera.position.x += Math.sin(shakeT * 47.9) * 0.12 * s;
-        camera.position.y += Math.sin(shakeT * 53.3 + 2.1) * 0.12 * s;
+        camera.position.x += Math.sin(shakeT * 47.9) * 0.12 * s * ts;
+        camera.position.y += Math.sin(shakeT * 53.3 + 2.1) * 0.12 * s * ts;
         trauma = Math.max(0, trauma - dt * 1.5);
       }
-      // ---- fov kick
-      const fov = rig.baseFov + rig.fovKick * 7 * (1 - aw) + (rig.aim.fov - rig.baseFov) * aw;
-      if (Math.abs(camera.fov - fov) > 0.01) {
-        camera.fov = initialised ? damp(camera.fov, fov, 4, dt) : fov;
+      // ---- fov: third person (+ sprint kick, aim zoom) ↔ first person (settings.fov, aim zoom)
+      const base3 = rig.baseFov + (rig.fov - 70) * 0.5;
+      const fov3 = base3 + rig.fovKick * 7 * (1 - aw) + (rig.aim.fov - rig.baseFov) * aw;
+      const fov1 = rig.fov * (1 + (rig.aim.fpZoom - 1) * aw) + rig.fovKick * 5 * (1 - aw);
+      const fov = fov3 + (fov1 - fov3) * fw;
+      const near = NEAR_3P + (NEAR_FP - NEAR_3P) * fw;
+      if (Math.abs(camera.fov - fov) > 0.01 || Math.abs(camera.near - near) > 1e-4) {
+        // the view switch itself moves the FOV with the eased blend (no lag behind the camera)
+        camera.fov = initialised && fw <= 0.001 ? damp(camera.fov, fov, 4, dt) : initialised && fw >= 0.999 ? damp(camera.fov, fov, 8, dt) : fov;
+        camera.near = near;
         camera.updateProjectionMatrix();
       }
       camera.updateMatrixWorld();

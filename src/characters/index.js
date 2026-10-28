@@ -14,30 +14,40 @@
  *                  combat: holdWeapon(mesh | null, {grip, muzzle, support, stock, holster}) → {object, grip, holstered},
  *                  weapon, holster(bool), setAim(bool), aiming, aimAt(point | null),
  *                  playAction('shoot' | 'reload' | 'hit' | 'dodge' | 'die' | 'respawn', opts) → bool,
- *                  dodging (i-frames), rolling, dead, netAnim() → anim state, muzzleWorld(out)
+ *                  dodging (i-frames), rolling, dead, netAnim() → anim state, muzzleWorld(out),
+ *                  work: holdTool(mesh | toolId | null, {grip}), tool, playAction('chop' | 'mine' | 'gather' |
+ *                  'eat' | 'use' | 'build', {item, at, speed}) → duration s | false (every action returns its
+ *                  duration), actionTiming(name, tool?) → {dur, impact, move}, action, toolSocket (Object3D),
+ *                  view ('third' | 'first'), firstPerson (setView, toggle, view, viewModel)
  *   ctx.cameraRig  camera, yaw, pitch, distance, follow(object, {distance, height, minDistance, maxDistance,
  *                  shoulder, aimHeight, align, focusRate, snap}), update(dt), shake(amount), zoomEnabled, lookEnabled,
  *                  snap(), setYaw(h, pitch?), focus(target | null, {distance, pitch, rate}), rightVec,
- *                  setAim(bool), aiming, aimW, aim (framing settings), aimRay() → {origin, dir (= direction), near}
+ *                  setAim(bool), aiming, aimW, aim (framing settings), aimRay() → {origin, dir (= direction), near},
+ *                  first person: view, setView(v), fpW (0…1), firstPerson, fpBlock, fov
  *   ctx.remotes    remote player avatars (remotes.js): add(id, {name, appearance}), remove(id), get(id),
  *                  list, count, clear(), mock(n) (?mockRemotes=N), driven by ctx.net.players views
  *   ctx.npcs       list, get(id), party (Set), named, say/setGoal/follow/lookAt per NPC,
  *                  spawn(def), remove(id), startGathering(), endGathering(), triangles()
  *   ctx.portraits  render(appearance | npcId, {width, height, framing: 'face'|'bust'|'full', view, fast}), has(), clearCache()
  * Events: player:zone, player:jump, player:land, player:footstep, player:dodge, player:die,
- * player:respawn, npc:interact, npc:say, customize:done, remote:add, remote:remove.
+ * player:respawn, npc:interact, npc:say, customize:done, remote:add, remote:remove,
+ * action:start {action, tool, item, duration, impact, view}, action:impact {action, tool, view, at, dir},
+ * camera:mode {mode: 'third' | 'first', fov}.
+ * Settings read: settings.camera ('third' | 'first'; V toggles), settings.fov (70), settings.headBob (true).
  * Heavy hero meshes are built in a module worker (build-worker.js) when possible.
  */
 import './characters.css';
 import { registerIcons } from '../ui/icons.js';
 import { createCharacterMaterial, updateRimFromWorld } from './material.js';
-import { createPlayer } from './player.js';
+import { createPlayer, setWorkNetAnims } from './player.js';
 import { createCameraRig } from './camera-rig.js';
 import { createPortraits } from './portraits.js';
 import { createNpcs } from './npcs.js';
 import { createDrones } from './drones.js';
 import { createCombatFx } from './combat-fx.js';
 import { createRemotes } from './remotes.js';
+import { createFirstPerson } from './first-person.js';
+import { createSwingTrails } from './swing-trail.js';
 import { Labels } from './labels.js';
 import { createStudio } from './studio.js';
 import { createCreator, defaultName, isDefaultName } from './creator.js';
@@ -62,6 +72,8 @@ export async function install(ctx, { progress = () => {} } = {}) {
   const camera = ctx.camera;
   const { state, events, modes, loop, ui, input } = ctx;
   const worldMat = createCharacterMaterial({ rim: 1, name: 'chr-world' });
+  // the local player's own material: same shader + the first-person upper-body discard (colour pass only)
+  const playerMat = createCharacterMaterial({ rim: 1, name: 'chr-player', fpHide: true });
 
   // ---------------------------------------------------------------- profile
   const profile = state.ensure('profile', { name: defaultName(), created: false, appearance: normalizeAppearance({}) });
@@ -74,8 +86,20 @@ export async function install(ctx, { progress = () => {} } = {}) {
   const rig = createCameraRig(ctx);
   ctx.cameraRig = rig;
   const fx = createCombatFx(ctx);
-  const player = createPlayer(ctx, { material: worldMat, fx });
+  // additive ribbons behind swinging tool heads (3P + remotes): swings read from any camera angle
+  const trails = createSwingTrails(ctx);
+  const player = createPlayer(ctx, { material: playerMat, fx, trails });
   ctx.player = player;
+  // first person: view toggle (V / touch / scroll), eye camera, body hiding, view model (arms + items)
+  const firstPerson = createFirstPerson(ctx, { player, rig, material: playerMat });
+  player.firstPerson = firstPerson;
+  // remotes see chop / mine / gather / eat / use once the sim accepts them in C.STATE (same build as the server)
+  import('../../shared/sim/players.js')
+    .then((m) => {
+      const A = m?.ANIMS;
+      if (A && (typeof A.has === 'function' ? A.has('chop') : Array.isArray(A) && A.includes('chop'))) setWorkNetAnims(true);
+    })
+    .catch(() => {});
   progress(0.3);
 
   // -------------------------------------------------------------- portraits
@@ -112,7 +136,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
   // ---------------------------------------------------------- remote players
   let remotes = null;
   try {
-    remotes = createRemotes(ctx, { material: worldMat, labels, fx });
+    remotes = createRemotes(ctx, { material: worldMat, labels, fx, trails });
   } catch (err) {
     console.error('[characters] remote players failed — continuing without them', err);
     ctx.errors.push({ module: 'characters/remotes', error: String(err?.stack || err) });
@@ -120,9 +144,19 @@ export async function install(ctx, { progress = () => {} } = {}) {
   ctx.remotes = remotes;
 
   // ------------------------------------------------------------ loop systems
-  loop.add('chr-rim', () => updateRimFromWorld(worldMat, world, 0.78), { order: 19 });
+  loop.add(
+    'chr-rim',
+    () => {
+      updateRimFromWorld(worldMat, world, 0.78);
+      updateRimFromWorld(playerMat, world, 0.78);
+    },
+    { order: 19 },
+  );
+  // view model + FP feel after the camera (modes 20) and combat (21): this frame's muzzle / socket
+  loop.add('chr-fp', (dt) => firstPerson.update(dt), { order: 28 });
   loop.add('chr-remotes', (dt) => remotes?.update(dt), { order: 34, when: () => modes.is('explore', 'drive', 'title') });
   loop.add('chr-fx', (dt) => fx.update(dt), { order: 35 });
+  loop.add('chr-trails', (dt) => trails.update(dt), { order: 36 });
   loop.add('chr-player-idle', (dt) => player.idle(dt, modes.is('title')), {
     order: 30,
     when: () => !modes.is('explore', 'customize') && player.object.visible,
@@ -160,6 +194,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
     update(dt) {
       player.update(dt);
       rig.update(dt);
+      firstPerson.handleInput();
       ctx.audio.setListener(camera);
       if (input.actionPressed('character') && !modes.transitioning) {
         modes.go('customize', { returnTo: 'explore' });
@@ -245,7 +280,9 @@ export async function install(ctx, { progress = () => {} } = {}) {
     drones,
     remotes,
     fx,
+    firstPerson,
     material: worldMat,
+    playerMaterial: playerMat,
     PLAYER_CAM,
     catalog: { OUTFITS, HAIR_STYLES, SKIN_TONES, OUTFIT_COLORS },
     normalizeAppearance,

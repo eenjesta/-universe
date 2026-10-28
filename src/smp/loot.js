@@ -209,6 +209,8 @@ export function createLoot(ctx, smp) {
 
   /** S.LOOT {add, remove, by, got}. */
   function onMessage(m = {}) {
+    const first = (m.remove || [])[0];
+    const kind = first != null ? crates.get(String(first))?.kind ?? null : null;
     for (const id of m.remove || []) remove(id);
     for (const raw of m.add || []) add(raw);
     sync();
@@ -218,7 +220,7 @@ export function createLoot(ctx, smp) {
         ctx.ui.toast({ title: t(TXT.got), text: items.slice(0, 4).map(itemText).join(' · '), icon: 'smp-crate', kind: 'reward', duration: 3200 });
         ctx.audio?.play?.('reward');
       }
-      events.emit('smp:pickup', { loot: (m.remove || [])[0] ?? null, got: m.got });
+      events.emit('smp:pickup', { loot: first ?? null, got: m.got, kind });
     }
   }
 
@@ -245,8 +247,18 @@ export function createLoot(ctx, smp) {
     const pos = new THREE.Vector3(x, (c ? c.y : +p?.[1] || 0) + 1, z);
     smp.deathDrop = { id: String(id), pos, until: ctx.loop.time + (c?.until ? c.until - ctx.loop.time : DEATH_DROP.ttl) };
     dropLabelKey = '';
+    // the death screen already says so: the toast waits for the respawn (it covered the screen's title)
+    dropToast = true;
+  }
+  let dropToast = false;
+  function showDropToast() {
+    if (!dropToast || !smp.deathDrop) return;
+    dropToast = false;
     ui.toast({ title: t(TXT.dropTitle), text: t(TXT.dropText), icon: 'smp-skull', kind: 'warn', duration: 6500 });
   }
+  ctx.events?.on?.('smp:stats', () => {
+    if (dropToast && !smp.stats?.dead) setTimeout(showDropToast, 900);
+  });
   function clearDrop() {
     smp.deathDrop = null;
     ctx.markers?.remove?.('smp-drop');

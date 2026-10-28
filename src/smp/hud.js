@@ -5,13 +5,18 @@
  * onboarding tips for new players (pistol issued, find a workbench, claim your
  * land, set a spawn beacon). Styles in smp.css.
  */
-import { ITEMS } from '../../shared/defs/items.js';
+import { ITEMS, BUFFS } from '../../shared/defs/items.js';
 import { t } from '../core/i18n.js';
+import { bestFood, foodCount, clock } from './logic.js';
+import { itemIcon } from './icons.js';
 
-export const CONSUMABLES = ['ration', 'medkit', 'shield-cell'];
+/** Quick bar slots (keys 5–7): 'food' = the best food you carry (meals → ration → raw food). */
+export const CONSUMABLES = ['food', 'medkit', 'shield-cell'];
+const BUFF_ORDER = ['cold', 'warm', 'fed', 'swift', 'charged', 'rested'];
 
 const TXT = {
   inventory: { en: 'Inventory', nl: 'Inventaris' },
+  eat: { en: 'Eat', nl: 'Eten' },
   claimedBy: { en: 'Claimed by {name}', nl: 'Geclaimd door {name}' },
   claimed: { en: 'Claimed land', nl: 'Geclaimd land' },
   yourClaim: { en: 'Your claim', nl: 'Jouw claim' },
@@ -27,24 +32,31 @@ const TXT = {
   leavingText: { en: 'Enemies roam out here, hunger sets in and the night is dangerous. Building is allowed from {m} m beyond the border.', nl: 'Hier zwerven vijanden, je krijgt honger en de nacht is gevaarlijk. Bouwen mag vanaf {m} m voorbij de grens.' },
   enteredText: { en: 'Weapons holstered · no damage · no hunger.', nl: 'Wapens opgeborgen · geen schade · geen honger.' },
   hungryTitle: { en: 'You’re hungry', nl: 'Je hebt honger' },
-  hungry: { en: 'Eat a ration — press 5.', nl: 'Eet een rantsoen — druk op 5.' },
-  hungryTouch: { en: 'Eat a ration — tap it in the quick bar.', nl: 'Eet een rantsoen — tik erop in de snelbalk.' },
-  hungryNone: { en: 'Craft rations at a workbench (2 wood, 1 energy).', nl: 'Maak rantsoenen aan een werkbank (2 hout, 1 energie).' },
+  hungry: { en: 'Eat something — press 5.', nl: 'Eet iets — druk op 5.' },
+  hungryTouch: { en: 'Eat something — tap the food slot in the quick bar.', nl: 'Eet iets — tik op het eten in de snelbalk.' },
+  hungryNone: { en: 'Pick berries and glowcaps in the wild, or cook a meal at a campfire.', nl: 'Pluk bessen en gloeikappen in de wildernis, of kook een maaltijd op een kampvuur.' },
+  coldTitle: { en: 'A cold night', nl: 'Een koude nacht' },
+  coldText: { en: 'Out in the dark you get hungry faster. Build a campfire (B → 7) — its warmth heals you.', nl: 'In het donker krijg je sneller honger. Bouw een kampvuur (B → 7) — de warmte geneest je.' },
+  coldTouch: { en: 'Out in the dark you get hungry faster. Build a campfire (Menu → Build → Survival).', nl: 'In het donker krijg je sneller honger. Bouw een kampvuur (Menu → Bouwen → Overleven).' },
   starvingTitle: { en: 'Starving!', nl: 'Je verhongert!' },
   starving: { en: 'You are losing health — eat a ration now.', nl: 'Je verliest gezondheid — eet nu een rantsoen.' },
   lowHpTitle: { en: 'Low health', nl: 'Weinig gezondheid' },
   lowHp: { en: 'Use a medkit — press 6.', nl: 'Gebruik een medkit — druk op 6.' },
   lowHpTouch: { en: 'Use a medkit from the quick bar.', nl: 'Gebruik een medkit uit de snelbalk.' },
+  crate: { en: 'Your crate · {d}', nl: 'Je krat · {d}' },
+  crateDesc: { en: 'The supplies you dropped — only you can open the crate. Follow the gold marker.', nl: 'De voorraad die je liet vallen — alleen jij kunt de krat openen. Volg de gouden markering.' },
   tipPistolTitle: { en: 'Survival — welcome', nl: 'Overleven — welkom' },
-  tipPistol: { en: 'You were issued a Pulse Pistol and 3 rations. Press 1 to draw the pistol, I for your inventory.', nl: 'Je hebt een Pulspistool en 3 rantsoenen gekregen. Druk op 1 om het pistool te trekken, I voor je inventaris.' },
-  tipPistolTouch: { en: 'You were issued a Pulse Pistol and 3 rations. Menu → Inventory shows your gear.', nl: 'Je hebt een Pulspistool en 3 rantsoenen gekregen. Menu → Inventaris toont je uitrusting.' },
-  tipBenchTitle: { en: 'Find a workbench', nl: 'Zoek een werkbank' },
-  tipBench: { en: 'Crafting needs a Workbench. Out beyond the hub, harvest wood, stone and metal (hold E), then press B → 7 Survival → Workbench.', nl: 'Maken kan aan een werkbank. Oogst buiten de hub hout, steen en metaal (houd E vast) en druk dan op B → 7 Overleven → Werkbank.' },
-  tipBenchTouch: { en: 'Crafting needs a Workbench. Out beyond the hub, harvest resources, then Menu → Build → Survival → Workbench.', nl: 'Maken kan aan een werkbank. Oogst buiten de hub grondstoffen, dan Menu → Bouwen → Overleven → Werkbank.' },
+  tipPistol: { en: 'You carry a Pulse Pistol, rations, bandages and a handful of berries. 1 draws the pistol, I opens your inventory and crafting.', nl: 'Je hebt een Pulspistool, rantsoenen, verband en een handvol bessen bij je. 1 trekt het pistool, I opent je inventaris en het maken.' },
+  tipPistolTouch: { en: 'You carry a Pulse Pistol, rations, bandages and a handful of berries. Menu → Inventory shows your gear and crafting.', nl: 'Je hebt een Pulspistool, rantsoenen, verband en een handvol bessen bij je. Menu → Inventaris toont je uitrusting en het maken.' },
+  tipBenchTitle: { en: 'Workbench', nl: 'Werkbank' },
+  tipBench: { en: 'Open your inventory (I) next to it: ammo, medkits, weapons and gear. Upgrade it to Mk II and Mk III for better recipes.', nl: 'Open je inventaris (I) ernaast: munitie, medkits, wapens en uitrusting. Upgrade naar Mk II en Mk III voor betere recepten.' },
+  tipBenchTouch: { en: 'Open your inventory next to it: ammo, medkits, weapons and gear. Upgrade it to Mk II and Mk III for better recipes.', nl: 'Open je inventaris ernaast: munitie, medkits, wapens en uitrusting. Upgrade naar Mk II en Mk III voor betere recepten.' },
+  tipFireTitle: { en: 'Campfire', nl: 'Kampvuur' },
+  tipFire: { en: 'Step up to it ([E]) to cook raw food into meals. Its warmth heals you and keeps the night chill away.', nl: 'Loop erheen ([E]) om rauw eten tot maaltijden te koken. De warmte geneest je en houdt de nachtkou weg.' },
   tipClaimTitle: { en: 'Claim your land', nl: 'Claim je land' },
   tipClaim: { en: 'Place a Claim Beacon (Survival): nobody else can build or demolish within 24 m of it.', nl: 'Plaats een claimbaken (Overleven): niemand anders kan binnen 24 m bouwen of slopen.' },
   tipSpawnTitle: { en: 'Respawn at home', nl: 'Respawnen in je basis' },
-  tipSpawn: { en: 'Build a Spawn Beacon in your base: after a defeat you can return there.', nl: 'Bouw een spawnbaken in je basis: na een nederlaag kun je daar terugkeren.' },
+  tipSpawn: { en: 'Build a Bed or Sleeping Bag (Survival) and sleep in it: after a defeat you wake up there.', nl: 'Bouw een bed of slaapzak (Overleven) en slaap erin: na een nederlaag word je daar wakker.' },
 };
 
 export function createSmpHud(ctx, smp) {
@@ -57,26 +69,27 @@ export function createSmpHud(ctx, smp) {
   const bar = h(
     'div',
     { class: 'smp-quick', role: 'toolbar', 'aria-label': t(TXT.inventory) },
-    CONSUMABLES.map((id) => {
+    CONSUMABLES.map((id, k) => {
       const def = ITEMS[id];
       const count = h('span', { class: 'smp-quick-count num', text: '0' });
+      const iconEl = h('span', { class: 'smp-quick-icon', html: ui.icon(id === 'food' ? 'smp-food' : itemIcon(id), 22) });
       const el = h(
         'button',
         {
-          class: 'smp-quick-slot',
+          class: `smp-quick-slot${id === 'food' ? ' smp-quick-food' : ''}`,
           type: 'button',
           dataset: { item: id },
-          title: `${t(def.name)} [${def.hotkey}]`,
+          title: `${id === 'food' ? t(TXT.eat) : t(def.name)} [${5 + k}]`,
           onclick: (e) => {
             e.currentTarget.blur();
-            smp.use(id);
+            id === 'food' ? smp.eat() : smp.use(id);
           },
         },
-        h('span', { class: 'smp-quick-key', text: String(def.hotkey) }),
-        h('span', { class: 'smp-quick-icon', html: ui.icon(id === 'ration' ? 'smp-ration' : id === 'medkit' ? 'smp-medkit' : 'smp-shield', 22) }),
+        h('span', { class: 'smp-quick-key', text: String(5 + k) }),
+        iconEl,
         count,
       );
-      slots[id] = { el, count, n: -1 };
+      slots[id] = { el, count, iconEl, n: -1, icon: '' };
       return el;
     }),
     h(
@@ -97,11 +110,89 @@ export function createSmpHud(ctx, smp) {
   ui.addWidget('bottom-right', bar, { modes: ['explore'], order: 6 });
   ui.setVisible(bar, false);
 
+  // ------------------------------------------------------------ buff strip (above the vitals)
+  const strip = h('div', { class: 'smp-buffs', role: 'status' });
+  ui.addWidget('bottom-center', strip, { modes: ['explore'], order: 21 });
+  ui.setVisible(strip, false);
+  const pills = new Map(); // id → {el, time}
+  let stripKey = '';
+  const dist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+  function renderBuffs() {
+    const fx = smp.fx || {};
+    const ids = BUFF_ORDER.filter((id) => fx[id]);
+    // your death crate: time left + distance (the compass / screen marker shows where)
+    const drop = smp.deathDrop && !smp.stats?.dead ? smp.deathDrop : null;
+    if (drop) ids.unshift('crate');
+    const now = typeof ctx.net?.serverTime === 'function' ? ctx.net.serverTime() : Date.now();
+    const key = ids.join(',');
+    if (key !== stripKey) {
+      stripKey = key;
+      strip.innerHTML = '';
+      pills.clear();
+      for (const id of ids) {
+        if (id === 'crate') {
+          const time = h('span', { class: 'smp-buff-time num' });
+          const name = h('span', { class: 'smp-buff-name' });
+          const el = h('div', { class: 'smp-buff crate', dataset: { buff: 'crate' }, title: t(TXT.crateDesc) }, h('span', { class: 'smp-buff-icon', html: ui.icon('smp-skull', 14) }), name, time);
+          strip.appendChild(el);
+          pills.set(id, { el, time, name, last: '' });
+          continue;
+        }
+        const b = BUFFS[id];
+        const time = h('span', { class: 'smp-buff-time num' });
+        const el = h('div', { class: `smp-buff${b.bad ? ' bad' : ''}`, dataset: { buff: id }, title: t(b.desc) }, h('span', { class: 'smp-buff-icon', html: ui.icon(b.icon, 14) }), h('span', { class: 'smp-buff-name', text: t(b.name) }), time);
+        strip.appendChild(el);
+        pills.set(id, { el, time, last: '' });
+      }
+    }
+    for (const [id, p] of pills) {
+      if (id === 'crate') {
+        if (!drop) continue;
+        const pp = ctx.player?.position;
+        const left = Math.max(0, drop.until - ctx.loop.time);
+        const txt = `${t(TXT.crate, { d: pp ? dist(Math.hypot(drop.pos.x - pp.x, drop.pos.z - pp.z)) : '' })}|${clock(left)}`;
+        if (txt !== p.last) {
+          p.last = txt;
+          const [a, b] = txt.split('|');
+          p.name.textContent = a;
+          p.time.textContent = b;
+          p.el.classList.toggle('ending', left < 60);
+        }
+        continue;
+      }
+      const v = fx[id];
+      const txt = v > 1 ? clock((v - now) / 1000) : '';
+      if (txt !== p.last) {
+        p.last = txt;
+        p.time.textContent = txt;
+        p.el.classList.toggle('ending', v > 1 && v - now < 30000);
+      }
+    }
+    ui.setVisible(strip, !!smp.ready && ids.length > 0 && !ctx.build?.active);
+  }
+  events.on('smp:fx', () => {
+    renderBuffs();
+    if (smp.fx?.cold && !warn.coldShown) {
+      warn.coldShown = true;
+      tip('cold', TXT.coldTitle, touch ? TXT.coldTouch : TXT.coldText);
+    }
+  });
+
   function refreshBar() {
     const inv = smp.inv;
     for (const id of CONSUMABLES) {
       const s = slots[id];
-      const n = inv.items?.[id] | 0;
+      let n = inv.items?.[id] | 0;
+      if (id === 'food') {
+        n = foodCount(inv);
+        const best = bestFood(inv);
+        const ic = best ? itemIcon(best.id) : 'smp-food';
+        if (ic !== s.icon) {
+          s.icon = ic;
+          s.iconEl.innerHTML = ui.icon(ic, 22);
+        }
+        s.el.title = `${t(TXT.eat)}${best ? ` — ${t(ITEMS[best.id].name)}` : ''} [5]`;
+      }
       if (n !== s.n) {
         if (s.n >= 0 && n > s.n) {
           s.el.classList.remove('gain');
@@ -116,7 +207,8 @@ export function createSmpHud(ctx, smp) {
   }
 
   function flashSlot(id, ok) {
-    const s = slots[id];
+    const k = ITEMS[id]?.kind;
+    const s = slots[id] || (k === 'food' || k === 'meal' || id === 'ration' || id === 'food' ? slots.food : null);
     if (!s) return;
     const cls = ok ? 'used' : 'denied';
     s.el.classList.remove('used', 'denied');
@@ -204,6 +296,7 @@ export function createSmpHud(ctx, smp) {
   function refreshVisible() {
     const on = !!smp.ready && !ctx.build?.active;
     ui.setVisible(bar, on);
+    renderBuffs();
   }
   events.on('build:mode', refreshVisible);
 
@@ -221,9 +314,9 @@ export function createSmpHud(ctx, smp) {
       } else if (en > 5) warn.starving = false;
       if (en < 25 && en > 0.5 && !warn.hungry) {
         warn.hungry = true;
-        const has = (smp.inv.items?.ration | 0) > 0;
-        ui.toast({ title: t(TXT.hungryTitle), text: t(has ? (touch ? TXT.hungryTouch : TXT.hungry) : TXT.hungryNone), icon: 'smp-ration', kind: 'warn', duration: 6000 });
-        flashSlot('ration', true);
+        const has = foodCount(smp.inv) > 0;
+        ui.toast({ title: t(TXT.hungryTitle), text: t(has ? (touch ? TXT.hungryTouch : TXT.hungry) : TXT.hungryNone), icon: 'smp-food', kind: 'warn', duration: 6000 });
+        flashSlot('food', true);
       } else if (en > 35) warn.hungry = false;
     }
     if (Number.isFinite(hp) && hp > 0 && hp < 35 && (smp.inv.items?.medkit | 0) > 0 && ctx.loop.time - warn.lowHp > 30) {
@@ -268,19 +361,26 @@ export function createSmpHud(ctx, smp) {
   }
   events.on('build:placed', ({ piece } = {}) => {
     if (!smp.ready) return;
-    if (piece === 'workbench') tip('claim', TXT.tipClaimTitle, TXT.tipClaim);
-    if (piece === 'claim-beacon') tip('spawn', TXT.tipSpawnTitle, TXT.tipSpawn);
+    if (piece === 'workbench') tip('bench2', TXT.tipBenchTitle, touch ? TXT.tipBenchTouch : TXT.tipBench);
+    if (piece === 'campfire') tip('fire', TXT.tipFireTitle, TXT.tipFire);
+    if (piece === 'claim-beacon' && !smp.bedId) tip('bed', TXT.tipSpawnTitle, TXT.tipSpawn);
   });
   let slowAcc = 0;
+  let buffAcc = 0;
   function update(dt) {
     flushTips(dt);
+    buffAcc += dt;
+    if (buffAcc > 0.5 && (pills.size || smp.deathDrop)) {
+      buffAcc = 0;
+      renderBuffs();
+    }
     slowAcc += dt;
     if (slowAcc < 1) return;
     slowAcc = 0;
     if (!smp.ready || readyAt < 0) return;
     const since = ctx.loop.time - readyAt;
-    if (since > 40 && !owns('workbench') && !smp.station()) tip('bench', TXT.tipBenchTitle, touch ? TXT.tipBenchTouch : TXT.tipBench);
-    if (since > 40 && owns('workbench') && !owns('claim-beacon')) tip('claim', TXT.tipClaimTitle, TXT.tipClaim);
+    // (the survival onboarding quests guide the rest: src/systems/quests/data.js wild1 … wild6)
+    if (since > 40 && owns('workbench') && !owns('claim-beacon') && !ctx.quests?.isActive?.('wild4')) tip('claim', TXT.tipClaimTitle, TXT.tipClaim);
   }
 
   return { bar, pill, refreshBar, refreshVisible, flashSlot, setClaim, setZone, onStats, onReady, update, tip };

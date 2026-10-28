@@ -7,6 +7,11 @@ import { createVegetationMaterials } from '../world/terrain/vegmaterial.js';
 import { createPlantLibrary } from '../world/terrain/plants.js';
 import { bakeImpostors, impostorQuad, createImpostorMaterial } from '../world/terrain/impostor.js';
 import { ihash } from '../world/terrain/instancing.js';
+import { KIND_PREFIX, PREFIX_SLOT, GROW_SECONDS, easeOut, stumpGeometry, rubbleGeometry, cropGeometry, mushroomGeometry, createGatherMaterial, createNearFadeMaterial } from './features.js';
+import { rockRadius } from '../../shared/defs/tools.js';
+import { BIOME_LIST } from '../../shared/worldgen/index.js';
+
+const BIOME_IDS = BIOME_LIST.map((b) => b.id);
 
 /**
  * Everything that stands on the frontier terrain, streamed per 64 m chunk from
@@ -15,15 +20,23 @@ import { ihash } from '../world/terrain/instancing.js';
  * resource nodes (optional visuals; ids for interaction), POI models and
  * waystone beacons. Uses the hub's vegetation materials / atlas / impostors
  * when the hub world is installed (one program, one atlas), else builds them.
+ *
+ * Gathering (src/gather): every decor instance keeps its world-feature id (worker `ids`), and a
+ * per-feature state (felled / broken / picked + regrowAt, or `hidden` while gather draws its own
+ * animated proxy) rebuilds only the affected chunk: felled trees leave stumps, broken rocks rubble,
+ * picked plants / berry crops / mushrooms vanish — and everything grows back visibly during the
+ * last part of its regrow time (GROW_SECONDS). See `features` in the returned object.
  */
 const CHUNK = 64;
+// albedo-ish rock tints (× the geometry's AO): real rock sits around 0.3–0.5 — brighter reads as
+// snow in the sun; the highlands keep their pale granite, the badlands their red sandstone
 const BIOME_ROCK_TINT = [
-  [0.7, 0.68, 0.64], // ocean
-  [0.86, 0.8, 0.7], // coast
-  [0.78, 0.74, 0.68], // meadow
-  [0.6, 0.62, 0.56], // forest
-  [0.55, 0.6, 0.52], // jungle
-  [0.84, 0.88, 0.92], // highlands
+  [0.56, 0.54, 0.51], // ocean
+  [0.68, 0.63, 0.55], // coast
+  [0.6, 0.57, 0.52], // meadow
+  [0.47, 0.48, 0.44], // forest
+  [0.43, 0.47, 0.41], // jungle
+  [0.74, 0.77, 0.8], // highlands
   [0.72, 0.36, 0.22], // badlands
   [0.5, 0.52, 0.56], // peaks (dark granite against the snow)
 ];
@@ -57,18 +70,21 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
   }
 
   const Q = { ...quality };
-  const layers = { tree: [], bush: [], rock: [], crystal: [], grass: null, flowers: [], node: {} };
+  const layers = { tree: [], bush: [], rock: [], crystal: [], grass: null, flowers: [], node: {}, mushroom: [], crop: [], stump: null, rubble: null };
   const farOf = (name, radius) => {
     if (impostors?.quads?.[name]) return { geometry: impostors.quads[name], material: impostors.material, radius };
     if (lib.far[name]) return { geometry: lib.far[name], material: mats.far, radius };
     return null;
   };
+  // trees: the vegetation material + a screen-door fade of foliage right at the camera (3P camera
+  // behind a woodcutter / walking under low branches); shadows keep the full crown (mats.depth)
+  const treeMat = createNearFadeMaterial(mats.near);
   TREE_VARIANTS.forEach((name, i) => {
     layers.tree[i] = new DynamicScatter({
       name: `frontier-tree-${name}`,
       parent: group,
       capacity: Q.treeCap,
-      near: { geometry: lib.near[name].geometry, material: mats.near, depthMaterial: mats.depth, castShadow: true, radius: Q.treeNear, capacity: 700 },
+      near: { geometry: lib.near[name].geometry, material: treeMat, depthMaterial: mats.depth, castShadow: true, radius: Q.treeNear, capacity: 700 },
       far: farOf(name, Q.vegRadius),
     });
   });
@@ -102,6 +118,28 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
     const g = crystalGeometry(v);
     layers.crystal[v] = new DynamicScatter({ name: `frontier-crystal-${v}`, parent: group, capacity: 1200, near: { geometry: g, material: crystalMat, castShadow: true, radius: 140, capacity: 300 }, far: { geometry: g, material: crystalMat, radius: Math.min(Q.vegRadius, 900) } });
   }
+  // gathering: stumps, rubble, berry crops, mushroom clusters (near only — they are small)
+  const gatherMats = {
+    wood: createGatherMaterial('frontier-stump', { roughness: 0.86 }),
+    rubble: rockMat,
+    crop: createGatherMaterial('frontier-crop', { roughness: 0.32, glow: 0.35 }),
+    mushroom: createGatherMaterial('frontier-mushroom', { roughness: 0.6, glow: 1.4 }),
+  };
+  layers.stump = new DynamicScatter({ name: 'frontier-stump', parent: group, capacity: 1500, near: { geometry: stumpGeometry(), material: gatherMats.wood, castShadow: true, radius: 160, capacity: 400 }, far: null, dither: 0 });
+  layers.rubble = new DynamicScatter({ name: 'frontier-rubble', parent: group, capacity: 1200, near: { geometry: rubbleGeometry(), material: rockMat, castShadow: true, radius: 140, capacity: 300 }, far: null, dither: 0 });
+  layers.crop = [
+    new DynamicScatter({ name: 'frontier-crop-red', parent: group, capacity: 1500, near: { geometry: cropGeometry(1.3, [0.8, 0.07, 0.12], 5), material: gatherMats.crop, castShadow: false, radius: 90, capacity: 600 }, far: null, dither: 0 }),
+    new DynamicScatter({ name: 'frontier-crop-blue', parent: group, capacity: 1500, near: { geometry: cropGeometry(1.0, [0.22, 0.2, 0.7], 9, 22), material: gatherMats.crop, castShadow: false, radius: 90, capacity: 600 }, far: null, dither: 0 }),
+  ];
+  layers.mushroom = [
+    new DynamicScatter({ name: 'frontier-mushroom', parent: group, capacity: 1500, near: { geometry: mushroomGeometry(false), material: gatherMats.mushroom, castShadow: false, radius: 80, capacity: 500 }, far: null, dither: 0 }),
+    new DynamicScatter({ name: 'frontier-mushroom-glow', parent: group, capacity: 800, near: { geometry: mushroomGeometry(true), material: gatherMats.mushroom, castShadow: false, radius: 110, capacity: 300 }, far: null, dither: 0 }),
+  ];
+  const TRUNK = TREE_VARIANTS.map((name) => {
+    const m = lib.near[name]?.meta || {};
+    return { r: (m.trunkR || 0.3) * (name === 'jungleTree' ? 1.4 : 1), h: m.height || 12 };
+  });
+
   // grass clumps (near only, fade out toward the grass radius)
   const grassShared = { uTime: mats.shared.uTime, uGrassFade: { value: new THREE.Vector2(Q.grassRadius * 0.65, Q.grassRadius) } };
   const grassMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85, metalness: 0 });
@@ -254,45 +292,11 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
   }
 
   function ingest(c, msg) {
-    const d = msg.decor;
-    const n = d.length / 8;
-    // bucket per layer
-    const buckets = new Map();
-    for (let k = 0; k < n; k++) {
-      const o = k * 8;
-      const kind = d[o];
-      const variant = d[o + 1];
-      const x = d[o + 2];
-      const y = d[o + 3];
-      const z = d[o + 4];
-      // bushes only in the inner ring (added / removed as the camera moves, see setBushes)
-      if (kind === 1 && !(c.d < bushRadius())) continue;
-      // quality density: a stable subset
-      if (kind <= 1 && Q.treeDensity < 1 && ihash(((Math.round(x * 4) * 73856093) ^ (Math.round(z * 4) * 19349663)) >>> 0) > Q.treeDensity) continue;
-      const layer = kind === 0 ? layers.tree[variant] : kind === 1 ? layers.bush[variant] : kind === 2 ? layers.rock[variant] : layers.crystal[variant];
-      if (!layer) continue;
-      let arr = buckets.get(layer);
-      if (!arr) buckets.set(layer, (arr = []));
-      let r = 1;
-      let g = 1;
-      let b = 1;
-      if (kind === 2) {
-        const t = BIOME_ROCK_TINT[d[o + 7] | 0] || BIOME_ROCK_TINT[2];
-        const v = 0.85 + 0.3 * ihash((Math.round(x * 7) ^ Math.round(z * 13)) >>> 0);
-        r = t[0] * v;
-        g = t[1] * v;
-        b = t[2] * v;
-      } else if (kind <= 1) {
-        const v = 0.88 + 0.24 * ihash((Math.round(x * 5) * 31 + Math.round(z * 3)) >>> 0);
-        r = v;
-        g = v;
-        b = v * 0.96;
-      }
-      arr.push(x, y, z, d[o + 5], d[o + 6], r, g, b);
-    }
-    for (const [layer, arr] of buckets) layer.add(c.key, Float32Array.from(arr));
-    c.decor = d;
+    c.decor = msg.decor;
+    c.ids = msg.ids || null;
+    c.fid = null; // feature id strings (lazily, featuresNear)
     c.bush = c.d < bushRadius();
+    fill(c, ALL);
     // nodes
     c.nodes = msg.nodes;
     const nb = {};
@@ -323,27 +327,312 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
 
   const bushRadius = () => Math.min(Q.vegRadius, Q.bushRadius ?? 560);
 
-  /** Adds / removes the bushes of a loaded chunk (from its cached decor list). */
+  /** Adds / removes the bushes (+ their berry crops) of a loaded chunk (from its cached decor list). */
   function setBushes(c, on) {
     c.bush = on;
-    if (!on) {
-      for (const l of layers.bush) l.remove(c.key);
-      return;
+    fill(c, M_BUSH | M_CROP);
+  }
+
+  // ---------------------------------------------------------------- instances + feature state
+  const M_TREE = 1;
+  const M_BUSH = 2;
+  const M_ROCK = 4;
+  const M_CRYSTAL = 8;
+  const M_MUSH = 16;
+  const M_CROP = 32;
+  const M_STUMP = 64;
+  const M_RUBBLE = 128;
+  const ALL = 255;
+  const MASK_OF_KIND = [M_TREE | M_STUMP | M_MUSH, M_BUSH | M_CROP, M_ROCK | M_RUBBLE, M_CRYSTAL | M_RUBBLE, M_MUSH, M_CROP | M_BUSH];
+  /** chunk key → Map(slot × 10000 + k → { state, regrowAt, hidden }) — survives chunk unloads. */
+  const fsByChunk = new Map();
+  let clock = () => Date.now();
+  const dirty = new Set(); // chunk keys to rebuild
+  let growTick = 0;
+  const buckets = new Map(); // layer → number[] (reused)
+  const usedLayers = new Set();
+
+  function instColor(kind, x, z, biome, out) {
+    if (kind === 2 || kind === 3) {
+      const t = kind === 2 ? BIOME_ROCK_TINT[biome | 0] || BIOME_ROCK_TINT[2] : [1, 1, 1];
+      const v = kind === 2 ? 0.85 + 0.3 * ihash((Math.round(x * 7) ^ Math.round(z * 13)) >>> 0) : 1;
+      out[0] = t[0] * v;
+      out[1] = t[1] * v;
+      out[2] = t[2] * v;
+    } else if (kind <= 1 || kind === 5) {
+      const v = 0.88 + 0.24 * ihash((Math.round(x * 5) * 31 + Math.round(z * 3)) >>> 0);
+      out[0] = v;
+      out[1] = v;
+      out[2] = kind === 5 ? v : v * 0.96;
+    } else {
+      out[0] = out[1] = out[2] = 1;
     }
+    return out;
+  }
+  const col3 = [1, 1, 1];
+  const densityCull = (x, z) => Q.treeDensity < 1 && ihash(((Math.round(x * 4) * 73856093) ^ (Math.round(z * 4) * 19349663)) >>> 0) > Q.treeDensity;
+  const push = (layer, x, y, z, rot, scale, c) => {
+    if (!layer || !(scale > 0.002)) return;
+    let arr = buckets.get(layer);
+    if (!arr) buckets.set(layer, (arr = []));
+    arr.push(x, y, z, rot, scale, c[0], c[1], c[2]);
+  };
+  const layerFor = (kind, v) => (kind === 0 ? layers.tree[v] : kind === 1 ? layers.bush[v] : kind === 2 ? layers.rock[v] : kind === 3 ? layers.crystal[v] : kind === 4 ? layers.mushroom[v] : layers.crop[v]);
+  const growKind = (kind, v) => (kind === 0 ? 'tree' : kind === 2 ? (v === 5 ? 'pebble' : 'rock') : kind === 3 ? 'crystal' : kind === 4 ? 'mushroom' : kind === 5 ? 'crop' : 'plant');
+
+  /** 0 = just harvested … 1 = grown back (null rec = untouched). */
+  function growth(rec, kind, v, now) {
+    if (!rec || rec.state === 'ok' || rec.state === 'hit') return 1;
+    if (!(rec.regrowAt > 0)) return 0;
+    const g = 1 - (rec.regrowAt - now) / (GROW_SECONDS[growKind(kind, v)] * 1000);
+    return g <= 0 ? 0 : g >= 1 ? 1 : g;
+  }
+
+  /**
+   * (Re)builds the instances of chunk c for the layers in `mask` from its decor + feature states:
+   * hidden (gather's proxy) → nothing; felled / broken / picked → stump / rubble / nothing, growing
+   * back during the last GROW_SECONDS before regrowAt.
+   */
+  function fill(c, mask) {
     const d = c.decor;
     if (!d) return;
-    const per = [];
-    for (let k = 0; k < d.length / 8; k++) {
-      const o = k * 8;
-      if (d[o] !== 1) continue;
+    buckets.clear();
+    usedLayers.clear();
+    const st = fsByChunk.get(c.key) || null;
+    const ids = c.ids;
+    const now = st ? clock() : 0;
+    let growing = false;
+    const n = d.length / 8;
+    for (let i = 0; i < n; i++) {
+      const o = i * 8;
+      const kind = d[o];
+      if (!(MASK_OF_KIND[kind] & mask)) continue;
+      if ((kind === 1 || kind === 5) && !c.bush) continue; // bushes + crops only in the inner ring
       const v = d[o + 1] | 0;
       const x = d[o + 2];
+      const y = d[o + 3];
       const z = d[o + 4];
-      if (Q.treeDensity < 1 && ihash(((Math.round(x * 4) * 73856093) ^ (Math.round(z * 4) * 19349663)) >>> 0) > Q.treeDensity) continue;
-      const t = 0.88 + 0.24 * ihash((Math.round(x * 5) * 31 + Math.round(z * 3)) >>> 0);
-      (per[v] ||= []).push(x, d[o + 3], z, d[o + 5], d[o + 6], t, t, t * 0.96);
+      const rot = d[o + 5];
+      const sc = d[o + 6];
+      if (kind <= 1 || kind === 5) {
+        if (densityCull(x, z)) continue;
+      }
+      instColor(kind, x, z, d[o + 7], col3);
+      const rec = st && ids ? st.get(PREFIX_SLOT[KIND_PREFIX[kind]] * 10000 + ids[i]) : null;
+      if (rec?.hidden) continue;
+      // berry bushes keep their bush (only the crop goes); everything else follows its state
+      const g = kind === 1 && v <= 1 ? 1 : growth(rec, kind, v, now);
+      if (g > 0 && g < 1) growing = true;
+      const layer = layerFor(kind, v);
+      if (g >= 1) {
+        if (MASK_OF_KIND[kind] & mask & (M_TREE | M_BUSH | M_ROCK | M_CRYSTAL | M_MUSH | M_CROP)) push(layer, x, y, z, rot, sc, col3);
+        continue;
+      }
+      const e = easeOut(g);
+      if (kind === 0) {
+        const T = TRUNK[v] || TRUNK[1];
+        // the stump stays until the sapling is half grown, sinking into the ground
+        if (mask & M_STUMP && g < 0.55) {
+          const k = g < 0.3 ? 1 : 1 - (g - 0.3) / 0.25;
+          push(layers.stump, x, y - 0.05 - (1 - k) * T.r * sc * 1.5, z, rot, T.r * sc * 1.12, [1, 1, 1]);
+        }
+        if (mask & M_TREE && g > 0) push(layer, x, y, z, rot, sc * (0.1 + 0.9 * e), col3);
+      } else if (kind === 2 || kind === 3) {
+        const r = kind === 2 ? rockRadius(['boulder', 'slab', 'shard', 'outcrop', 'hoodoo', 'pebble'][v], sc) : 0.55 * sc;
+        if (mask & M_RUBBLE && v !== 5 && g < 0.6 && kind === 2) push(layers.rubble, x, y - 0.05 - g * 0.4, z, rot, Math.max(0.45, r * 0.9) * (1 - g * 0.6), col3);
+        if (mask & M_RUBBLE && kind === 3 && g < 0.6) push(layers.rubble, x, y, z, rot, Math.max(0.5, r * 1.2), [0.42, 0.45, 0.5]);
+        if (MASK_OF_KIND[kind] & mask & (M_ROCK | M_CRYSTAL)) {
+          if (kind === 3) push(layer, x, y - 0.15 * (1 - e), z, rot, sc * (0.3 + 0.7 * e), col3);
+          else if (g > 0) push(layer, x, y - (1 - e) * r * 0.8, z, rot, sc * (0.35 + 0.65 * e), col3);
+        }
+      } else if (g > 0) {
+        // plants, crops, mushrooms: grow from small
+        push(layer, x, y, z, rot, sc * (0.15 + 0.85 * e), col3);
+      }
     }
-    per.forEach((arr, v) => arr && layers.bush[v]?.add(c.key, Float32Array.from(arr)));
+    // upload: every layer this mask covers gets its bucket (or loses this chunk's instances)
+    for (const [layer, arr] of buckets) {
+      layer.add(c.key, Float32Array.from(arr));
+      usedLayers.add(layer);
+    }
+    const clearIf = (list) => {
+      for (const l of list) if (l && !usedLayers.has(l) && l.has(c.key)) l.remove(c.key);
+    };
+    if (mask & M_TREE) clearIf(layers.tree);
+    if (mask & M_BUSH) clearIf(layers.bush);
+    if (mask & M_ROCK) clearIf(layers.rock);
+    if (mask & M_CRYSTAL) clearIf(layers.crystal);
+    if (mask & M_MUSH) clearIf(layers.mushroom);
+    if (mask & M_CROP) clearIf(layers.crop);
+    if (mask & M_STUMP) clearIf([layers.stump]);
+    if (mask & M_RUBBLE) clearIf([layers.rubble]);
+    c.growing = growing;
+  }
+
+  function featureSlot(id) {
+    const p = typeof id === 'string' ? id.split(':') : null;
+    if (!p || p.length !== 4) return null;
+    const slot = PREFIX_SLOT[p[0]];
+    if (slot === undefined) return null;
+    return { key: `${p[1]},${p[2]}`, num: slot * 10000 + (+p[3] | 0), cx: +p[1], cz: +p[2] };
+  }
+
+  function setRec(id, fn) {
+    const fs = featureSlot(id);
+    if (!fs) return false;
+    let m = fsByChunk.get(fs.key);
+    if (!m) fsByChunk.set(fs.key, (m = new Map()));
+    const rec = m.get(fs.num) || { state: 'ok', regrowAt: 0, hidden: false };
+    fn(rec);
+    if (rec.state === 'ok' && !rec.hidden) m.delete(fs.num);
+    else m.set(fs.num, rec);
+    if (!m.size) fsByChunk.delete(fs.key);
+    if (chunks.get(fs.key)?.state === 'ready') dirty.add(fs.key);
+    return true;
+  }
+
+  /** Expired states (grown back) leave the map; growing chunks rebuild every ~1 s. */
+  function tickFeatures(dt) {
+    growTick -= dt;
+    if (growTick <= 0) {
+      growTick = 1;
+      const now = clock();
+      for (const [key, m] of fsByChunk) {
+        let changed = false;
+        for (const [num, rec] of m) {
+          if (rec.regrowAt > 0 && now >= rec.regrowAt && rec.state !== 'ok') {
+            rec.state = 'ok';
+            rec.regrowAt = 0;
+            if (!rec.hidden) m.delete(num);
+            changed = true;
+          }
+        }
+        if (!m.size) fsByChunk.delete(key);
+        const c = chunks.get(key);
+        if (c?.state === 'ready' && (changed || c.growing)) dirty.add(key);
+      }
+    }
+    if (dirty.size) {
+      for (const key of dirty) {
+        const c = chunks.get(key);
+        if (c?.state === 'ready' || c?.state === 'pending-grass') fill(c, ALL);
+      }
+      dirty.clear();
+    }
+  }
+
+  // ---------------------------------------------------------------- queries for gathering
+  const BUSH_NAMES = BUSH_VARIANTS;
+  const pool = [];
+  /**
+   * Loaded, visible, not-harvested features within r of (x, z) → out (reused records):
+   * { id, type, kind, variant, name, x, y, z, rot, scale, biome }. Returns the count.
+   */
+  function featuresNear(x, z, r, out) {
+    let n = 0;
+    const i0 = Math.floor((x - r) / CHUNK);
+    const i1 = Math.floor((x + r) / CHUNK);
+    const j0 = Math.floor((z - r) / CHUNK);
+    const j1 = Math.floor((z + r) / CHUNK);
+    const now = clock();
+    for (let cj = j0; cj <= j1; cj++) {
+      for (let ci = i0; ci <= i1; ci++) {
+        const c = chunks.get(ckey(ci, cj));
+        if (!c?.decor || !c.ids) continue;
+        const st = fsByChunk.get(c.key) || null;
+        const d = c.decor;
+        for (let i = 0, nn = d.length / 8; i < nn; i++) {
+          const o = i * 8;
+          const kind = d[o];
+          if (kind === 5) continue; // crops are gathered through their bush
+          const fx = d[o + 2];
+          const fz = d[o + 4];
+          const dx = fx - x;
+          const dz = fz - z;
+          if (dx * dx + dz * dz > r * r) continue;
+          if ((kind <= 1) && densityCull(fx, fz)) continue;
+          const rec = st ? st.get(PREFIX_SLOT[KIND_PREFIX[kind]] * 10000 + c.ids[i]) : null;
+          if (rec && rec.state !== 'ok' && rec.state !== 'hit' && !(rec.regrowAt > 0 && now >= rec.regrowAt)) continue;
+          let f = pool[n];
+          if (!f) pool[n] = f = {};
+          const fid = c.fid || (c.fid = new Array(nn));
+          f.id = fid[i] || (fid[i] = `${KIND_PREFIX[kind]}:${c.cx}:${c.cz}:${c.ids[i]}`);
+          f.kind = kind;
+          f.type = kind === 0 ? 'tree' : kind === 1 ? 'bush' : kind === 2 ? 'rock' : kind === 3 ? 'crystal' : 'mushroom';
+          f.variant = d[o + 1] | 0;
+          f.name = kind === 0 ? TREE_VARIANTS[f.variant] : kind === 1 ? BUSH_NAMES[f.variant] : kind === 2 ? ROCK_VARIANTS[f.variant] : f.variant;
+          f.x = fx;
+          f.y = d[o + 3];
+          f.z = fz;
+          f.rot = d[o + 5];
+          f.scale = d[o + 6];
+          f.biome = BIOME_IDS[d[o + 7] | 0] || 'meadow';
+          f.hidden = !!rec?.hidden;
+          out[n++] = f;
+        }
+      }
+    }
+    out.length = n;
+    return n;
+  }
+
+  /** Geometry / material / colour of a feature for gather's animated proxy (same look as the instance). */
+  function partsFor(f) {
+    const color = instColor(f.kind, f.x, f.z, BIOME_IDS.indexOf(f.biome), [1, 1, 1]);
+    if (f.kind === 0) {
+      const name = TREE_VARIANTS[f.variant];
+      const p = lib.near[name];
+      return { geometry: p.geometry, material: treeMat, depthMaterial: mats.depth, color, height: (p.meta?.height || 12) * f.scale, trunkR: TRUNK[f.variant].r * f.scale, kind: 'tree' };
+    }
+    if (f.kind === 1) {
+      const p = lib.near[BUSH_VARIANTS[f.variant]];
+      return { geometry: p.geometry, material: mats.near, depthMaterial: mats.depth, color, height: (p.meta?.height || 1) * f.scale, kind: 'bush' };
+    }
+    if (f.kind === 2) return { geometry: rockGeos[ROCK_VARIANTS[f.variant]].near, material: rockMat, depthMaterial: null, color, height: rockRadius(ROCK_VARIANTS[f.variant], f.scale) * 1.2, kind: 'rock' };
+    if (f.kind === 3) return { geometry: layers.crystal[f.variant].near.geometry, material: crystalMat, depthMaterial: null, color, height: 2.6 * f.scale, kind: 'crystal' };
+    return { geometry: layers.mushroom[f.variant].near.geometry, material: gatherMats.mushroom, depthMaterial: null, color, height: 0.35 * f.scale, kind: 'mushroom' };
+  }
+
+  /** A loaded feature by id → a fresh record (like near()'s) or null (chunk not loaded / no such feature). */
+  function getFeature(id) {
+    const fs = featureSlot(id);
+    if (!fs) return null;
+    const c = chunks.get(fs.key);
+    if (!c?.decor || !c.ids) return null;
+    const d = c.decor;
+    const k = fs.num % 10000;
+    const slot = (fs.num - k) / 10000;
+    for (let i = 0, n = d.length / 8; i < n; i++) {
+      const kind = d[i * 8];
+      if (kind === 5 || PREFIX_SLOT[KIND_PREFIX[kind]] !== slot || c.ids[i] !== k) continue;
+      const o = i * 8;
+      const v = d[o + 1] | 0;
+      return {
+        id,
+        kind,
+        type: kind === 0 ? 'tree' : kind === 1 ? 'bush' : kind === 2 ? 'rock' : kind === 3 ? 'crystal' : 'mushroom',
+        variant: v,
+        name: kind === 0 ? TREE_VARIANTS[v] : kind === 1 ? BUSH_NAMES[v] : kind === 2 ? ROCK_VARIANTS[v] : v,
+        x: d[o + 2],
+        y: d[o + 3],
+        z: d[o + 4],
+        rot: d[o + 5],
+        scale: d[o + 6],
+        biome: BIOME_IDS[d[o + 7] | 0] || 'meadow',
+      };
+    }
+    return null;
+  }
+
+  /** The berry-crop geometry of a bush (for the pick animation) or null. */
+  function cropFor(f) {
+    if (f.kind !== 1) return null;
+    const c = chunks.get(ckey(Math.floor(f.x / CHUNK), Math.floor(f.z / CHUNK)));
+    if (!c?.decor) return null;
+    const d = c.decor;
+    const k = +f.id.slice(f.id.lastIndexOf(':') + 1);
+    for (let i = 0, n = d.length / 8; i < n; i++) if (d[i * 8] === 5 && c.ids[i] === k) return { geometry: layers.crop[d[i * 8 + 1] | 0].near.geometry, material: gatherMats.crop, variant: d[i * 8 + 1] | 0 };
+    return null;
   }
 
   function ingestGrass(c, msg) {
@@ -389,7 +678,7 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
   }
 
   function unloadChunk(c) {
-    for (const list of [layers.tree, layers.bush, layers.rock, layers.crystal]) for (const l of list) l?.remove(c.key);
+    for (const list of [layers.tree, layers.bush, layers.rock, layers.crystal, layers.mushroom, layers.crop, [layers.stump, layers.rubble]]) for (const l of list) l?.remove(c.key);
     layers.grass?.remove(c.key);
     for (const l of layers.flowers) l?.remove(c.key);
     for (const l of Object.values(layers.node)) l.remove(c.key);
@@ -404,14 +693,68 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
     }
   }
 
-  const all = () => [...layers.tree, ...layers.bush, ...layers.rock, ...layers.crystal, ...(layers.grass ? [layers.grass] : []), ...layers.flowers.filter(Boolean), ...Object.values(layers.node)];
+  const all = () => [...layers.tree, ...layers.bush, ...layers.rock, ...layers.crystal, ...layers.mushroom, ...layers.crop, layers.stump, layers.rubble, ...(layers.grass ? [layers.grass] : []), ...layers.flowers.filter(Boolean), ...Object.values(layers.node)];
+
+  const allList = all();
 
   return {
     layers,
     nodes,
     pois,
     poiObjects,
-    materials: { vegetation: mats, rock: rockMat, crystal: crystalMat, grass: grassMat, node: nodeMat, props: propMats },
+    materials: { vegetation: mats, tree: treeMat, rock: rockMat, crystal: crystalMat, grass: grassMat, node: nodeMat, props: propMats, gather: gatherMats },
+    /**
+     * World-feature state for gathering (ids 't|b|r|c|m:<cx>:<cz>:<k>'):
+     *   set(id, state, regrowAt)   'felled' | 'broken' | 'picked' (regrowAt = clock ms) or 'ok'
+     *   hide(id, on)               gather's animated proxy replaces the instance while on
+     *   setClock(fn)               the clock regrowAt is measured in (default Date.now; gather: server time)
+     *   near(x, z, r, out) → n     loaded, visible, available features (reused records)
+     *   parts(f) → {geometry, material, depthMaterial, color, height, trunkR?}  proxy look
+     *   crop(f) → {geometry, material} | null   the berry crop of a bush
+     *   state(id) → {state, regrowAt, hidden} | null
+     */
+    features: {
+      set(id, state, regrowAt = 0) {
+        return setRec(id, (r) => {
+          r.state = state || 'ok';
+          r.regrowAt = Number.isFinite(regrowAt) ? regrowAt : 0;
+        });
+      },
+      hide(id, on = true) {
+        return setRec(id, (r) => {
+          r.hidden = !!on;
+        });
+      },
+      setClock(fn) {
+        if (typeof fn === 'function') clock = fn;
+      },
+      near: featuresNear,
+      get: getFeature,
+      parts: partsFor,
+      /** Forget every state (a fresh welcome follows); proxies' hidden flags are kept. */
+      reset() {
+        for (const [key, m] of fsByChunk) {
+          for (const [num, rec] of m) {
+            if (rec.hidden) {
+              rec.state = 'ok';
+              rec.regrowAt = 0;
+            } else m.delete(num);
+          }
+          if (!m.size) fsByChunk.delete(key);
+          if (chunks.get(key)?.state === 'ready') dirty.add(key);
+        }
+      },
+      crop: cropFor,
+      state(id) {
+        const fs = featureSlot(id);
+        return (fs && fsByChunk.get(fs.key)?.get(fs.num)) || null;
+      },
+      get size() {
+        let n = 0;
+        for (const m of fsByChunk.values()) n += m.size;
+        return n;
+      },
+    },
     receive,
     update(cam, now, dt, world) {
       if (now - lastPlan > 0.3 || cam.distanceToSquared(camLast) > 64) {
@@ -419,8 +762,14 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
         lastPlan = now;
         plan(cam, now);
       }
-      for (const l of all()) l.update(cam);
+      tickFeatures(dt || 0);
+      for (const l of allList) l.update(cam);
       const night = 1 - (world?.dayFactor ?? 1);
+      treeMat.emissiveIntensity = mats.near.emissiveIntensity; // the hub animates it (night glow)
+      // foliage fade at the camera: behind the shoulder (3P) further out than at the eye (FP)
+      if (ctx.player?.view === 'first') treeMat.userData.uFade.value.set(0.35, 1.2);
+      else treeMat.userData.uFade.value.set(0.9, 2.6);
+      gatherMats.mushroom.userData.uGlow.value = 0.5 + night * 2.2;
       crystalMat.emissiveIntensity = 0.9 + night * 2.2 + 0.25 * Math.sin(now * 1.7);
       propMats.shared.uGlow.value = 1.4 + night * 2.4;
       propMats.shared.uTime.value = now;
@@ -451,7 +800,7 @@ export function createDetail(ctx, { group, worker, worldgen, hubExtent, quality,
       chunks.clear();
       for (const l of all()) l.dispose();
       poiLib.dispose();
-      for (const m of [rockMat, crystalMat, grassMat, nodeMat, propMats.stone, propMats.metal]) m.dispose();
+      for (const m of [rockMat, crystalMat, grassMat, nodeMat, propMats.stone, propMats.metal, gatherMats.wood, gatherMats.crop, gatherMats.mushroom, treeMat]) m.dispose();
       if (ownMats) {
         mats.near.dispose();
         mats.depth.dispose();

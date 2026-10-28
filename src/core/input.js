@@ -60,6 +60,7 @@ export const ACTIONS = {
   inventory: ['KeyI'],
   reload: ['KeyR'],
   dodge: ['KeyQ'],
+  camera: ['KeyV'],
 };
 
 /** Keys whose browser default (scrolling, focus moves) we suppress during play. */
@@ -98,6 +99,12 @@ export class Input {
     /** Touch devices never grab the pointer (set by core/touch.js). */
     this.pointerLockDisabled = false;
     this._tapRelease = new Set(); // virtual taps released after the next frame
+    // Sticky aim for trackpads (two-finger click = right click can't be held while clicking):
+    // a QUICK right click latches 'Mouse2' (aim) down until the next right click; holding it
+    // still works as before. Allowed only while aimLatchWhen() is true (set by the game).
+    this.aimLatch = false;
+    this.aimLatchWhen = null;
+    this._aimDownAt = 0;
     this._bind();
   }
 
@@ -117,6 +124,7 @@ export class Input {
       this.blockers.add(reason);
       this.exitPointerLock();
       this.keys.clear();
+      this._endAimLatch();
     } else {
       this.blockers.delete(reason);
     }
@@ -247,6 +255,7 @@ export class Input {
   // ------------------------------------------------------------- per frame
   /** Called by the loop after every frame. */
   endFrame() {
+    if (this.aimLatch && !(this.aimLatchWhen?.() ?? false)) this.releaseAimLatch();
     this._pressed.clear();
     this._released.clear();
     this.mouse.dx = 0;
@@ -272,6 +281,19 @@ export class Input {
     this.keys.delete(code);
   }
 
+  /** Ends a latched aim (e.g. when holstering); Mouse2 reads as released. */
+  releaseAimLatch() {
+    if (!this.aimLatch) return;
+    this._endAimLatch();
+    this._setUp('Mouse2');
+  }
+
+  _endAimLatch() {
+    if (!this.aimLatch) return;
+    this.aimLatch = false;
+    this.events?.emit('input:aimLatch', { on: false });
+  }
+
   _bind() {
     const c = this.canvas;
 
@@ -288,12 +310,14 @@ export class Input {
     window.addEventListener('blur', () => {
       for (const k of this.keys) this._released.add(k);
       this.keys.clear();
+      this._endAimLatch();
       this._dragLook = false;
     });
 
     c.addEventListener('mousedown', (e) => {
       c.focus({ preventScroll: true });
       const code = `Mouse${e.button}`;
+      if (e.button === 2) this._aimDownAt = performance.now();
       this._setDown(code);
       if (this.wantsPointerLock && !this.locked && this.gameEnabled && !this.pointerLockDisabled) {
         // First click only grabs the mouse; don't treat it as a game click.
@@ -303,8 +327,19 @@ export class Input {
       if (!this.locked) this._dragLook = true;
     });
     window.addEventListener('mouseup', (e) => {
-      this._setUp(`Mouse${e.button}`);
       this._dragLook = false;
+      if (e.button === 2) {
+        if (this.aimLatch) {
+          // any right click ends a latched aim
+          this._endAimLatch();
+        } else if (this.keys.has('Mouse2') && performance.now() - this._aimDownAt < 280 && this.gameEnabled && (this.aimLatchWhen?.() ?? false)) {
+          // quick click (trackpad two-finger click) → keep aiming until the next right click
+          this.aimLatch = true;
+          this.events?.emit('input:aimLatch', { on: true });
+          return;
+        }
+      }
+      this._setUp(`Mouse${e.button}`);
     });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 

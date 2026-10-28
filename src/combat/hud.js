@@ -35,6 +35,10 @@ export const TXT = {
   you: { en: 'You', nl: 'Jij' },
   killed: { en: 'eliminated', nl: 'uitgeschakeld' },
   switchW: { en: 'Switch weapon', nl: 'Wissel wapen' },
+  dodged: { en: 'Dodged', nl: 'Ontweken' },
+  weak: { en: 'Weak point', nl: 'Zwakke plek' },
+  phase: { en: 'Phase {n}', nl: 'Fase {n}' },
+  runes: { en: 'Shoot the glowing Ø runes', nl: 'Schiet op de gloeiende Ø-runen' },
 };
 
 registerIcons({
@@ -227,7 +231,7 @@ export function createHud(ctx, { defs, getState, enemies }) {
   for (let i = 0; i < 14; i++) {
     const el = h('div', { class: 'cbt-num num' });
     numsEl.appendChild(el);
-    nums.push({ el, life: 0, max: 1, x: 0, y: 0, z: 0, ox: 0, shown: false });
+    nums.push({ el, life: 0, max: 1, x: 0, y: 0, z: 0, ox: 0, shown: false, key: null, total: 0, at: 0, kind: '' });
   }
   let numNext = 0;
   const ebars = [];
@@ -237,6 +241,8 @@ export function createHud(ctx, { defs, getState, enemies }) {
     barsEl.appendChild(el);
     ebars.push({ el, fill, shown: false, v: -1 });
   }
+  const pingXY = new Float32Array(16);
+  let pingN = 0;
   const pings = [];
   for (let i = 0; i < 6; i++) {
     const el = h('div', { class: 'cbt-ping' }, h('span', { class: 'cbt-ping-t', text: t(TXT.enemy) }), h('i'));
@@ -254,8 +260,18 @@ export function createHud(ctx, { defs, getState, enemies }) {
   const bannerSub = h('div', { class: 'cbt-banner-s' });
   const banner = h('div', { class: 'cbt-banner', hidden: true }, bannerTitle, h('i', { class: 'cbt-banner-line' }), bannerSub);
   const bossName = h('div', { class: 'cbt-boss-n' });
-  const bossFill = h('i');
-  const boss = h('div', { class: 'cbt-boss', hidden: true }, bossName, h('div', { class: 'cbt-boss-b' }, bossFill));
+  const bossSub = h('div', { class: 'cbt-boss-s' });
+  const bossFill = h('i', { class: 'cbt-boss-fill' });
+  const bossLag = h('i', { class: 'cbt-boss-lag' });
+  const bossRunes = [0, 1, 2].map(() => h('span', { class: 'cbt-boss-rune', text: 'Ø' }));
+  const boss = h(
+    'div',
+    { class: 'cbt-boss', hidden: true },
+    h('div', { class: 'cbt-boss-top' }, h('span', { class: 'cbt-boss-runes' }, ...bossRunes), bossName, h('span', { class: 'cbt-boss-runes cbt-boss-runes-r' })),
+    h('div', { class: 'cbt-boss-b' }, bossLag, bossFill, h('b', { class: 'cbt-boss-tick', style: { left: '66%' } }), h('b', { class: 'cbt-boss-tick', style: { left: '33%' } })),
+    bossSub,
+  );
+  const bossSt = { name: '', frac: -1, phase: -1, runes: -1, sub: '' };
   ui.addWidget('top-center', banner, { modes: ['explore', 'drive'], order: 30 });
   ui.addWidget('top-center', boss, { modes: ['explore', 'drive'], order: 31 });
   // widget roots: the ui widget system owns `hidden` (mode filter) → toggle through ui.setVisible
@@ -276,22 +292,39 @@ export function createHud(ctx, { defs, getState, enemies }) {
     xh.hit.className = `cbt-xh-hit is-${kind} ${xh.hitFlip ? 'pop-a' : 'pop-b'}`;
   }
 
-  function damageNumber(pos, amount, kind = 'hit') {
+  /**
+   * Floating damage. Hits on the same target within 0.7 s add up in ONE number that pops on
+   * every hit (a rifle burst reads "54", not "9 9 9 9 9 9"); a kill / weak-point hit restyles it.
+   */
+  const KIND_RANK = { hit: 0, crit: 1, weak: 2, kill: 3 };
+  function damageNumber(pos, amount, kind = 'hit', key = null) {
     if (!pos || !Number.isFinite(amount)) return;
-    const n = nums[numNext];
-    numNext = (numNext + 1) % nums.length;
+    const now = performance.now();
+    let n = null;
+    if (key != null) for (const m of nums) if (m.shown && m.key === key && now - m.at < 700 && m.life > 0.2) n = m;
+    if (n) {
+      n.total += amount;
+      if ((KIND_RANK[kind] ?? 0) >= (KIND_RANK[n.kind] ?? 0)) n.kind = kind;
+    } else {
+      n = nums[numNext];
+      numNext = (numNext + 1) % nums.length;
+      n.total = amount;
+      n.kind = kind;
+      n.key = key;
+      n.ox = (Math.random() - 0.5) * 22;
+    }
     n.x = pos.x ?? pos[0];
     n.y = (pos.y ?? pos[1]) + 0.25;
     n.z = pos.z ?? pos[2];
-    n.ox = (Math.random() - 0.5) * 26;
-    n.life = n.max = kind === 'kill' ? 1.25 : 0.95;
-    n.el.textContent = String(Math.max(1, Math.round(amount)));
-    n.el.className = `cbt-num num is-${kind}`;
+    n.at = now;
+    n.life = n.max = n.kind === 'kill' ? 1.25 : 0.95;
+    n.el.textContent = String(Math.max(1, Math.round(n.total)));
+    n.el.className = `cbt-num num is-${n.kind}${n.total >= 40 ? ' is-big' : ''}`;
     n.shown = true;
   }
 
   function hurt(amount = 10, from = null) {
-    hurtA = Math.min(1, hurtA + 0.25 + amount / 40);
+    hurtA = Math.min(0.62, hurtA + 0.16 + amount / 70);
     if (from && Number.isFinite(from.x)) {
       // reuse the slot of the same source (within 3 m) or the oldest
       let best = dirs[0];
@@ -338,14 +371,49 @@ export function createHud(ctx, { defs, getState, enemies }) {
     bannerT = duration;
   }
 
-  function bossBar(name, frac) {
+  /** Boss bar: name, health (+ red damage trail), phase ticks, rune pips (dark = broken); null hides it. */
+  function bossBar(name, frac, { phase = 1, runes = 0, sub = null } = {}) {
     if (name == null) {
-      ui.setVisible(boss, false);
+      if (bossSt.name) ui.setVisible(boss, false);
+      bossSt.name = '';
+      bossSt.frac = -1;
       return;
     }
-    ui.setVisible(boss, true);
-    bossName.textContent = t(name);
-    bossFill.style.transform = `scaleX(${clamp(frac ?? 1, 0, 1).toFixed(4)})`;
+    const nm = t(name);
+    if (nm !== bossSt.name) {
+      bossSt.name = nm;
+      bossName.textContent = nm;
+      ui.setVisible(boss, true);
+    }
+    const f = clamp(frac ?? 1, 0, 1);
+    if (Math.abs(f - bossSt.frac) > 0.0005) {
+      if (f < bossSt.frac) boss.classList.remove('hit'), void boss.offsetWidth, boss.classList.add('hit');
+      bossSt.frac = f;
+      bossFill.style.transform = `scaleX(${f.toFixed(4)})`;
+      bossLag.style.transform = `scaleX(${f.toFixed(4)})`;
+    }
+    if (phase !== bossSt.phase) {
+      bossSt.phase = phase;
+      boss.dataset.phase = String(phase);
+    }
+    if (runes !== bossSt.runes) {
+      bossSt.runes = runes;
+      bossRunes.forEach((el, i) => el.classList.toggle('is-broken', !!(runes & (1 << i))));
+    }
+    const st = sub == null ? `${t(TXT.phase, { n: phase })} · ${t(TXT.runes)}` : t(sub);
+    if (st !== bossSt.sub) {
+      bossSt.sub = st;
+      bossSub.textContent = st;
+    }
+  }
+
+  // "Dodged" pop under the crosshair (server-confirmed roll through an attack)
+  const dodgeEl = h('div', { class: 'cbt-dodged', text: t(TXT.dodged) });
+  ov.appendChild(dodgeEl);
+  function dodged() {
+    dodgeEl.classList.remove('show');
+    void dodgeEl.offsetWidth;
+    dodgeEl.classList.add('show');
   }
 
   let safeOn = false;
@@ -471,6 +539,12 @@ export function createHud(ctx, { defs, getState, enemies }) {
     const show = !!st.armed && !st.dead && !ctx.build?.active;
     if (xh.el.dataset.hidden === (show ? 'true' : 'false') || xh.el.dataset.hidden == null) ui.setVisible(xh.el, show);
     if (!show) return;
+    // first person: aiming down the view model's sights → just the dot
+    const fpAim = ctx.player?.view === 'first' && !!st.aiming;
+    if (fpAim !== xh.fpAim) {
+      xh.fpAim = fpAim;
+      xh.el.classList.toggle('is-fpaim', fpAim);
+    }
     const kind = st.def?.kind || '';
     if (kind !== xh.kind) {
       xh.kind = kind;
@@ -555,6 +629,7 @@ export function createHud(ctx, { defs, getState, enemies }) {
     // enemy health bars + pings
     let nb = 0;
     let np = 0;
+    pingN = 0;
     if (enemies) {
       const now = ctx.loop.time;
       enemies.records.forEach((rec) => {
@@ -576,7 +651,13 @@ export function createHud(ctx, { defs, getState, enemies }) {
           }
           b.el.style.transform = `translate3d(${_v.x.toFixed(1)}px, ${_v.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
         }
-        if (ping && np < pings.length) {
+        // one ping per cluster: pings closer than 48 px to a placed one are folded into it
+        let clustered = false;
+        for (let i = 0; i < pingN; i++) if (Math.abs(pingXY[i * 2] - _v.x) < 48 && Math.abs(pingXY[i * 2 + 1] - _v.y) < 40) clustered = true;
+        if (ping && !clustered && np < pings.length) {
+          pingXY[pingN * 2] = _v.x;
+          pingXY[pingN * 2 + 1] = _v.y;
+          pingN++;
           const p = pings[np++];
           if (!p.shown) {
             p.shown = true;
@@ -656,6 +737,7 @@ export function createHud(ctx, { defs, getState, enemies }) {
     killfeed,
     banner: showBanner,
     bossBar,
+    dodged,
     setSafe,
     /** Tap on the phone weapon chip (index.js wires it to the controller's switch / draw). */
     set onSwitch(fn) {

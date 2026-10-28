@@ -22,6 +22,13 @@
  * the nodes around the player into pooled instanced slots (W_CAP per type, added within
  * W_ADD m, dropped beyond W_KEEP m); depleted state survives streaming out. Single-player
  * (no source) is unchanged.
+ *
+ * Gathering (src/gather, when installed): nodes join the contextual tool flow — look at a node and
+ * hold E / LMB: the gather module swings the best tool, then calls harvest(n, tool) (online:
+ * C.HARVEST { node, tool }, a tier ≥ 1 tool pays more). This file then skips its own hold-E prompt
+ * and ring; S.HARVESTED still lands here (applyHarvested) and hands the burst + reward floats to
+ * ctx.gather.nodeHarvested. Exposed as ctx.nodeHarvest = { nodes, wnodes, harvest(n, tool),
+ * poke(n, amount), types }.
  */
 import * as THREE from 'three';
 import { ZONES } from '../world/layout.js';
@@ -552,7 +559,9 @@ export function createHarvest(ctx, mats, opts = {}) {
   }
 
   // ------------------------------------------------------------ interactions
-  function harvest(n) {
+  const gatherOn = () => !!ctx.gather?.handlesNodes;
+
+  function harvest(n, tool = null) {
     if (!n.available) return null;
     const auth = opts.authority?.();
     if (auth) {
@@ -560,7 +569,9 @@ export function createHarvest(ctx, mats, opts = {}) {
       if (n.waitT > 0) return null;
       n.waitT = 2.5;
       try {
-        auth.harvest?.(n.sid, n);
+        const net = ctx.net;
+        if (tool && typeof net?.send === 'function' && (net.mode === 'online' || net.mode === 'local')) net.send({ t: 'harvest', node: n.sid, tool });
+        else auth.harvest?.(n.sid, n);
       } catch (err) {
         console.warn('[build] harvest request failed', err);
       }
@@ -573,11 +584,14 @@ export function createHarvest(ctx, mats, opts = {}) {
     n.available = false;
     n.anim = -0.0001;
     n.respawnAt = ctx.loop.time + 150 + Math.random() * 90;
-    burst = 1;
-    ring.position.set(n.x, n.y + 0.08, n.z);
-    ring.visible = true;
-    ctx.audio?.play?.('harvest', { position: n.pos });
-    floatText(n, amount);
+    if (gatherOn()) ctx.gather.nodeHarvested?.(n, { [n.def.resource]: amount }, true);
+    else {
+      burst = 1;
+      ring.position.set(n.x, n.y + 0.08, n.z);
+      ring.visible = true;
+      ctx.audio?.play?.('harvest', { position: n.pos });
+      floatText(n, amount);
+    }
     events.emit('harvest', { resource: n.def.resource, amount, source: 'node', node: n.id, position: { x: n.x, y: n.y, z: n.z } });
     return amount;
   }
@@ -600,14 +614,25 @@ export function createHarvest(ctx, mats, opts = {}) {
       if (silent) writeMatrix(n, 0, 0);
     }
     n.respawnAt = ctx.loop.time + Math.max(3, Number(respawnIn) || 180);
-    if (silent || !mine) return true;
+    if (silent) return true;
+    if (gatherOn()) {
+      // break burst for everyone around; rewards + logs / stones flying to the harvester
+      try {
+        ctx.gather.nodeHarvested?.(n, mine ? res : null, mine);
+      } catch (err) {
+        console.warn('[build] gather node burst failed', err);
+      }
+    }
+    if (!mine) return true;
     let amount = Number(res?.[n.def.resource]);
     if (!Number.isFinite(amount)) amount = Object.values(res || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    burst = 1;
-    ring.position.set(n.x, n.y + 0.08, n.z);
-    ring.visible = true;
-    ctx.audio?.play?.('harvest', { position: n.pos });
-    if (amount > 0) floatText(n, amount);
+    if (!gatherOn()) {
+      burst = 1;
+      ring.position.set(n.x, n.y + 0.08, n.z);
+      ring.visible = true;
+      ctx.audio?.play?.('harvest', { position: n.pos });
+      if (amount > 0) floatText(n, amount);
+    }
     state.add('stats.harvested', 1);
     events.emit('harvest', { resource: n.def.resource, amount, source: 'node', node: n.id, sid: n.sid, position: { x: n.x, y: n.y, z: n.z }, online: true });
     return true;
@@ -622,7 +647,7 @@ export function createHarvest(ctx, mats, opts = {}) {
       label: t(n.def.label),
       hold: n.def.hold,
       priority: 1,
-      enabled: () => n.available && !(n.waitT > 0),
+      enabled: () => n.available && !(n.waitT > 0) && !gatherOn(),
       onInteract: () => harvest(n),
     });
   }
@@ -675,6 +700,13 @@ export function createHarvest(ctx, mats, opts = {}) {
 
   function stepNode(n, dt, time) {
     if (n.waitT > 0) n.waitT = Math.max(0, n.waitT - dt);
+    if (n._poke > 0 && n.available && n.anim === 0) {
+      n._pokeT = (n._pokeT || 0) + dt;
+      n._poke = Math.max(0, n._poke - dt * 0.12);
+      writeMatrix(n, n.scale * (1 - n._poke * 0.6 * Math.max(0, Math.sin(n._pokeT * 30))), Math.sin(n._pokeT * 34) * n._poke);
+      n._wob = true;
+      if (n._poke <= 0) writeMatrix(n, n.scale, 0);
+    }
     if (n.anim < 0) {
       n.anim -= dt / 0.35;
       const k = Math.max(0, 1 + n.anim);
@@ -706,5 +738,24 @@ export function createHarvest(ctx, mats, opts = {}) {
     for (const f of floats) f.el.remove();
   }
 
-  return { root, nodes, wnodes, bySid, harvest, applyHarvested, setSource, update, dispose, types: TYPES };
+  const api = {
+    root,
+    nodes,
+    wnodes,
+    bySid,
+    harvest,
+    applyHarvested,
+    setSource,
+    update,
+    dispose,
+    types: TYPES,
+    /** A hit wobble on a node (gather swings). */
+    poke(n, amount = 0.05) {
+      if (!n) return;
+      n._poke = Math.max(n._poke || 0, amount);
+      n._pokeT = 0;
+    },
+  };
+  ctx.nodeHarvest = api; // src/gather drives nodes through its tool flow
+  return api;
 }

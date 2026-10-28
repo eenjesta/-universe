@@ -1,22 +1,40 @@
 /**
  * Harvesting (C.HARVEST), crafting (C.CRAFT), rewards (C.GRANT) and spending
  * (C.SPEND: market purchases, selling, generic sinks). Server truth; replies
- * with S.HARVESTED / S.CRAFTED / S.INV patches (ack = msg.cid) or S.DENY.
+ * with S.HARVESTED / S.FEATURE / S.CRAFTED / S.INV patches (ack = msg.cid) or S.DENY.
  *
- * Harvest nodes: the hub's hand-placed nodes (nodes.js, ids n0…) + the world
- * provider's nodes outside the hub (W.world.nodesNear, stable ids from
- * worldgen / the stand-in). Depleted state: W.nodeState id → respawnAt (ms),
- * pruned when expired. S.HARVESTED goes to players near the node; a client that
- * missed it learns on its own attempt (S.DENY {reason: 'depleted', node, respawnAt}).
+ * Harvest nodes (C.HARVEST { node, tool? }): the hub's hand-placed nodes (nodes.js, ids n0…) + the
+ * world provider's nodes outside the hub (W.world.nodesNear, stable ids from worldgen / the stand-in).
+ * Depleted state: W.nodeState id → respawnAt (ms), pruned when expired. S.HARVESTED goes to players
+ * near the node; a client that missed it learns on its own attempt (S.DENY {reason: 'depleted', node,
+ * respawnAt}). A tool of tier ≥ 1 that is good at the node's act multiplies the yield (NODE_TOOL_BONUS).
+ *
+ * World features (C.HARVEST { feature, tool?, hit? }) — the frontier's trees / bushes / rocks /
+ * energy-crystal formations (shared/worldgen ids) + mushroom clusters at the foot of forest trees
+ * (nodes.js mushroomFor). Rules: shared/defs/tools.js featureRule. Every swing is validated: the
+ * feature exists (regenerated from the chunk), outside the safe zone, within reach (+ slack) with
+ * terrain line of sight, the tool is owned and of the needed tier, the player's swing rate. Each hit
+ * removes tool damage from the feature's HP and pays the hit share of the yield (by damage); the
+ * last hit pays the rest (+ bonus / items / chances) and the feature becomes 'felled' | 'broken' |
+ * 'picked' until regrowAt. Damaged features heal after HEAL_AFTER s without hits.
+ * S.FEATURE { id, state, hp, max, by, tool, dir?: [dx, dz] (from the harvester to the feature),
+ * regrowAt?, hit?, got? (what the harvester received) } goes to players near the feature.
+ * featureStates() → [[id, state, regrowAt]] for the welcome; exportFeatures() / importFeatures(save)
+ * for the world save. The generator is W.worldgen (createSim opts.worldgen) — until the sim keeps it,
+ * an identical private copy is created on the first feature harvest (W.world.kind 'worldgen' only).
  */
 import { S, NET } from '../protocol.js';
 import { RECIPES, RECIPE_RANGE } from '../defs/recipes.js';
 import { MARKET, SELL_PRICES, SELL_BACK } from '../defs/market.js';
 import { GRANT_CAPS, RESOURCE_IDS, ITEMS } from '../defs/items.js';
 import { WEAPONS } from '../defs/weapons.js';
-import { NODE_TYPES } from './nodes.js';
+import { HUB } from '../defs/world.js';
+import { TOOLS, featureRule, hasTool, toolDamage, HEAL_AFTER, REACH_SLACK } from '../defs/tools.js';
+import { NODE_TYPES, NODE_GATHER, NODE_TOOL_BONUS, parseFeatureId, chunkFeatures } from './nodes.js';
+import { terrainLOS } from './los.js';
+import { createWorldgen } from '../worldgen/index.js';
 import { canAfford, pay, gain, giveWeapon, AMMO_MAX } from './inventory.js';
-import { randInt, isNum } from './util.js';
+import { randInt, isNum, r2 } from './util.js';
 
 export const HARVEST_RANGE = 4;
 const GRANT_SOURCES = new Set(['quest', 'event', 'mission', 'discovery', 'scan', 'achievement']);
@@ -24,6 +42,166 @@ const GRANT_SOURCES = new Set(['quest', 'event', 'mission', 'discovery', 'scan',
 const int = (v) => Math.max(0, Math.floor(Number(v) || 0));
 
 export function createEconomy(W) {
+  // ------------------------------------------------------------ world features (gathering)
+  const feats = new Map(); // id → { s: 'hit'|'felled'|'broken'|'picked', hp, max, acc: {res: frac}, at, regrowAt, by }
+  const chunkCache = new Map(); // 'cx,cz' → gatherable-candidate features (LRU)
+  let gen; // undefined = not resolved yet, null = no generator (stand-in world)
+
+  function generator() {
+    if (gen !== undefined) return gen;
+    gen = W.worldgen && typeof W.worldgen.features === 'function' ? W.worldgen : null;
+    if (!gen && W.world?.kind === 'worldgen') {
+      try {
+        // identical to the host's generator: the combined heights equal the hub's inside its extent
+        gen = createWorldgen({ seed: W.seed, hub: { heightAt: W.H, isWater: W.isWater, half: HUB.half, radius: HUB.half, blend: HUB.blend } });
+      } catch (err) {
+        if (typeof console !== 'undefined') console.warn('[sim] gathering: no world generator', err?.message || err);
+        gen = null;
+      }
+    }
+    return gen;
+  }
+
+  /** A world feature by id (regenerated from its chunk) or null. */
+  function featureById(id) {
+    const pid = parseFeatureId(id);
+    if (!pid) return null;
+    const g = generator();
+    if (!g) return null;
+    const key = `${pid.cx},${pid.cz}`;
+    let list = chunkCache.get(key);
+    if (list) {
+      chunkCache.delete(key);
+      chunkCache.set(key, list);
+    } else {
+      list = chunkFeatures(g, pid.cx, pid.cz);
+      chunkCache.set(key, list);
+      if (chunkCache.size > 256) chunkCache.delete(chunkCache.keys().next().value);
+    }
+    for (const f of list) if (f.id === id) return f;
+    return null;
+  }
+
+  const fstate = (id, now) => {
+    const st = feats.get(id);
+    if (!st) return null;
+    if ((st.regrowAt && now >= st.regrowAt) || (st.s === 'hit' && now - st.at > HEAL_AFTER * 1000)) {
+      feats.delete(id); // regrown / healed
+      return null;
+    }
+    return st;
+  };
+
+  function harvestFeature(p, msg) {
+    const id = typeof msg.feature === 'string' ? msg.feature : String(msg.feature ?? '');
+    const deny = (reason, extra) => W.deny(p, msg, reason, { feature: id, ...extra });
+    if (p.dead) return deny('dead');
+    if (p.veh) return deny('invalid');
+    const f = featureById(id);
+    if (!f) return deny('unknown');
+    const rule = featureRule(f);
+    if (!rule) return deny('invalid');
+    if (W.world.isSafe(f.x, f.z)) return deny('safe');
+    const now = W.now();
+    let st = fstate(id, now);
+    if (st && st.s !== 'hit') return deny('depleted', { state: st.s, regrowAt: st.regrowAt });
+    // reach + line of sight (terrain): from the eyes to the middle of the feature
+    if (Math.hypot(p.x - f.x, p.z - f.z) > rule.reach + REACH_SLACK || Math.abs(p.y - f.y) > 3.5 + (rule.kind === 'rock' ? f.scale || 1 : 0)) return deny('far');
+    if (!terrainLOS(W.H, p.x, p.y + 1.6, p.z, f.x, f.y + 0.9, f.z, 0.35)) return deny('blocked');
+    // the tool: builtin (hands / multitool) or carried; tier gate (crystals, jungle giants, ore rocks)
+    const toolId = typeof msg.tool === 'string' && TOOLS[msg.tool] ? msg.tool : rule.act === 'gather' ? 'hands' : 'multitool';
+    if (!hasTool(p.inv, toolId)) return deny('noItem', { tool: toolId });
+    const T = TOOLS[toolId];
+    const dmg = rule.act === 'gather' ? rule.hp : toolDamage(toolId, rule.act);
+    if (rule.act !== 'gather' && (T.tier < rule.tier || !(dmg > 0))) return deny('tool', { need: rule.tier, act: rule.act, tool: toolId });
+    // swing rate (latency slack 20 %)
+    if (now - (p.gatherAt ?? -1e9) < T.swing * 800) return deny('rate');
+    p.gatherAt = now;
+    if (!st) {
+      st = { s: 'hit', hp: rule.hp, max: rule.hp, acc: {}, at: now, regrowAt: 0, by: p.id };
+      feats.set(id, st);
+    }
+    const d = Math.min(st.hp, dmg);
+    st.hp -= d;
+    st.at = now;
+    st.by = p.id;
+    const add = {};
+    const y = rule.yield;
+    // the hit share of the resources, by damage dealt (fractions carry over)
+    if (y.res && rule.hitShare > 0) {
+      for (const [k, total] of Object.entries(y.res)) {
+        const v = (st.acc[k] || 0) + total * T.yield * rule.hitShare * (d / st.max);
+        const n = Math.floor(v);
+        st.acc[k] = v - n;
+        if (n > 0) add[k] = (add[k] || 0) + n;
+      }
+    }
+    const done = st.hp <= 0;
+    if (done) {
+      if (y.res) for (const [k, total] of Object.entries(y.res)) {
+        const n = Math.round(total * T.yield * (1 - rule.hitShare) + (st.acc[k] || 0));
+        if (n > 0) add[k] = (add[k] || 0) + n;
+      }
+      if (y.bonus) for (const [k, r] of Object.entries(y.bonus)) {
+        const n = Math.round(randInt(W.rng, r[0], r[1]) * T.yield);
+        if (n > 0) add[k] = (add[k] || 0) + n;
+      }
+      const items = {};
+      if (y.items) for (const [k, r] of Object.entries(y.items)) {
+        const n = randInt(W.rng, r[0], r[1]);
+        if (n > 0) items[k] = n;
+      }
+      if (y.chance) for (const [k, pr] of Object.entries(y.chance)) if (W.rng() < pr) items[k] = (items[k] || 0) + 1;
+      if (Object.keys(items).length) add.items = items;
+      st.s = rule.end;
+      st.hp = 0;
+      st.acc = {};
+      st.regrowAt = now + randInt(W.rng, rule.regrow[0], rule.regrow[1]) * 1000;
+    }
+    const got = gain(p.inv, add, p.dirty); // unknown item ids (not defined yet) are skipped
+    const m = { t: S.FEATURE, id, state: st.s, hp: Math.max(0, Math.round(st.hp)), max: st.max, by: p.id, tool: toolId };
+    const dx = f.x - p.x;
+    const dz = f.z - p.z;
+    const l = Math.hypot(dx, dz);
+    if (l > 0.01) m.dir = [r2(dx / l), r2(dz / l)];
+    if (done) m.regrowAt = st.regrowAt;
+    if (isNum(msg.hit)) m.hit = msg.hit | 0;
+    if (got.res || got.items) m.got = { res: got.res, items: got.items };
+    W.emit({ near: [f.x, f.z, NET.INTEREST_RADIUS] }, m);
+    W.flushInv(p);
+    return true;
+  }
+
+  /** Felled / broken / picked features: [[id, state, regrowAt]] (welcome). */
+  function featureStates() {
+    const now = W.now();
+    const out = [];
+    for (const [id, st] of feats) {
+      if (st.s === 'hit' || !(st.regrowAt > now)) continue;
+      out.push([id, st.s, st.regrowAt]);
+      if (out.length >= 4000) break;
+    }
+    return out;
+  }
+
+  /** World save: { v, list: [[id, state, regrowAt, by]] }. */
+  function exportFeatures() {
+    const now = W.now();
+    const list = [];
+    for (const [id, st] of feats) if (st.s !== 'hit' && st.regrowAt > now) list.push([id, st.s, st.regrowAt, st.by || null]);
+    return { v: 1, list };
+  }
+
+  function importFeatures(save) {
+    const list = Array.isArray(save?.list) ? save.list : Array.isArray(save) ? save : [];
+    for (const e of list) {
+      if (!Array.isArray(e)) continue;
+      const [id, s, at, by] = e;
+      if (!parseFeatureId(id) || !(s === 'felled' || s === 'broken' || s === 'picked') || !isNum(at)) continue;
+      feats.set(id, { s, hp: 0, max: 1, acc: {}, at: 0, regrowAt: at, by: typeof by === 'string' ? by : null });
+    }
+  }
+
   // ------------------------------------------------------------ harvest
   /** A hub node by id, or a world node near the player. */
   function findNode(p, id) {
@@ -35,6 +213,7 @@ export function createEconomy(W) {
   }
 
   function harvest(p, msg) {
+    if (msg.feature !== undefined && msg.feature !== null) return harvestFeature(p, msg);
     if (p.dead) return W.deny(p, msg, 'dead');
     const node = findNode(p, msg.node);
     if (!node) return W.deny(p, msg, 'unknown', { node: msg.node });
@@ -46,7 +225,11 @@ export function createEconomy(W) {
     if (W.world.isSafe(node.x, node.z)) return W.deny(p, msg, 'safe', { node: node.id });
     if (now - p.harvestAt < 900) return W.deny(p, msg, 'rate', { node: node.id });
     const T = NODE_TYPES[node.type];
-    const amount = randInt(W.rng, T.amount[0], T.amount[1]);
+    let amount = randInt(W.rng, T.amount[0], T.amount[1]);
+    // a real tool for the job pays more (pickaxe / mining laser on ore, axe on a wood pile)
+    const tool = typeof msg.tool === 'string' && TOOLS[msg.tool] && hasTool(p.inv, msg.tool) ? TOOLS[msg.tool] : null;
+    const act = NODE_GATHER[node.type]?.act || 'mine';
+    if (tool && tool.tier > 0 && (tool.power[act] || 0) >= 2) amount = Math.round(amount * (NODE_TOOL_BONUS[tool.tier] || 1));
     const got = gain(p.inv, { [T.resource]: amount }, p.dirty);
     const respawnIn = randInt(W.rng, T.respawn[0], T.respawn[1]);
     const respawnAt = now + respawnIn * 1000;
@@ -218,11 +401,29 @@ export function createEconomy(W) {
     return true;
   }
 
-  /** Forgets nodes that have respawned (keeps the depleted map bounded in an infinite world). */
+  /** Forgets nodes / features that have respawned or healed (keeps the maps bounded in an infinite world). */
   function prune() {
     const now = W.now();
     for (const [id, at] of W.nodeState) if (at <= now) W.nodeState.delete(id);
+    for (const id of [...feats.keys()]) fstate(id, now);
   }
 
-  return { harvest, craft, grant, spend, prune, findNode, weapons: WEAPONS };
+  return {
+    harvest,
+    craft,
+    grant,
+    spend,
+    prune,
+    findNode,
+    weapons: WEAPONS,
+    featureById,
+    featureStates,
+    exportFeatures,
+    importFeatures,
+    /** Current state of a feature ({ s, hp, max, regrowAt, by } | null) — tests / debugging. */
+    featureState: (id) => fstate(id, W.now()),
+    get generator() {
+      return generator();
+    },
+  };
 }

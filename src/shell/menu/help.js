@@ -9,6 +9,28 @@ import { uiSound } from '../util.js';
 
 const MODAL_ID = 'shell-help';
 
+/** Explore tips by where you are (PLATFORM.md §11: safe hub in the middle, survival around it). */
+const AREA_TIPS = {
+  hub: {
+    en: 'The hub is a safe zone: no enemies, no combat, no building. Open the map (M) for the Gateway — Random wilderness, your base or spawn beacon — or simply walk out past the border beacons.',
+    nl: 'De hub is een veilige zone: geen vijanden, geen gevechten, niet bouwen. Open de kaart (M) voor de Poort — willekeurige wildernis, je basis of spawnbaken — of loop gewoon voorbij de grensbakens.',
+  },
+  wild: {
+    en: 'Out here enemies roam, more at night. Gather (hold E), craft at a workbench (I), build a base 500 m beyond the hub, and use the map (M) to return to the hub when you need safety.',
+    nl: 'Hier zwerven vijanden, ’s nachts meer. Verzamel (houd E vast), maak spullen bij een werkbank (I), bouw een basis 500 m buiten de hub en gebruik de kaart (M) om terug te keren als je veiligheid nodig hebt.',
+  },
+};
+const TOUCH_AREA_TIPS = {
+  hub: {
+    en: 'The hub is a safe zone. Open Menu → Map for the Gateway into the wilderness, or walk out past the border beacons.',
+    nl: 'De hub is een veilige zone. Open Menu → Kaart voor de Poort naar de wildernis, of loop voorbij de grensbakens.',
+  },
+  wild: {
+    en: 'Enemies roam out here, more at night. Hold the action button to gather; Menu → Map takes you back to the hub.',
+    nl: 'Hier zwerven vijanden, ’s nachts meer. Houd de actieknop vast om te verzamelen; Menu → Kaart brengt je terug naar de hub.',
+  },
+};
+
 const TIPS = {
   explore: {
     en: 'Click in the world to capture the mouse. Follow the cyan marker on your compass to your next objective.',
@@ -58,7 +80,12 @@ export class HelpOverlay {
     const ctx = this.ctx;
     const h = ctx.ui.h;
     const mode = ctx.modes.name;
-    const tip = t((ctx.device?.touch && TOUCH_TIPS[mode]) || TIPS[mode] || TIPS.explore);
+    const p = ctx.player?.position;
+    const inHub = !p || (ctx.shell?.wild ? ctx.shell.wild.inHub(p.x, p.z) : Math.max(Math.abs(p.x), Math.abs(p.z)) <= 1100);
+    const area = inHub ? 'hub' : 'wild';
+    const touch = !!ctx.device?.touch;
+    const tip = t(mode === 'explore' ? (touch ? TOUCH_AREA_TIPS : AREA_TIPS)[area] : (touch && TOUCH_TIPS[mode]) || TIPS[mode] || TIPS.explore);
+    const first = mode !== 'explore' ? null : inHub ? ['foot', 'survival', 'combat'] : ['combat', 'survival', 'foot'];
     const helpWord = t({ en: 'Help', nl: 'Help' });
     const el = h(
       'div',
@@ -70,7 +97,7 @@ export class HelpOverlay {
         h('button', { class: 'modal-close', type: 'button', 'aria-label': t({ en: 'Close', nl: 'Sluiten' }), html: icon('close', 20), onclick: () => this.close() }),
       ),
       h('div', { class: 'shell-help-tip' }, h('span', { html: icon('info', 18) }), h('span', { text: tip })),
-      h('div', { class: 'shell-help-body scroll' }, controlsPanel(ctx, { mode, compact: true })),
+      h('div', { class: 'shell-help-body scroll' }, controlsPanel(ctx, { mode, compact: true, first })),
       h(
         'footer',
         { class: 'shell-help-foot' },

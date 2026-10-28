@@ -157,7 +157,8 @@ test('weapon rig: wrists reach the grip / support point, the barrel follows the 
   const hand = new THREE.Vector3();
   const want = new THREE.Vector3();
   const dir = new THREE.Vector3();
-  for (const kind of Object.keys(GRIPS)) {
+  // weapons only (tool grips are placed by the work actions: see fp-anim.test.js)
+  for (const kind of Object.keys(GRIPS).filter((k) => !GRIPS[k].tool)) {
     rig.set(kind);
     for (const pitch of [-0.5, 0, 0.45]) {
       a.aimOn = true;

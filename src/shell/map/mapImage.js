@@ -160,6 +160,8 @@ export class MapImage {
       extent: E,
       light: LIGHT,
       playBounds: WORLD.hubPlayBounds ?? WORLD.playBounds,
+      // the infinite planet continues around the hub: no edge mist / clouds (world map + minimap seam)
+      seamless: !!(ctx.frontier || world.frontier),
       cityIslands: CITY_ISLANDS.map((c) => ({ x: c.x, z: c.z, radius: c.radius * 0.97 })),
     };
 

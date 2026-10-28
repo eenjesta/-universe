@@ -22,6 +22,21 @@ export const MARKET = {
   'res-stone-100': { id: 'res-stone-100', kind: 'consumable', price: 120, give: { stone: 100 }, name: { en: 'Stone Blocks', nl: 'Steenblokken' } },
 };
 
+/**
+ * Hub supply depot (survival credit sink, src/smp/screen.js "Supply depot" — offered inside the hub safe zone):
+ * C.SPEND {reason: 'market', id, cost: {credits}} → `give` (item ids / resources) into the SMP inventory.
+ */
+const SUP = (id, price, give, en, nl) => ({ id, kind: 'supply', price, give, name: { en, nl } });
+export const SUPPLY_IDS = ['supply-rations', 'supply-medkits', 'supply-shield-cells', 'supply-fiber', 'supply-grenades', 'supply-crystal'];
+Object.assign(MARKET, {
+  'supply-rations': SUP('supply-rations', 120, { ration: 4 }, 'Rations ×4', 'Rantsoenen ×4'),
+  'supply-medkits': SUP('supply-medkits', 260, { medkit: 2 }, 'Medkits ×2', 'Medkits ×2'),
+  'supply-shield-cells': SUP('supply-shield-cells', 280, { 'shield-cell': 2 }, 'Shield cells ×2', 'Schildcellen ×2'),
+  'supply-fiber': SUP('supply-fiber', 160, { fiber: 30 }, 'Plant fiber ×30', 'Plantenvezel ×30'),
+  'supply-grenades': SUP('supply-grenades', 340, { 'shock-grenade': 2 }, 'Shock grenades ×2', 'Schokgranaten ×2'),
+  'supply-crystal': SUP('supply-crystal', 950, { 'crystal-shard': 2 }, 'Crystal shards ×2', 'Kristalscherven ×2'),
+});
+
 /** Ø-credits per unit when selling resources. */
 export const SELL_PRICES = { metal: 2, stone: 1, wood: 1.5, energy: 3 };
 /** Owned unlocks sell back for this fraction of the price. */

@@ -10,6 +10,7 @@
 import { ZONES } from '../../world/layout.js';
 import { t } from '../../core/i18n.js';
 import { playerPos, isNight, groundY } from '../shared/util.js';
+import { ITEMS } from '../../../shared/defs/items.js';
 
 const str = (v) => (typeof v === 'string' ? v : v?.id || v?.name || v?.label || v?.category || '');
 const pieceText = (p) => `${str(p?.category)} ${str(p?.piece)} ${str(p?.type)}`;
@@ -80,6 +81,67 @@ function shipPad(ctx) {
   if (p?.isVector3 && ctx.vehicles?.current !== ship) return p;
   const pad = ZONES.spaceport.pads.ship;
   return { x: pad.x, z: pad.z };
+}
+
+// ------------------------------------------------------------- survival onboarding helpers (SMP)
+/** The hub Gateway (src/gateway: the Ø ring just behind the Overlook spawn). */
+const GATEWAY = { x: ZONES.spawn.x, z: ZONES.spawn.z + 18 };
+const T = {
+  tree: { en: 'Fell a tree (hold E at a tree)', nl: 'Hak een boom om (houd E vast bij een boom)' },
+  treeTouch: { en: 'Fell a tree (hold the action button)', nl: 'Hak een boom om (houd de actieknop vast)' },
+  axe: { en: 'Craft an axe ([I] → Tools)', nl: 'Maak een bijl ([I] → Gereedschap)' },
+  axeTouch: { en: 'Craft an axe (Inventory → Tools)', nl: 'Maak een bijl (Inventaris → Gereedschap)' },
+  fire: { en: 'Build a campfire (B → 7 Survival)', nl: 'Bouw een kampvuur (B → 7 Overleven)' },
+  fireTouch: { en: 'Build a campfire (Build → Survival)', nl: 'Bouw een kampvuur (Bouwen → Overleven)' },
+  eat: { en: 'Eat a cooked meal (5)', nl: 'Eet een gekookte maaltijd (5)' },
+  eatTouch: { en: 'Eat a cooked meal (food slot)', nl: 'Eet een gekookte maaltijd (eten-vak)' },
+};
+const touchUI = (ctx) => !!ctx.device?.touch;
+const outsideHub = (ctx) => !!ctx.smp?.ready && ctx.smp.zone?.safe === false;
+const hasItem = (ctx, id) => (ctx.smp?.inv?.items?.[id] || 0) > 0;
+const FOOD_CROPS = ['berries', 'mushroom', 'jungle-fruit'];
+const pickedFood = (p) => p?.state === 'picked' && FOOD_CROPS.some((k) => (p?.got?.items?.[k] || 0) > 0);
+/** Pieces that make a shelter (build:placed {piece}). */
+export const SHELTER = /^(foundation|floor|glass-floor|wood-deck|wall|glass-wall|window-wall|door-wall|half-wall|door|flat-roof|pitched-roof|canopy|cube-module|workshop|pillar|stairs)$/;
+
+/** One of your own structures (online records carry the owner id) whose type passes `test`. */
+function ownPiece(ctx, test) {
+  const me = ctx.smp?.me?.();
+  const recs = ctx.build?.registry?.records;
+  if (me == null || !recs) return null;
+  for (const r of recs.values()) if (r.owner === me && test(String(r.type || ''))) return r;
+  return null;
+}
+const ownClaim = (ctx) => (ctx.smp?.claims?.list || []).find((c) => c.owner === ctx.smp.me?.()) || null;
+
+/** Home for the quest marker: the bed you sleep in, else your campfire, else your claim. */
+function homeSpot(ctx) {
+  const bed = ctx.smp?.bedId && ctx.build?.registry?.records?.get?.(ctx.smp.bedId);
+  if (bed) return { x: bed.x, z: bed.z };
+  const fire = ownPiece(ctx, (type) => type === 'campfire');
+  if (fire) return { x: fire.x, z: fire.z };
+  const c = ownClaim(ctx);
+  return c ? { x: c.x, z: c.z } : null;
+}
+
+/** "Survive until dawn": a night that ends without a defeat completes it (after a defeat: the next night). */
+function surviveNight() {
+  let sawNight = false;
+  let fell = false;
+  return (ctx) => {
+    if (isNight(ctx)) {
+      sawNight = true;
+      if (ctx.smp?.stats?.dead) fell = true;
+      return false;
+    }
+    if (!sawNight) return false;
+    if (fell) {
+      sawNight = false;
+      fell = false;
+      return false;
+    }
+    return true;
+  };
 }
 
 /**
@@ -326,7 +388,8 @@ export function buildQuests(refs) {
         en: 'The clearing in the forest has room for a base of your own. Lay a foundation, raise four walls, top it off with a roof and get the power running. [B] opens build mode.',
         nl: 'Op de open plek in het bos is ruimte voor je eigen basis. Leg een fundering, zet er vier muren op, sluit af met een dak en breng de stroom op gang. [B] opent de bouwmodus.',
       }),
-      triggers: [{ zone: 'base' }, { event: 'build:mode', filter: (p) => !!p?.active }],
+      // single-player only: online / LocalServer the hub is a safe zone and the survival chain guides building
+      triggers: [{ zone: 'base', when: (ctx) => !ctx.smp?.online }, { event: 'build:mode', filter: (p, ctx) => !!p?.active && !ctx.smp?.online }],
       objectives: [
         {
           id: 'foundation',
@@ -364,28 +427,137 @@ export function buildQuests(refs) {
       objectives: [{ id: 'harvest', on: [{ event: 'harvest' }], count: 5, text: t({ en: 'Harvest resources', nl: 'Oogst grondstoffen' }) }],
       rewards: { xp: 300, resources: { metal: 40, wood: 40, stone: 30 } },
     },
-    // ------------------------------------------------- survival chain (SMP — events from src/smp + src/build)
+    // ------------------------------------------------- survival onboarding (SMP — events from src/smp, src/gather, src/build)
+    // The first 15 minutes: leave the hub → live off the land → tools → fire & food → claim, shelter, bed → the first night.
     {
-      id: 'survival',
+      id: 'wild1',
       type: 'side',
-      title: t({ en: 'Survival Basics', nl: 'Overleven: de basis' }),
+      title: t({ en: 'Into the Wild', nl: 'De wildernis in' }),
       giver: null,
       location: t({ en: 'Beyond the hub', nl: 'Voorbij de hub' }),
       summary: t({
-        en: 'The hub is a safe zone; past its Ø border beacons you keep yourself alive. Harvest resources, build a Workbench to craft at, and claim a patch of land (at least 500 m beyond the border) so nobody can build over your base. [I] opens your inventory, [B] then 7 shows the survival pieces.',
-        nl: 'De hub is een veilige zone; voorbij de Ø-grensbakens hou je jezelf in leven. Oogst grondstoffen, bouw een werkbank om aan te werken en claim een stuk land (minstens 500 m voorbij de grens) zodat niemand over je basis heen bouwt. [I] opent je inventaris, [B] en dan 7 toont de overlevingsonderdelen.',
+        en: 'The hub is a safe zone — out there you keep yourself alive. Step through the Gateway behind the Overlook (Random wilderness) or follow a highway past the Ø border beacons. Then live off the land: fell a tree and pick something to eat.',
+        nl: 'De hub is een veilige zone — daarbuiten hou je jezelf in leven. Stap door de Gateway achter het Uitzichtpunt (Willekeurige wildernis) of volg een snelweg voorbij de Ø-grensbakens. Leef dan van het land: hak een boom om en pluk iets te eten.',
       }),
       triggers: [{ check: (ctx) => !!ctx.smp?.ready }],
       objectives: [
-        { id: 'workbench', on: [{ event: 'build:placed', filter: (p) => p?.piece === 'workbench' }], text: t({ en: 'Build a workbench', nl: 'Bouw een werkbank' }) },
-        { id: 'ration', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'ration' }], text: t({ en: 'Craft a ration at your workbench', nl: 'Maak een rantsoen aan je werkbank' }) },
+        {
+          id: 'leave',
+          check: outsideHub,
+          point: (ctx) => (ctx.smp?.zone?.safe === false ? null : GATEWAY),
+          text: t({ en: 'Leave the hub (Gateway or highway)', nl: 'Verlaat de hub (Gateway of snelweg)' }),
+          markerLabel: t({ en: 'Gateway', nl: 'Gateway' }),
+        },
+        {
+          id: 'tree',
+          on: [{ event: 'gather:done', filter: (p) => p?.state === 'felled' }],
+          text: (ctx) => t(touchUI(ctx) ? T.treeTouch : T.tree),
+        },
+        { id: 'food', on: [{ event: 'gather:done', filter: pickedFood }], text: t({ en: 'Pick berries, glowcaps or fruit', nl: 'Pluk bessen, gloeikappen of fruit' }) },
+      ],
+      rewards: { xp: 150, credits: 100 },
+      next: ['wild2'],
+    },
+    {
+      id: 'wild2',
+      type: 'side',
+      title: t({ en: 'Tools of the Trade', nl: 'Het juiste gereedschap' }),
+      giver: null,
+      location: t({ en: 'The wilderness', nl: 'De wildernis' }),
+      requires: ['wild1'],
+      summary: t({
+        en: 'Your Ø multitool is slow. Craft an axe and a pickaxe from what you carry — no workbench needed ([I] → Tools). Tools work by themselves: look at a tree or a rock and hold the action.',
+        nl: 'Je Ø-multitool is traag. Maak een bijl en een houweel van wat je bij je hebt — geen werkbank nodig ([I] → Gereedschap). Gereedschap werkt vanzelf: kijk naar een boom of rots en houd de actie vast.',
+      }),
+      objectives: [
+        { id: 'axe', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'axe' }], check: (ctx) => hasItem(ctx, 'axe'), text: (ctx) => t(touchUI(ctx) ? T.axeTouch : T.axe) },
+        { id: 'pickaxe', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'pickaxe' }], check: (ctx) => hasItem(ctx, 'pickaxe'), text: t({ en: 'Craft a pickaxe', nl: 'Maak een houweel' }) },
+        { id: 'rock', on: [{ event: 'gather:done', filter: (p) => p?.state === 'broken' }], text: t({ en: 'Break a rock (stone + metal)', nl: 'Breek een rots (steen + metaal)' }) },
+      ],
+      rewards: { xp: 200, credits: 100, resources: { wood: 30, stone: 30 } },
+      next: ['wild3'],
+    },
+    {
+      id: 'wild3',
+      type: 'side',
+      title: t({ en: 'Fire and Food', nl: 'Vuur en eten' }),
+      giver: null,
+      location: t({ en: 'The wilderness', nl: 'De wildernis' }),
+      requires: ['wild2'],
+      summary: t({
+        en: 'Nights are cold out here, and cold makes you hungry. Build a campfire — its warmth heals you — and cook what you picked: meals restore far more than raw food and give buffs (Well fed, Energised, Shield surge).',
+        nl: 'De nachten zijn koud hier, en kou maakt hongerig. Bouw een kampvuur — de warmte geneest je — en kook wat je plukte: maaltijden herstellen veel meer dan rauw eten en geven buffs (Goed gevoed, Energiek, Schildstoot).',
+      }),
+      objectives: [
+        {
+          id: 'fire',
+          on: [{ event: 'build:placed', filter: (p) => p?.piece === 'campfire' }],
+          check: (ctx) => !!ownPiece(ctx, (type) => type === 'campfire'),
+          text: (ctx) => t(touchUI(ctx) ? T.fireTouch : T.fire),
+        },
+        { id: 'cook', on: [{ event: 'smp:cooked' }], text: t({ en: 'Cook a meal on the fire [E]', nl: 'Kook een maaltijd op het vuur [E]' }) },
+        { id: 'eat', on: [{ event: 'smp:ate', filter: (p) => ITEMS[p?.item]?.kind === 'meal' }], text: (ctx) => t(touchUI(ctx) ? T.eatTouch : T.eat) },
+      ],
+      rewards: { xp: 250, credits: 150, resources: { wood: 20, stone: 20 } },
+      next: ['wild4'],
+    },
+    {
+      id: 'wild4',
+      type: 'side',
+      title: t({ en: 'A Place of Your Own', nl: 'Een eigen plek' }),
+      giver: null,
+      location: t({ en: 'Your land', nl: 'Jouw land' }),
+      requires: ['wild3'],
+      summary: t({
+        en: 'Claim a patch of land with a Claim Beacon — at least 500 m beyond the hub border, away from highways and ruins — and only you can build there. Raise a shelter and put down a bed: sleeping in it makes it your respawn point.',
+        nl: 'Claim een stuk land met een claimbaken — minstens 500 m voorbij de hubgrens, weg van snelwegen en ruïnes — dan kun alleen jij daar bouwen. Zet een onderkomen neer en leg een bed: als je erin slaapt, respawn je daar.',
+      }),
+      objectives: [
         {
           id: 'claim',
-          on: [{ event: 'build:placed', filter: (p) => p?.piece === 'claim-beacon' }, { event: 'smp:claimed' }],
-          text: t({ en: 'Claim your land', nl: 'Claim je land' }),
+          on: [{ event: 'smp:claimed' }, { event: 'build:placed', filter: (p) => p?.piece === 'claim-beacon' }],
+          check: (ctx) => !!ownClaim(ctx),
+          text: t({ en: 'Claim your land (Claim Beacon)', nl: 'Claim je land (claimbaken)' }),
+        },
+        {
+          id: 'shelter',
+          on: [{ event: 'build:placed', filter: (p) => SHELTER.test(String(p?.piece || '')) }],
+          count: 6,
+          text: t({ en: 'Build a shelter: floor, walls, roof', nl: 'Bouw een onderkomen: vloer, muren, dak' }),
+        },
+        {
+          id: 'bed',
+          on: [{ event: 'smp:slept' }],
+          check: (ctx) => !!ctx.smp?.bedId,
+          text: t({ en: 'Sleep in a bed or sleeping bag', nl: 'Slaap in een bed of slaapzak' }),
         },
       ],
-      rewards: { xp: 400, credits: 200 },
+      rewards: { xp: 400, credits: 250, resources: { wood: 60, stone: 60, metal: 20 } },
+      next: ['wild5'],
+    },
+    {
+      id: 'wild5',
+      type: 'side',
+      title: t({ en: 'The First Night', nl: 'De eerste nacht' }),
+      giver: null,
+      location: t({ en: 'Your base', nl: 'Je basis' }),
+      requires: ['wild4'],
+      sequential: true,
+      summary: t({
+        en: 'When the sun goes down, drones and stalkers hunt in packs and the cold drains your energy. Be home by nightfall, keep warm by your fire and survive until dawn.',
+        nl: 'Als de zon ondergaat, jagen drones en stalkers in groepen en zuigt de kou je energie leeg. Wees thuis bij het vallen van de nacht, blijf warm bij je vuur en overleef tot de dageraad.',
+      }),
+      objectives: [
+        {
+          id: 'night',
+          check: (ctx) => isNight(ctx) && !!ctx.smp?.fx?.warm && !ctx.smp?.stats?.dead,
+          point: (ctx) => homeSpot(ctx),
+          text: t({ en: 'At nightfall, keep warm by your fire', nl: 'Blijf bij het vallen van de nacht warm bij je vuur' }),
+          markerLabel: t({ en: 'Home', nl: 'Thuis' }),
+        },
+        { id: 'dawn', check: surviveNight(), text: t({ en: 'Survive until dawn', nl: 'Overleef tot de dageraad' }) },
+      ],
+      rewards: { xp: 600, credits: 400, resources: { metal: 60, energy: 40 } },
       next: ['survival2'],
     },
     {
@@ -394,21 +566,40 @@ export function buildQuests(refs) {
       title: t({ en: 'Armed and Ready', nl: 'Gewapend en klaar' }),
       giver: null,
       location: t({ en: 'The wilderness', nl: 'De wildernis' }),
-      requires: ['survival'],
+      requires: ['wild5'],
       summary: t({
         en: 'Security drones guard the Ø ruins, outposts and crash sites beyond the hub — more of them at night. Take one down, then craft a plasma rifle at your workbench for the long nights ahead.',
         nl: 'Beveiligingsdrones bewaken de Ø-ruïnes, buitenposten en neergestorte schepen voorbij de hub — ’s nachts nog meer. Haal er één neer en maak dan een plasmageweer aan je werkbank voor de lange nachten.',
       }),
-      triggers: [{ check: (ctx) => !!ctx.smp?.ready }],
       objectives: [
         {
           id: 'drone',
-          on: [{ event: 'smp:kill', filter: (p) => !p?.type || /drone/i.test(String(p.type)) }],
-          text: t({ en: 'Defeat a security drone', nl: 'Versla een beveiligingsdrone' }),
+          on: [{ event: 'smp:kill' }],
+          text: t({ en: 'Defeat a hostile', nl: 'Versla een vijand' }),
         },
-        { id: 'rifle', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'plasma-rifle' }], text: t({ en: 'Craft a plasma rifle', nl: 'Maak een plasmageweer' }) },
+        { id: 'bench', on: [{ event: 'build:placed', filter: (p) => p?.piece === 'workbench' }], check: (ctx) => !!ownPiece(ctx, (type) => /^workbench/.test(type)), text: t({ en: 'Build a workbench', nl: 'Bouw een werkbank' }) },
+        { id: 'rifle', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'plasma-rifle' }], check: (ctx) => (ctx.smp?.inv?.weapons || []).includes('plasma-rifle'), text: t({ en: 'Craft a plasma rifle', nl: 'Maak een plasmageweer' }) },
       ],
       rewards: { xp: 600, credits: 300, resources: { metal: 40, energy: 20 } },
+      next: ['wild6'],
+    },
+    {
+      id: 'wild6',
+      type: 'side',
+      title: t({ en: 'Salvage and Gear', nl: 'Buit en uitrusting' }),
+      giver: null,
+      location: t({ en: 'Ruins, outposts, crash sites', nl: 'Ruïnes, buitenposten, wrakken' }),
+      requires: ['survival2'],
+      summary: t({
+        en: 'Pirate outposts, Ø ruins and crash sites are guarded — beat the guards and their supply cache is yours: rare alloy, crystal shards and schematics for better gear. Fit yourself out at your workbench: techwear armour and a shield module ([I] → Gear).',
+        nl: 'Piratenposten, Ø-ruïnes en wrakken worden bewaakt — versla de bewakers en hun voorraadkist is van jou: zeldzame legering, kristalscherven en bouwtekeningen voor betere uitrusting. Rust je uit aan je werkbank: techwear-pantser en een schildmodule ([I] → Uitrusting).',
+      }),
+      objectives: [
+        { id: 'armor', check: (ctx) => !!ctx.smp?.inv?.gear?.armor, text: t({ en: 'Craft and wear techwear armour', nl: 'Maak en draag techwear-pantser' }) },
+        { id: 'module', check: (ctx) => !!ctx.smp?.inv?.gear?.module, text: t({ en: 'Fit a shield module', nl: 'Monteer een schildmodule' }) },
+        { id: 'cache', on: [{ event: 'smp:pickup', filter: (p) => p?.kind === 'cache' }], text: t({ en: 'Loot a supply cache at a POI', nl: 'Plunder een voorraadkist bij een POI' }) },
+      ],
+      rewards: { xp: 800, credits: 600 },
     },
     {
       id: 'highabove',

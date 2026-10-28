@@ -15,6 +15,11 @@ import { formatNumber } from '../core/math.js';
 import { ZONES } from '../world/layout.js';
 import { CATEGORIES, RESOURCES, piecesOf } from './catalog.js';
 
+const RES_IDS = new Set(RESOURCES.map((r) => r.id));
+/** Icons for item costs (registered by src/smp/icons.js). */
+const ITEM_ICON = { fiber: 'smp-fiber', 'crystal-shard': 'smp-crystal' };
+const ITEM_COST_KEYS = Object.keys(ITEM_ICON);
+
 const L = {
   resources: { en: 'Resources', nl: 'Grondstoffen' },
   credits: { en: 'Ø-credits', nl: 'Ø-credits' },
@@ -115,6 +120,9 @@ export function createHud(ctx, api) {
   };
   state.subscribe('settings', syncCreative);
   state.subscribe('owned', () => refreshStrip());
+  ctx.events?.on?.('smp:inv', ({ changed } = {}) => {
+    if (!changed || changed.includes('items') || changed.includes('all')) refreshStrip();
+  });
 
   // ------------------------------------------------------------ build bar
   const strip = h('div', { class: 'build-strip' });
@@ -177,17 +185,19 @@ export function createHud(ctx, api) {
     if (!cards.length) return;
     const creative = isCreative();
     const res = state.get('resources') || {};
+    const items = ctx.smp?.inv?.items || {};
     for (const c of cards) {
       const locked = !api.isOwned(c.def);
       const short = {};
       let afford = true;
       for (const [k, v] of Object.entries(c.def.cost)) {
-        if (!creative && (res[k] ?? 0) < v) {
+        const have = RES_IDS.has(k) ? res[k] ?? 0 : items[k] ?? 0;
+        if (!creative && have < v) {
           short[k] = true;
           afford = false;
         }
       }
-      const key = `${creative}|${locked}|${Object.keys(short).join(',')}`;
+      const key = `${creative}|${locked}|${Object.keys(short).join(',')}|${ITEM_COST_KEYS.some((k) => c.def.cost[k]) ? 1 : 0}`;
       c.el.classList.toggle('unaffordable', !afford && !locked);
       c.el.classList.toggle('locked', locked);
       if (key === c.key && !force) continue;
@@ -202,6 +212,12 @@ export function createHud(ctx, api) {
           const v = c.def.cost[r.id];
           if (!v) continue;
           c.cost.append(h('span', { class: `build-cost${short[r.id] ? ' short' : ''}` }, h('span', { class: 'build-cost-icon', html: icon(r.icon, 13), style: { color: r.color } }), String(v)));
+        }
+        // item costs (plant fiber …) — icons from the smp item set
+        for (const [k, v] of Object.entries(c.def.cost)) {
+          if (RES_IDS.has(k) || !v) continue;
+          const ic = ITEM_ICON[k] || 'smp-bag';
+          c.cost.append(h('span', { class: `build-cost${short[k] ? ' short' : ''}`, title: k }, h('span', { class: 'build-cost-icon', html: icon(ic, 13), style: { color: '#b9d98a' } }), String(v)));
         }
       }
     }
@@ -237,16 +253,21 @@ export function createHud(ctx, api) {
 
   // ------------------------------------------------------------ crosshair
   const crossLabel = h('div', { class: 'build-cross-label' });
-  const cross = h('div', { class: 'build-cross', html: CROSS_SVG }, crossLabel);
+  const crossSub = h('div', { class: 'build-cross-sub' });
+  crossSub.hidden = true;
+  const cross = h('div', { class: 'build-cross', html: CROSS_SVG }, crossLabel, crossSub);
   ui.addWidget('center', cross, { modes: ['explore'], order: 10 });
   let crossKey = '';
-  function setCross(valid, text) {
-    const key = `${valid}|${text}`;
+  /** valid / invalid reticle + the piece name or reason; `sub` = the demolish hint for the aimed piece. */
+  function setCross(valid, text, sub = '') {
+    const key = `${valid}|${text}|${sub}`;
     if (key === crossKey) return;
     crossKey = key;
     cross.classList.toggle('bad', !valid);
     crossLabel.textContent = text || '';
     crossLabel.hidden = !text;
+    crossSub.textContent = sub || '';
+    crossSub.hidden = !sub;
   }
   function flashInvalid() {
     cross.classList.remove('shake');

@@ -184,6 +184,12 @@ export function createFrontierWorld(ctx, opts = {}) {
     nodes: detail.nodes,
     /** Streamed POIs + waystones around the camera: Map id → { id, type, variant, x, y, z, rot, radius, name }. */
     pois: detail.pois,
+    /**
+     * Gathering: per-instance world-feature state (felled / broken / picked + regrowth, gather's proxies)
+     * and queries — set(id, state, regrowAt), hide(id, on), setClock(fn), near(x, z, r, out), parts(f),
+     * crop(f), state(id) (src/frontier/detail.js).
+     */
+    features: detail.features,
     /** Box colliders of the streamed POI models (world space) for ctx.physics. */
     collidersNear(x, z, r) {
       const out = [];

@@ -506,8 +506,9 @@ export function createFx(ctx) {
     // close to the camera (the own muzzle ~1.5 m away, point-blank impacts): smaller + dimmer,
     // otherwise HDR + bloom whites out a large part of the screen
     const dc = Math.hypot(pos.x - camP.x, pos.y - camP.y, pos.z - camP.z);
-    if (dc < 5.1) {
-      const near = Math.max(0.3, (dc - 0.6) / 4.5);
+    if (dc < 9) {
+      // (point-blank auto fire stacks a glow every 0.1 s: keep each one modest)
+      const near = Math.max(0.3, (dc - 0.6) / 8.4);
       s0 *= near;
       s1 *= near;
       intensity *= 0.5 + 0.5 * near;

@@ -72,7 +72,40 @@ export const GRIPS = {
     holster: 'back',
     reload: 2.0,
   },
+  // ---- tools (tool-models.js convention: handle along +Y, striking face −Z, origin = right grip).
+  // Placed in right-hand space (the animator swings the arm); `support` = left wrist on the handle
+  // for two-handed swings (IK weight from the animator's toolTwoW).
+  axe: {
+    tool: true,
+    two: false,
+    muzzle: [0, 0.47, -0.16],
+    wristR: [0.0, -0.012, 0.072],
+    support: [0, -0.115, 0],
+    hand: [0, -0.078, -0.012, -Math.PI / 2, 0, 0],
+    holster: 'back',
+  },
+  pick: {
+    tool: true,
+    two: false,
+    muzzle: [0, 0.49, -0.25],
+    wristR: [0.0, -0.012, 0.072],
+    support: [0, -0.14, 0],
+    hand: [0, -0.078, -0.012, -Math.PI / 2, 0, 0],
+    holster: 'back',
+  },
+  // the mining laser is held like a pistol (aim stance while mining)
+  laser: {
+    tool: true,
+    two: false,
+    muzzle: [0, 0.055, -0.27],
+    wristR: [0.004, -0.05, 0.075],
+    support: [-0.028, 0.012, -0.11],
+    hand: [0, -0.075, -0.015, -0.5, 0, 0],
+    holster: 'thigh',
+  },
 };
+/** Tool ids / families → tool grip presets. */
+export const TOOL_GRIP_OF = { axe: 'axe', 'plasma-axe': 'axe', hatchet: 'axe', hammer: 'axe', pickaxe: 'pick', pick: 'pick', 'mining-laser': 'laser', laser: 'laser' };
 
 // scratch (module level: the rigs update one after another)
 const _m = new THREE.Matrix4();
@@ -132,12 +165,19 @@ const HOLSTER = {
 };
 
 export class WeaponRig {
-  constructor(chr) {
+  /**
+   * opts.tool: this rig holds TOOLS (gathering) instead of weapons: it never writes anim.grip and its
+   * kind goes to anim.tool; the right arm is animated (FK), only the left hand is solved onto the handle.
+   */
+  constructor(chr, { tool = false } = {}) {
     this.chr = chr;
-    this.kind = null; // 'pistol' | 'rifle' | 'heavy' | null
+    this.isTool = !!tool;
+    this.kind = null; // 'pistol' | 'rifle' | 'heavy' | 'axe' | 'pick' | 'laser' | null
     this.grip = null;
     this.object = null; // optional Object3D placed in character space (child of chr.object)
     this.holstered = false;
+    this.forceHolster = false; // weapon rides holstered while a tool is in the hands
+    this.detached = false; // the FP view model owns the object (no re-parenting / placement here)
     this.visible = false;
     this.matrixWorld = new THREE.Matrix4();
     this.muzzle = new THREE.Vector3();
@@ -154,16 +194,16 @@ export class WeaponRig {
    * (unknown kinds map to 'pistol'); `object` (optional) is parented to chr.object.
    */
   set(kind, opts = {}) {
-    if (this.object && this.object !== opts.object) this.object.removeFromParent();
+    if (this.object && this.object !== opts.object && !this.detached) this.object.removeFromParent();
     if (!kind) {
       this.kind = null;
       this.grip = null;
       this.object = null;
       this.visible = false;
-      this.chr.anim.grip = 'none';
+      this._syncAnim();
       return this;
     }
-    const k = GRIPS[kind] ? kind : 'pistol';
+    const k = GRIPS[kind] ? kind : this.isTool ? 'axe' : 'pistol';
     const g = GRIPS[k];
     this.kind = k;
     this.grip = g;
@@ -178,18 +218,32 @@ export class WeaponRig {
     this.handGrip.compose(_v.set(h[0], h[1], h[2]), _q, _one);
     this.handGripInv.copy(_q).invert();
     this.object = opts.object || null;
-    if (this.object) {
+    if (this.object && !this.detached) {
       if (this.object.parent !== this.chr.object) this.chr.object.add(this.object);
       this.object.matrixAutoUpdate = true;
     }
     this.visible = true;
-    this.chr.anim.grip = this.holstered ? 'none' : k;
+    this._syncAnim();
     return this;
   }
 
   setHolstered(h) {
     this.holstered = !!h;
-    if (this.kind) this.chr.anim.grip = this.holstered ? 'none' : this.kind;
+    this._syncAnim();
+  }
+
+  /** Weapon grip / tool family for the animator's stances. */
+  _syncAnim() {
+    const a = this.chr.anim;
+    if (this.isTool) a.tool = this.kind && !this.holstered ? this.kind : null;
+    else a.grip = this.kind && !this.holstered && !this.forceHolster ? this.kind : 'none';
+  }
+
+  /** Re-attaches the object to the character after the FP view model released it. */
+  reattach() {
+    this.detached = false;
+    if (this.object && this.object.parent !== this.chr.object) this.chr.object.add(this.object);
+    if (this.object) this.object.matrixAutoUpdate = true;
   }
 
   /** World position of the muzzle (after update()). */
@@ -207,9 +261,13 @@ export class WeaponRig {
     const a = chr.anim;
     const bones = chr.bones;
     const g = this.grip;
+    if (!this.isTool) {
+      const want = this.holstered || this.forceHolster ? 'none' : this.kind;
+      if (a.grip !== want) a.grip = want;
+    }
     chr.object.updateMatrixWorld(true);
     // ---- holstered: rides on the back / thigh
-    if (this.holstered) {
+    if (this.holstered || this.forceHolster) {
       const hs = HOLSTER[g.holster] || HOLSTER.back;
       const bone = bones[g.holster === 'thigh' ? J.thighR : J.chest];
       _m.compose(hs.p, hs.q, _one);
@@ -221,6 +279,7 @@ export class WeaponRig {
     // ---- weights
     const dodgeE = a.dodgeT < a.dodgeDur ? 1 - sstep(0.85, 1, a.dodgeT / a.dodgeDur) : 0;
     const live = (1 - a.deadW) * (1 - dodgeE) * (a.spawnScale < 0.999 ? 0 : 1);
+    if (g.tool) return this._updateTool(ik, live);
     const stanceW = (g.two ? 1 : a.aimW) * live;
     // ---- hand-space placement (relaxed pistol, rolls, death)
     _m.multiplyMatrices(bones[J.handR].matrixWorld, this.handGrip);
@@ -310,14 +369,110 @@ export class WeaponRig {
     return true;
   }
 
+  /**
+   * Swing tools (axe / pick): the animated right hand carries the tool; the left hand joins on the
+   * handle (support point) with the animator's two-hand weight, its fist wrapped like the right one.
+   */
+  _updateTool(ik, live) {
+    const chr = this.chr;
+    const a = chr.anim;
+    const bones = chr.bones;
+    // relaxed: the tool rides in the (animated) right hand
+    _m.multiplyMatrices(bones[J.handR].matrixWorld, this.handGrip);
+    const w = clamp(a.actW, 0, 1) * live;
+    if (w > 0.001) {
+      // working: the action's item frame (character space) — the arms are solved onto the tool
+      _m2.compose(a.itemPos, a.itemQuat, _one);
+      _m2.premultiply(chr.object.matrixWorld);
+      _m2.decompose(_pA, _qA, _s);
+      if (w < 0.999) {
+        _m.decompose(_pH, _qH, _s);
+        _pA.lerp(_pH, 1 - w);
+        _qA.slerp(_qH, 1 - w);
+      }
+      this.matrixWorld.compose(_pA, _qA, _one);
+    } else this.matrixWorld.copy(_m);
+    this._applyObject();
+    this.ikW = ik ? w : 0;
+    if (!ik) return true;
+    chr.object.matrixWorld.decompose(_p, _qC, _s);
+    if (w > 0.001) {
+      _T.copy(this.wristOffset()).applyMatrix4(this.matrixWorld);
+      solveArm(bones, 1, _T, _v.copy(POLE_R).applyQuaternion(_qC), w);
+      alignHand(bones, J.foreR, J.handR, this.matrixWorld, this.handGripInv, w);
+    }
+    const w2 = clamp(a.toolTwoW, 0, 1) * live;
+    if (w2 > 0.001) {
+      // left wrist = support grip + the same grip → wrist offset as the right hand (tool space)
+      _T.copy(this.support).add(this.wristOffset()).applyMatrix4(this.matrixWorld);
+      solveArm(bones, -1, _T, _v.copy(POLE_L).applyQuaternion(_qC), w2);
+      alignHand(bones, J.foreL, J.handL, this.matrixWorld, this.handGripInv, w2);
+    }
+    return true;
+  }
+
+  /** Grip point → wrist (hand bone origin) in item space (cached per set()). */
+  wristOffset() {
+    if (!this._wo) this._wo = new THREE.Vector3();
+    if (this._woKind !== this.kind) {
+      this._woKind = this.kind;
+      _M0.copy(this.handGrip).invert();
+      this._wo.set(0, 0, 0).applyMatrix4(_M0);
+    }
+    return this._wo;
+  }
+
   _applyObject() {
     const o = this.object;
-    if (!o) return;
+    if (!o || this.detached) return;
     // character space = inverse(chr.object world) × weapon world
     _m2.copy(this.chr.object.matrixWorld).invert().multiply(this.matrixWorld);
     _m2.decompose(o.position, o.quaternion, _s);
     o.visible = this.visible;
   }
+}
+
+/** Rotates a hand bone so its fist matches an item frame (world matrix) via the grip → hand rotation. */
+function alignHand(bones, foreIdx, handIdx, itemWorld, gripInv, w) {
+  itemWorld.decompose(_p, _q, _s);
+  _q.multiply(gripInv);
+  bones[foreIdx].updateWorldMatrix(false, false);
+  bones[foreIdx].getWorldQuaternion(_q2);
+  _q.premultiply(_q2.invert());
+  bones[handIdx].quaternion.slerp(_q, w);
+}
+
+// bare-hand gestures (gather / eat / use / build): a fist around the item frame like a tool handle
+const GESTURE_GRIP = new THREE.Matrix4();
+const GESTURE_INV = new THREE.Quaternion();
+const GESTURE_WRIST = new THREE.Vector3();
+{
+  const h = GRIPS.axe.hand;
+  _q.setFromEuler(new THREE.Euler(h[3], h[4], h[5], 'XYZ'));
+  GESTURE_GRIP.compose(new THREE.Vector3(h[0], h[1], h[2]), _q, _one);
+  GESTURE_INV.copy(_q).invert();
+  GESTURE_WRIST.set(0, 0, 0).applyMatrix4(GESTURE_GRIP.clone().invert());
+}
+
+/**
+ * Solves the right arm onto the animator's item frame for bare-hand actions (no tool rig holding
+ * anything): weight = the action layer weight. `out` (Matrix4, optional) receives the item world matrix
+ * (e.g. to place food in the hand). Returns the weight used.
+ */
+export function solveGesture(chr, ik = true, out = null) {
+  const a = chr.anim;
+  const w = clamp(a.actW, 0, 1) * (1 - a.deadW);
+  if (w < 0.001) return 0;
+  const bones = chr.bones;
+  chr.object.updateMatrixWorld(true);
+  _m2.compose(a.itemPos, a.itemQuat, _one).premultiply(chr.object.matrixWorld);
+  if (out) out.copy(_m2);
+  if (!ik) return w;
+  chr.object.matrixWorld.decompose(_p, _qC, _s);
+  _T.copy(GESTURE_WRIST).applyMatrix4(_m2);
+  solveArm(bones, 1, _T, _v.copy(POLE_R).applyQuaternion(_qC), w);
+  alignHand(bones, J.foreR, J.handR, _m2, GESTURE_INV, w);
+  return w;
 }
 
 /**

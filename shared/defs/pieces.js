@@ -47,7 +47,7 @@ export const PIECES = [
   P('decor', 'bench', { en: 'Bench', nl: 'Bank' }, { wood: 6 }, 'free', { radius: 0.9 }),
   P('decor', 'table', { en: 'Table', nl: 'Tafel' }, { wood: 6 }, 'free', { radius: 0.85 }),
   P('decor', 'banner', { en: 'Ø Banner', nl: 'Ø-banier' }, { wood: 2, metal: 2 }, 'free', { radius: 0.4 }),
-  P('decor', 'brazier', { en: 'Fire Basket', nl: 'Vuurkorf' }, { metal: 4, wood: 4 }, 'free', { radius: 0.5 }),
+  P('decor', 'brazier', { en: 'Fire Basket', nl: 'Vuurkorf' }, { metal: 4, wood: 4 }, 'free', { radius: 0.5, smp: { fire: 5 } }),
   P('decor', 'crates', { en: 'Crates', nl: 'Kratten' }, { wood: 6 }, 'free', { radius: 0.8 }),
   P('decor', 'statue', { en: 'Ø Statue', nl: 'Ø-standbeeld' }, { stone: 30 }, 'free', { radius: 1.0, unlock: 'decor-statue' }),
   P('decor', 'neon-tree', { en: 'Neon Tree', nl: 'Neonboom' }, { metal: 10, energy: 10 }, 'free', { radius: 1.0, unlock: 'decor-neon-tree' }),
@@ -77,7 +77,45 @@ export const PIECES = [
     smp: { spawn: true },
     limit: 1,
   }),
+  // ---- survival depth (campfire, storage, beds, doors, light, Workbench Mk III)
+  P('survival', 'campfire', { en: 'Campfire', nl: 'Kampvuur' }, { stone: 8, wood: 10 }, 'free', {
+    radius: 0.95,
+    smp: { fire: 8, station: 'campfire', cook: 3 }, // warmth radius (m), cooking slots
+    limit: 8,
+  }),
+  P('survival', 'sleeping-bag', { en: 'Sleeping Bag', nl: 'Slaapzak' }, { fiber: 10, wood: 2 }, 'free', {
+    radius: 0.6,
+    smp: { bed: { side: 0.95 } },
+    limit: 3,
+  }),
+  P('survival', 'bed', { en: 'Bed', nl: 'Bed' }, { wood: 18, fiber: 12, metal: 2 }, 'free', {
+    radius: 1.05,
+    smp: { bed: { side: 1.25 } },
+    limit: 3,
+  }),
+  P('survival', 'storage-chest', { en: 'Storage Chest', nl: 'Opslagkist' }, { wood: 24, metal: 6 }, 'free', {
+    radius: 0.7,
+    smp: { storage: { stacks: 24 } },
+    limit: 24,
+  }),
+  P('survival', 'door', { en: 'Door', nl: 'Deur' }, { wood: 12, metal: 6 }, 'edge', {
+    smp: { door: true },
+    limit: 32,
+  }),
+  P('survival', 'torch', { en: 'Torch', nl: 'Fakkel' }, { wood: 3, fiber: 2 }, 'free', {
+    radius: 0.3,
+    smp: { light: 'torch' },
+    limit: 40,
+  }),
+  P('survival', 'workbench-3', { en: 'Workbench Mk III', nl: 'Werkbank Mk III' }, { metal: 160, energy: 80 }, 'free', {
+    radius: 1.35,
+    hidden: true, // created by the 'workbench-t3' upgrade recipe
+    smp: { station: 'workbench', tier: 3 },
+  }),
 ];
+
+/** One-tier station upgrades (recipes with `upgrade`): the bench type → the next tier's type. */
+export const UPGRADES = { workbench: 'workbench-2', 'workbench-2': 'workbench-3' };
 
 export const PIECE = Object.fromEntries(PIECES.map((p) => [p.id, p]));
 

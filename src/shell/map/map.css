@@ -279,7 +279,8 @@ body[data-touch="1"] .shell-legend-item { min-height: 44px; }
   .shell-map-detail-name { font-size: 15px; }
   .shell-map-detail-desc { display: none; }
   .shell-map-travel { height: 44px; flex: none; font-size: 13px; letter-spacing: 0.18em; gap: 10px; }
-  .shell-map-brand { left: 14px; top: 10px; }
+  .shell-map-brand { left: 14px; top: 10px; opacity: 0.55; }
+  .shell-map-brand-sub { display: none; }
   .shell-map-brand-row { gap: 10px; }
   .shell-map-brand-row svg { width: 24px; height: 24px; }
   .shell-map-brand-word { font-size: 15px; }
@@ -295,3 +296,140 @@ body[data-touch="1"] .shell-legend-item { min-height: 44px; }
   .shell-map-brand-sub { margin-left: 40px; }
   .shell-pin-label { font-size: 12.5px; }
 }
+
+/* ===================================================== the infinite planet (PLATFORM.md §11) */
+/* procedural layer (FrontierLayer canvas, CSS-positioned per view) under the hub image */
+.shell-map-frontier { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.shell-map-frontier-canvas {
+  position: absolute; left: 0; top: 0; transform-origin: 50% 50%; will-change: transform;
+  filter: saturate(0.92) brightness(0.92) contrast(1.04);
+}
+.shell-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.shell-map-dyn { position: absolute; inset: 0; }
+.shell-map-coord { display: none; }
+
+/* the whole hub as one pin when zoomed out */
+.shell-pin.is-hub .shell-pin-gem::before { border-color: var(--cyan); box-shadow: 0 0 18px rgba(127, 224, 255, 0.6); background: rgba(8, 20, 28, 0.92); }
+.shell-pin.is-hub .shell-pin-icon { color: var(--cyan); }
+.shell-pin.is-hub .shell-pin-label { display: flex; flex-direction: column; line-height: 1.15; font-size: 15px; letter-spacing: 0.12em; text-transform: uppercase; }
+.shell-pin.is-hub .shell-pin-label small { font-size: 10.5px; letter-spacing: 0.24em; color: rgba(170, 236, 255, 0.9); }
+
+/* dynamic pins: wilderness POIs, your base / beacon, death crate, waypoint, boss, Gateway */
+.shell-pin.is-dyn { --pc: rgba(236, 230, 220, 0.95); }
+.shell-pin.is-dyn .shell-pin-gem::before { border-color: var(--pc); }
+.shell-pin.is-dyn .shell-pin-icon { color: var(--pc); }
+.shell-pin.is-dyn .shell-pin-label { font-size: 13px; }
+.shell-pin.is-ruin { --pc: #6fe9ff; }
+.shell-pin.is-outpost { --pc: #ff8a5c; }
+.shell-pin.is-wreck { --pc: #ffd36e; }
+.shell-pin.is-poi .shell-pin-gem { transform: scale(0.82); }
+.shell-pin.is-poi:hover .shell-pin-gem { transform: scale(0.95); }
+.shell-pin.is-home, .shell-pin.is-gateway { --pc: var(--cyan); }
+.shell-pin.is-home .shell-pin-gem::before, .shell-pin.is-gateway .shell-pin-gem::before { box-shadow: 0 0 14px rgba(127, 224, 255, 0.55); }
+.shell-pin.is-home .shell-pin-label { color: var(--cyan); }
+.shell-pin.is-crate { --pc: #f0b46a; }
+.shell-pin.is-crate .shell-pin-gem::before { box-shadow: 0 0 14px rgba(240, 180, 106, 0.6); animation: shell-gem-pulse-gold 2s ease-in-out infinite; }
+@keyframes shell-gem-pulse-gold { 50% { box-shadow: 0 0 22px rgba(240, 180, 106, 0.9); } }
+.shell-pin.is-waypoint { --pc: #ffd27a; }
+.shell-pin.is-waypoint .shell-pin-gem::before { box-shadow: 0 0 16px rgba(255, 210, 122, 0.7); }
+.shell-pin.is-waypoint .shell-pin-label { color: #ffe3a6; }
+.shell-pin.is-boss { --pc: #ff5a4e; }
+.shell-pin.is-boss .shell-pin-gem::before { box-shadow: 0 0 18px rgba(255, 90, 78, 0.8); }
+.shell-pin.is-boss .shell-pin-label { color: #ffb4ab; }
+.shell-pin.is-loot { --pc: #ffd27f; }
+.shell-pin.is-loot .shell-pin-gem::before { box-shadow: 0 0 14px rgba(255, 210, 127, 0.65); }
+.shell-pin.is-loot .shell-pin-label { color: #ffe9bd; }
+.shell-pin.is-dyn.is-selected .shell-pin-gem::before { border-color: #fff; }
+
+/* player: arrow + "You" */
+.shell-map-player-label {
+  position: absolute; left: 14px; top: -22px; white-space: nowrap; pointer-events: none;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--cyan);
+  text-shadow: 0 1px 3px #000, 0 0 10px rgba(0, 0, 0, 0.8);
+}
+.shell-map-quest { --q: #7fe0ff; }
+.shell-map-quest-gem { border-color: var(--q); }
+.shell-map-quest-label { color: var(--q); }
+
+/* legend: where you are, travel, sections, details + actions */
+.shell-map-here { display: flex; align-items: center; gap: 10px; padding: 12px 4px 4px; }
+.shell-map-here-chip {
+  display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid currentColor; color: var(--cyan); background: rgba(127, 224, 255, 0.08);
+}
+.shell-map-here-chip.is-wild { color: #ffb37a; background: rgba(255, 160, 90, 0.08); }
+.shell-map-here-text { display: flex; flex-direction: column; min-width: 0; }
+.shell-map-here-name { font-size: 15px; color: #fff; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shell-map-here-text small { font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); }
+
+.shell-map-travelbox { padding: 10px 0 4px; }
+.shell-map-travel-head { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; color: var(--cyan); font-size: 12px; letter-spacing: 0.24em; text-transform: uppercase; }
+.shell-map-travel-head span:first-child { display: flex; }
+.shell-map-travel-head small { margin-left: auto; font-size: 10.5px; letter-spacing: 0.04em; text-transform: none; color: var(--ink-3); }
+.shell-tbtns { display: flex; flex-direction: column; gap: 6px; }
+.shell-tbtn {
+  display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px 10px; cursor: pointer; text-align: left;
+  border-radius: 10px; border: 1px solid rgba(127, 224, 255, 0.4);
+  background: linear-gradient(180deg, rgba(127, 224, 255, 0.1), rgba(127, 224, 255, 0.04));
+  color: #fff; font: inherit;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+.shell-tbtn:hover { background: rgba(127, 224, 255, 0.18); border-color: var(--cyan); }
+.shell-tbtn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.shell-tbtn.is-off { opacity: 0.5; border-color: var(--line-2); background: rgba(255, 255, 255, 0.03); }
+.shell-tbtn.is-off:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--line-2); }
+.shell-tbtn-icon { display: flex; flex: none; color: var(--cyan); }
+.shell-tbtn.is-off .shell-tbtn-icon { color: var(--ink-3); }
+.shell-tbtn-text { display: flex; flex-direction: column; min-width: 0; }
+.shell-tbtn-label { font-size: 14px; letter-spacing: 0.04em; }
+.shell-tbtn-text small { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.shell-legend-head2 {
+  margin: 10px 6px 2px; font-size: 10.5px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--ink-3);
+}
+.shell-legend-gem { --gem: rgba(236, 230, 220, 0.9); }
+.shell-legend-gem::before { border-color: var(--gem); }
+.shell-legend-gem span { color: var(--gem); }
+.shell-legend-meta { font-size: 12px; color: var(--ink-3); letter-spacing: 0.02em; }
+
+.shell-map-actions { display: flex; flex-direction: column; gap: 6px; }
+.shell-map-actions:empty { display: none; }
+.shell-map-act {
+  display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--line-2); background: rgba(255, 255, 255, 0.04); color: #fff; font: inherit; font-size: 14px; letter-spacing: 0.08em;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+.shell-map-act span:first-child { display: flex; color: #ffd27a; }
+.shell-map-act:hover:not(:disabled) { border-color: rgba(255, 210, 122, 0.7); background: rgba(255, 210, 122, 0.1); }
+.shell-map-act.is-primary { height: 52px; border-color: rgba(127, 224, 255, 0.6); background: linear-gradient(180deg, rgba(127, 224, 255, 0.12), rgba(127, 224, 255, 0.05)); font-size: 16px; letter-spacing: 0.22em; }
+.shell-map-act.is-primary span:first-child { color: var(--cyan); }
+.shell-map-act.is-primary:hover:not(:disabled) { background: rgba(127, 224, 255, 0.2); border-color: var(--cyan); box-shadow: 0 0 22px rgba(127, 224, 255, 0.25); }
+.shell-map-act:disabled { opacity: 0.38; cursor: default; }
+.shell-map-act:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+@media (max-width: 860px) {
+  .shell-map-here, .shell-legend-head2 { display: none; }
+  .shell-map-travelbox { padding: 4px 0; }
+  .shell-tbtns { flex-direction: row; }
+  .shell-tbtn { padding: 6px 8px; }
+  .shell-tbtn-text small { display: none; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .shell-map-here { display: none; }
+  .shell-map-travelbox { padding: 4px 0 2px; }
+  .shell-map-travel-head { padding: 0 2px 4px; font-size: 10.5px; }
+  .shell-map-travel-head small { display: none; }
+  .shell-tbtns { gap: 4px; }
+  .shell-tbtn { padding: 4px 8px; gap: 8px; border-radius: 8px; }
+  .shell-tbtn-label { font-size: 12.5px; }
+  .shell-tbtn-text small { font-size: 10.5px; }
+  .shell-legend-head2 { margin: 6px 4px 0; font-size: 9.5px; }
+  .shell-map-act { height: 38px; font-size: 12.5px; }
+  .shell-map-act.is-primary { height: 40px; font-size: 13px; letter-spacing: 0.16em; }
+  .shell-map-player-label { display: none; }
+}
+.shell-map-player-label { display: none; }
+.shell-map-player.is-labelled .shell-map-player-label { display: block; }
+/* the legend scrolls as a whole on short screens; the places list keeps a usable height */
+.shell-map-legend { overflow-y: auto; scrollbar-width: thin; }
+.shell-legend-list { flex: 1 0 auto; min-height: 120px; max-height: 46vh; }

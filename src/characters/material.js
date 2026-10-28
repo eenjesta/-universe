@@ -91,7 +91,7 @@ export function getDetailTexture() {
  * shared. `userData.rimColor` (Color) and `userData.sunDir` (Vector3, world)
  * drive the rim light.
  */
-export function createCharacterMaterial({ rim = 0.0, name = 'character' } = {}) {
+export function createCharacterMaterial({ rim = 0.0, name = 'character', fpHide = false } = {}) {
   const mat = new THREE.MeshPhysicalMaterial({
     name,
     vertexColors: true,
@@ -107,9 +107,47 @@ export function createCharacterMaterial({ rim = 0.0, name = 'character' } = {}) 
   const uSunDir = { value: new THREE.Vector3(0.3, 0.2, -1).normalize() };
   mat.userData.rimColor = uRimColor.value;
   mat.userData.sunDir = uSunDir.value;
+  // first person (the local player only): bones whose weight is 1 in uHideBone are discarded in the
+  // colour pass (dithered while uFpHide fades in); the shadow pass uses three's depth material → full shadow
+  const uFpHide = { value: 0 };
+  const uHideBone = { value: new Float32Array(32) };
+  if (fpHide) {
+    mat.defines = { ...(mat.defines || {}), CHR_FP_HIDE: '' };
+    mat.userData.fpHide = uFpHide;
+    mat.userData.hideBones = uHideBone.value;
+  }
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRimColor = uRimColor;
     shader.uniforms.uSunDir = uSunDir;
+    if (fpHide) {
+      shader.uniforms.uFpHide = uFpHide;
+      shader.uniforms.uHideBone = uHideBone;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n#ifdef CHR_FP_HIDE\nuniform float uHideBone[ 32 ];\nvarying float vFpHide;\n#endif')
+        .replace(
+          '#include <skinning_vertex>',
+          `#include <skinning_vertex>
+          #if defined( CHR_FP_HIDE ) && defined( USE_SKINNING )
+            vFpHide = skinWeight.x * uHideBone[ int( skinIndex.x ) & 31 ] + skinWeight.y * uHideBone[ int( skinIndex.y ) & 31 ]
+              + skinWeight.z * uHideBone[ int( skinIndex.z ) & 31 ] + skinWeight.w * uHideBone[ int( skinIndex.w ) & 31 ];
+          #elif defined( CHR_FP_HIDE )
+            vFpHide = 0.0;
+          #endif`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\n#ifdef CHR_FP_HIDE\nuniform float uFpHide;\nvarying float vFpHide;\n#endif')
+        .replace(
+          '#include <clipping_planes_fragment>',
+          `#include <clipping_planes_fragment>
+          #ifdef CHR_FP_HIDE
+            if ( uFpHide > 0.0 ) {
+              float hideV = vFpHide * uFpHide;
+              float dith = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) );
+              if ( hideV > ( uFpHide >= 0.999 ? 0.5 : dith * 0.98 + 0.01 ) ) discard;
+            }
+          #endif`,
+        );
+    }
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -183,7 +221,7 @@ export function createCharacterMaterial({ rim = 0.0, name = 'character' } = {}) 
         #include <opaque_fragment>`,
       );
   };
-  mat.customProgramCacheKey = () => 'chr-v4';
+  mat.customProgramCacheKey = () => (fpHide ? 'chr-v4-fp' : 'chr-v4');
   return mat;
 }
 

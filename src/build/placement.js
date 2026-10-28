@@ -47,7 +47,8 @@ export const REASONS = {
   far: { en: 'Too far away', nl: 'Te ver weg' },
   water: { en: 'Not on the water', nl: 'Niet op het water' },
   road: { en: 'Not on a road', nl: 'Niet op de weg' },
-  steep: { en: 'Too steep here', nl: 'Te steil hier' },
+  steep: { en: 'Too steep here — find flatter ground', nl: 'Te steil hier — zoek vlakker terrein' },
+  steepFree: { en: 'Too steep — flatter ground or on a foundation', nl: 'Te steil — vlakker terrein of op een fundering' },
   blocked: { en: 'Blocked', nl: 'Geblokkeerd' },
   occupied: { en: 'Space occupied', nl: 'Plek is bezet' },
   support: { en: 'Needs support', nl: 'Heeft steun nodig' },
@@ -307,12 +308,17 @@ export function slotLayout(def, x, y, z, rot, L, variant) {
 }
 
 // --------------------------------------------------------------- placement
-/** Resource affordability without the creative-mode shortcut of state.canAfford. */
-function canAffordRes(state, cost = {}) {
-  const res = state.data?.resources || {};
-  for (const k in cost) {
-    if (k === 'credits' ? (state.data?.credits ?? 0) < cost[k] : (res[k] ?? 0) < cost[k]) return false;
-  }
+const RES_KEYS = new Set(['metal', 'stone', 'wood', 'energy']);
+/** How much of a cost key the player has: resources / credits from state, items (fiber …) from the smp mirror. */
+export function haveOf(ctx, k) {
+  if (k === 'credits') return ctx.state?.data?.credits ?? 0;
+  if (RES_KEYS.has(k)) return ctx.state?.data?.resources?.[k] ?? 0;
+  return ctx.smp?.inv?.items?.[k] ?? ctx.state?.data?.smp?.items?.[k] ?? 0;
+}
+
+/** Resource (+ item) affordability without the creative-mode shortcut of state.canAfford. */
+function canAffordRes(ctx, cost = {}) {
+  for (const k in cost) if (haveOf(ctx, k) < cost[k]) return false;
   return true;
 }
 
@@ -1020,7 +1026,8 @@ export function createPlacement(ctx, reg) {
       setFreeRect(x, z, r);
       target.groundTouch = true;
       if (rangeOut.wet) setReason('water');
-      else if (rangeOut.max - rangeOut.min > Math.max(0.45, r * 0.7)) setReason('steep');
+      // free pieces sink into a slope (the base sits at the lowest sample) — rugged badlands / hills stay buildable
+      else if (rangeOut.max - rangeOut.min > Math.max(0.75, r * 1.05)) setReason('steepFree');
       return true;
     } else {
       y = h.point.y;
@@ -1164,11 +1171,10 @@ export function createPlacement(ctx, reg) {
       const owned = ctx.state?.get?.('owned.items') || [];
       if (!owned.includes(def.unlock) && !creativeOn) setReason('locked');
     }
-    if (!opts.ignoreCost && ctx.state && !(creativeOn || canAffordRes(ctx.state, def.cost))) {
-      const res = ctx.state.data.resources || {};
+    if (!opts.ignoreCost && ctx.state && !(creativeOn || canAffordRes(ctx, def.cost))) {
       let miss = null;
-      for (const [k, v] of Object.entries(def.cost)) if ((res[k] ?? 0) < v) miss = miss || k;
-      const RES = { metal: { en: 'metal', nl: 'metaal' }, stone: { en: 'stone', nl: 'steen' }, wood: { en: 'wood', nl: 'hout' }, energy: { en: 'energy', nl: 'energie' } };
+      for (const [k, v] of Object.entries(def.cost)) if (haveOf(ctx, k) < v) miss = miss || k;
+      const RES = { metal: { en: 'metal', nl: 'metaal' }, stone: { en: 'stone', nl: 'steen' }, wood: { en: 'wood', nl: 'hout' }, energy: { en: 'energy', nl: 'energie' }, fiber: { en: 'plant fiber', nl: 'plantenvezel' } };
       setReason('cost', { res: t(RES[miss] || RES.metal) });
     }
   }

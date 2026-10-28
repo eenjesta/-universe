@@ -32,6 +32,8 @@ const MODULES = [
   { name: 'net', label: { en: 'Multiplayer', nl: 'Multiplayer' }, load: () => import('./net/index.js'), fallback: () => import('./fallback/net.js') },
   { name: 'combat', label: { en: 'Combat', nl: 'Gevechten' }, load: () => import('./combat/index.js'), fallback: () => import('./fallback/combat.js') },
   { name: 'smp', label: { en: 'Survival', nl: 'Overleven' }, load: () => import('./smp/index.js'), fallback: () => import('./fallback/smp.js') },
+  { name: 'gather', label: { en: 'Gathering', nl: 'Verzamelen' }, load: () => import('./gather/index.js'), fallback: () => import('./fallback/gather.js') },
+  { name: 'gateway', label: { en: 'Gateway', nl: 'Poort' }, load: () => import('./gateway/index.js'), fallback: () => import('./fallback/gateway.js') },
   { name: 'systems', label: { en: 'Missions, stories and chat', nl: 'Missies, verhalen en chat' }, load: () => import('./systems/index.js'), fallback: () => import('./fallback/systems.js') },
   { name: 'sound', label: { en: 'Sound', nl: 'Geluid' }, load: () => import('./audio/index.js'), fallback: () => import('./fallback/audio.js') },
   { name: 'studio', label: { en: 'Ø Studio', nl: 'Ø Studio' }, load: () => import('./studio/index.js'), fallback: () => import('./fallback/studio.js') },
@@ -106,6 +108,20 @@ export async function createGame() {
   ctx.i18n = i18n;
   ctx.ui = new UI(ctx);
   ctx.gfx = installGfx(ctx); // graphics diagnostics switches + panel (` key / ?gfx)
+  // sticky aim (trackpads): a quick right click keeps aiming while armed on foot — see Input.aimLatch
+  input.aimLatchWhen = () => !!ctx.combat?.armed && !ctx.build?.active && !!ctx.modes?.is?.('explore');
+  events.on('mode:change', () => input.releaseAimLatch());
+  let aimHintShown = false;
+  events.on('input:aimLatch', ({ on }) => {
+    if (!on || aimHintShown) return;
+    aimHintShown = true;
+    ctx.ui?.toast?.({
+      title: t({ en: 'Aim locked', nl: 'Richten vastgezet' }),
+      text: t({ en: 'Click to fire — right click (two-finger click) again to stop aiming.', nl: 'Klik om te schieten — nog een keer rechtsklikken (twee vingers) om te stoppen met richten.' }),
+      icon: 'cbt-aim',
+      duration: 4200,
+    });
+  });
   ctx.modes = new Modes(ctx);
   ctx.interactions = new Interactions(ctx);
   ctx.debug = createDebug(ctx);

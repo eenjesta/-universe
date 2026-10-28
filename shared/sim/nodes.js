@@ -108,3 +108,18 @@ export function generateNodes({ getHeightAt, isWater } = {}) {
   cacheKey = H;
   return nodes;
 }
+
+// ------------------------------------------------------------------ gathering (world features)
+// Resource nodes in the contextual tool flow (src/gather): the client swings until the node's
+// HP is gone, then sends C.HARVEST { node, tool }; a better tool multiplies the yield (NODE_TOOL_BONUS).
+export const NODE_GATHER = {
+  metal: { act: 'mine', hp: 40 },
+  stone: { act: 'mine', hp: 35 },
+  wood: { act: 'chop', hp: 30 },
+  energy: { act: 'mine', hp: 40 },
+};
+/** Yield multiplier for node harvests by tool tier (0: hands / multitool / none — the classic amounts). */
+export const NODE_TOOL_BONUS = [1, 1.25, 1.5];
+
+// world-feature helpers live with the rules (pure, no imports — also used by the frontier worker)
+export { parseFeatureId, mushroomFor, chunkFeatures, MUSHROOMS, idHash01 as h01 } from '../defs/tools.js';

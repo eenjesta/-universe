@@ -41,6 +41,8 @@
  *   placeAtAsync(pieceId, opts) → Promise<{ok, id | reason}> (tests). targetRef = the live target (no allocation).
  *   setNodeSource({nodesNear(x, z, r)} | null) streams wilderness harvest nodes around the player (wildNodes).
  *   Extra events: build:remote {id, piece, owner} (someone else built), build:denied {reason, text, piece}.
+ * Crosshair: piece name or the reason it can't go there; below it "X · Demolish <piece> · 50 % back" for the piece
+ *   you aim at and may remove. Online the terrain shows the §11.2 rules overlay while building (ctx.frontier).
  * Files: catalog · geo · materials · pieces · hologram · placement · structures ·
  *   power · harvest · hud (+ build.css) · icons · dev/lab.
  */
@@ -52,10 +54,12 @@ import { ZONES } from '../world/layout.js';
 import { ACTIONS } from '../core/input.js';
 import { CATEGORIES, PIECE, piecesOf, refundOf, REACH } from './catalog.js';
 import { createMaterials } from './materials.js';
+import { normVariant, STATEFUL } from './pieces.js';
 import { createHoloMaterials, Ghost, ProjectedGrid } from './hologram.js';
 import { createPlacement } from './placement.js';
 import { createRegistry } from './structures.js';
 import { createPower } from './power.js';
+import { createFireLights } from './firelight.js';
 import { createHarvest } from './harvest.js';
 import { createHud } from './hud.js';
 import { registerBuildIcons } from './icons.js';
@@ -63,6 +67,7 @@ import { registerBuildIcons } from './icons.js';
 const BUILD_CAM = { distance: 6.4, height: 1.8, shoulder: 1.1, aimHeight: 0.5 };
 /** Fallback texts for server denials without a translated `text` (src/smp passes its own). */
 const DENY_TEXT = {
+  demolish: { en: '{key}Demolish {name} · 50 % back', nl: '{key}{name} slopen · 50 % terug' },
   denied: { en: 'Not allowed here', nl: 'Hier niet toegestaan' },
   noBuild: { en: 'Safe zone', nl: 'Veilige zone' },
   claim: { en: 'This land is claimed', nl: 'Dit land is geclaimd' },
@@ -110,6 +115,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
   progress(0.45);
 
   const power = createPower(ctx, reg, mats, { accrue: () => !reg.authority });
+  const fireLights = createFireLights(ctx, reg, mats);
   let harvest = null;
   try {
     harvest = createHarvest(ctx, mats, { authority: () => reg.authority });
@@ -189,9 +195,12 @@ export async function install(ctx, { progress = () => {} } = {}) {
   let camTarget = 0;
   let camOwned = false;
 
+  /** First person (fp-anim): the eye is the camera — never pull the third-person build framing over it. */
+  const firstPerson = () => ctx.player?.view === 'first' || ctx.cameraRig?.view === 'first' || ctx.cameraRig?.firstPerson === true;
+
   function applyCam(k) {
     const r = rig();
-    if (!r) return;
+    if (!r || firstPerson()) return;
     r.shoulder = lerp(saved.shoulder, BUILD_CAM.shoulder, k);
     r.height = lerp(saved.height, BUILD_CAM.height, k);
     r.aimHeight = lerp(saved.aimHeight, BUILD_CAM.aimHeight, k);
@@ -240,7 +249,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
     if (piece && PIECE[piece]) selectPiece(String(piece));
     api.active = true;
     const r = rig();
-    if (r) {
+    if (r && !firstPerson()) {
       if (!camOwned) {
         saved.shoulder = r.shoulder;
         saved.height = r.height;
@@ -250,10 +259,16 @@ export async function install(ctx, { progress = () => {} } = {}) {
       saved.zoomEnabled = camOwned ? saved.zoomEnabled : r.zoomEnabled;
       r.zoomEnabled = false;
       camOwned = true;
+    } else if (r) {
+      // first person: keep the eye camera, only take the wheel (it cycles pieces while building)
+      saved.zoomEnabled = r.zoomEnabled;
+      r.zoomEnabled = false;
     }
     camTarget = 1;
     popEscape?.();
     popEscape = ui.pushEscape(() => exit());
+    // §11.2: show where building is refused (hub buffer, highway corridors, POI clearance) on the frontier terrain
+    if (authority) ctx.frontier?.setOverlay?.('rules');
     hud.setBuilding(true);
     announce();
     ctx.audio?.play?.('ui.open');
@@ -276,6 +291,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
     }
     ghost.group.visible = false;
     grid.group.visible = false;
+    ctx.frontier?.setOverlay?.(null);
     hud.setBuilding(false);
     ctx.audio?.play?.('ui.close');
     events.emit('build:mode', { active: false });
@@ -283,6 +299,22 @@ export async function install(ctx, { progress = () => {} } = {}) {
   }
 
   const toggle = () => (api.active ? exit() : enter());
+
+  events.on('camera:mode', ({ mode } = {}) => {
+    if (mode === 'first' && camOwned) {
+      applyCamTo(0);
+      camOwned = false;
+      camK = 0;
+    }
+  });
+  function applyCamTo(k) {
+    const r = rig();
+    if (!r) return;
+    r.shoulder = lerp(saved.shoulder, BUILD_CAM.shoulder, k);
+    r.height = lerp(saved.height, BUILD_CAM.height, k);
+    r.aimHeight = lerp(saved.aimHeight, BUILD_CAM.aimHeight, k);
+    r._zoom = lerp(saved.zoom, BUILD_CAM.distance, k);
+  }
 
   events.on('mode:change', ({ to }) => {
     if (to !== 'explore') {
@@ -433,6 +465,11 @@ export async function install(ctx, { progress = () => {} } = {}) {
       const rec = res.record ? ensureRecord(res.record, true) : null;
       if (rec) {
         state.add('stats.built', 1);
+        try {
+          ctx.player?.playAction?.('build');
+        } catch {
+          /* optional character action (fp-anim) */
+        }
         ctx.audio?.play?.('build.place', { position: tmpV.set(rec.x, rec.y + 1, rec.z) });
         ctx.cameraRig?.shake?.(0.04);
         events.emit('build:placed', { piece: rec.type, category: rec.def.category, id: rec.id, position: { x: rec.x, y: rec.y, z: rec.z }, name: t(rec.def.name), level: rec.level, owner: rec.owner || null });
@@ -495,7 +532,9 @@ export async function install(ctx, { progress = () => {} } = {}) {
     const z = Number(r.z ?? p?.[2]);
     if (!PIECE[type] || !r.id || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
     const level = r.level | 0;
-    return { id: String(r.id), type, x, y, z, rot: r.rot | 0, level, variant: r.variant || (level === 0 ? 'ground' : 'raised'), owner: r.owner ?? null, ownerName: r.ownerName ?? r.name ?? null, tier: r.tier };
+    let variant = r.variant || (level === 0 ? 'ground' : 'raised');
+    if (STATEFUL.has(type)) variant = normVariant(type, variant, !!r.open); // doors: open / closed
+    return { id: String(r.id), type, x, y, z, rot: r.rot | 0, level, variant, open: !!r.open, owner: r.owner ?? null, ownerName: r.ownerName ?? r.name ?? null, tier: r.tier };
   }
 
   /** Adds (or refreshes) a record from the server; returns the registry record. */
@@ -503,15 +542,23 @@ export async function install(ctx, { progress = () => {} } = {}) {
     const e = normRecord(raw);
     if (!e) return null;
     const ex = reg.records.get(e.id);
+    let swap = false;
     if (ex) {
-      if (ex.type === e.type && Math.abs(ex.x - e.x) < 0.01 && Math.abs(ex.y - e.y) < 0.01 && Math.abs(ex.z - e.z) < 0.01 && ex.rot === e.rot) {
+      const sameVariant = ex.variant === normVariant(e.type, e.variant, e.open);
+      if (ex.type === e.type && Math.abs(ex.x - e.x) < 0.01 && Math.abs(ex.y - e.y) < 0.01 && Math.abs(ex.z - e.z) < 0.01 && ex.rot === e.rot && sameVariant) {
         ex.owner = e.owner;
         ex.ownerName = e.ownerName;
         return ex;
       }
+      swap = ex.type === e.type && !sameVariant; // a door opened / closed: swap the model at once
       reg.remove(e.id); // changed (e.g. workbench upgraded): rebuild in place
     }
-    const rec = reg.add(e, { animate });
+    const rec = reg.add(e, { animate: animate && !swap });
+    if (rec) rec.open = !!e.open;
+    if (swap && rec) {
+      ctx.audio?.play?.(rec.open ? 'ui.open' : 'ui.close', { position: tmpV.set(rec.x, rec.y + 1.2, rec.z) });
+      events.emit('build:state', { id: rec.id, piece: rec.type, open: rec.open });
+    }
     if (rec) clearUnder(rec);
     return rec;
   }
@@ -572,6 +619,29 @@ export async function install(ctx, { progress = () => {} } = {}) {
     ctx.audio?.play?.('build.remove', { position: tmpV.set(rec.x, rec.y + 1, rec.z) });
     events.emit('build:removed', { piece: rec.type, category: rec.def.category, id: rec.id, position: { x: rec.x, y: rec.y, z: rec.z }, refund });
     return { id: rec.id, refund };
+  }
+
+  /**
+   * "X Demolish Wall · +50 %": the piece under the crosshair that you may remove (5 Hz; after the ghost's
+   * own aim this frame, so the shared hit record is free again).
+   */
+  let demoAcc = 1;
+  let demoText = '';
+  function demolishHint(dt) {
+    demoAcc += dt;
+    if (demoAcc < 0.2) return demoText;
+    demoAcc = 0;
+    demoText = '';
+    const cam = ctx.camera;
+    cam.getWorldPosition(o);
+    cam.getWorldDirection(d);
+    const h = placement.aim(o, d, 40);
+    const pl = ctx.player?.position;
+    if (h.kind !== 'structure' || !h.rec?.def || (pl && Math.hypot(h.rec.x - pl.x, h.rec.z - pl.z) > REACH + 6)) return demoText;
+    if (authority?.canRemove?.(h.rec)) return demoText; // someone else's piece / claim: no hint
+    const key = ctx.device?.touch ? '' : 'X · ';
+    demoText = t(DENY_TEXT.demolish, { key, name: t(h.rec.def.name) });
+    return demoText;
   }
 
   /** Removes the placed piece under the crosshair (within reach). */
@@ -645,12 +715,12 @@ export async function install(ctx, { progress = () => {} } = {}) {
       const cz = (tg.rect[1] + tg.rect[3]) / 2;
       grid.update({ cx: tg.gridX, cz: tg.gridZ, flatY: tg.flatY, cursorX: cx, cursorZ: cz, rect: tg.rect, edge: tg.edge, valid: tg.valid });
       grid.group.visible = true;
-      if (denied) hud.setCross(false, deny.text);
-      else hud.setCross(tg.valid, tg.valid ? t(def.name) : placement.reasonText(tg));
+      if (denied) hud.setCross(false, deny.text, demolishHint(dt));
+      else hud.setCross(tg.valid, tg.valid ? t(def.name) : placement.reasonText(tg), demolishHint(dt));
     } else {
       ghost.group.visible = false;
       grid.group.visible = false;
-      hud.setCross(false, placement.reasonText({ reason: 'nothing' }));
+      hud.setCross(false, placement.reasonText({ reason: 'nothing' }), demolishHint(dt));
     }
     if (on) {
       if (act('place', 'Mouse0')) place();
@@ -663,6 +733,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
     (dt, time) => {
       mats.update(dt, time, world);
       reg.update(dt);
+      fireLights.update(dt);
       harvest?.update(dt, time);
       frame(dt);
       // camera framing blend (after the rig update of this frame's mode)

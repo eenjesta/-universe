@@ -211,7 +211,10 @@ float gFade = 1.0 - smoothstep(uRadius * 0.7, uRadius, gDist);
 float gIn = uInner > 0.0 ? smoothstep(uInner - 3.0, uInner + 1.0, gDist) : 1.0;
 // meadow clumps: taller, denser patches
 float gClump = textureLod(tDetail, gXZ * 0.045, 0.0).b;
-float gS = gKeep * gFade * gIn * (0.55 + 0.9 * gHash(gCell + 3.1)) * (0.6 + 0.8 * gClump) * (0.7 + 0.5 * gSa.b);
+// the hub height grid only covers ±1200 m: outside it the infinite world (src/frontier) has its own
+// grass — hub grass out there would sit at clamped edge heights and float above the real terrain
+float gHub = 1.0 - step(1190.0, max(abs(gXZ.x), abs(gXZ.y)));
+float gS = gHub * gKeep * gFade * gIn * (0.55 + 0.9 * gHash(gCell + 3.1)) * (0.6 + 0.8 * gClump) * (0.7 + 0.5 * gSa.b);
 float gRot = gHash(gCell + 9.2) * 6.2831;
 float gc = cos(gRot);
 float gs = sin(gRot);

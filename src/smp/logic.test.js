@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyInv, mergeInv, recipeOutputs, recipeStatus, craftableCount, stationNear, claimAt, foreignClaimAt, claimOverlap, normClaim, bundleList, clock, recipeList } from './logic.js';
-import { RECIPES } from '../../shared/defs/recipes.js';
+import { emptyInv, mergeInv, recipeOutputs, recipeStatus, craftableCount, stationNear, claimAt, foreignClaimAt, claimOverlap, normClaim, bundleList, clock, recipeList, recipeGroup, haveOf, bestFood, foodCount, cookStatus, stationTier } from './logic.js';
+import { RECIPES, COOK_RECIPES } from '../../shared/defs/recipes.js';
 
 test('mergeInv: full then patch', () => {
   const inv = emptyInv();
@@ -70,6 +70,34 @@ test('bundles, clock, recipe order', () => {
   assert.equal(clock(-3), '0:00');
   const list = recipeList();
   assert.ok(list.length >= 9);
-  assert.ok(list[0].out?.ammo, 'ammo first');
-  assert.ok(list[list.length - 1].upgrade || list[list.length - 1].out?.weapon);
+  assert.equal(recipeGroup(list[0]), 'tools', 'tools first (onboarding: craft your first tools)');
+  assert.ok(list[list.length - 1].upgrade, 'upgrades last');
+});
+
+test('survival depth: gear mirror, item costs, schematics, tier 3, best food, cooking', () => {
+  const inv = emptyInv();
+  mergeInv(inv, { res: { metal: 100, stone: 50, wood: 40, energy: 60 }, items: { fiber: 30, berries: 7, ration: 1, 'roast-glowcaps': 2 }, gear: { armor: 'light-techwear', module: null } });
+  assert.deepEqual(inv.gear, { armor: 'light-techwear', module: null });
+  assert.deepEqual(mergeInv(inv, { patch: true, gear: { module: 'shield-module' } }), ['gear']);
+  assert.equal(inv.gear.module, 'shield-module');
+  assert.equal(haveOf(inv, 'fiber'), 30);
+  assert.equal(haveOf(inv, 'metal'), 100);
+  // best food: meals before rations before raw food
+  assert.deepEqual(bestFood(inv), { id: 'roast-glowcaps', n: 2 });
+  assert.equal(foodCount(inv), 10);
+  // cooking: 7 berries → one fruit skewer batch (5 each)
+  const cs = cookStatus(COOK_RECIPES['fruit-skewer'], inv);
+  assert.deepEqual([cs.ok, cs.n], [true, 1]);
+  assert.equal(cookStatus(COOK_RECIPES['roast-glowcaps'], inv).ok, false);
+  // item costs + schematics
+  const bench2 = { tier: 2 };
+  assert.equal(recipeStatus(RECIPES.bandage, inv, null).ok, true, 'tier 0 field craft from fiber');
+  assert.equal(recipeStatus(RECIPES['heavy-techwear'], inv, bench2).reason, 'schematic');
+  mergeInv(inv, { patch: true, items: { 'schem-heavy-techwear': 1, fiber: 30 } });
+  assert.equal(recipeStatus(RECIPES['heavy-techwear'], inv, bench2).ok, true);
+  // upgrades: Mk II → Mk III needs your own Mk II bench
+  assert.equal(stationTier('workbench-3'), 3);
+  assert.equal(recipeStatus(RECIPES['workbench-t3'], inv, bench2, { ownStation: { tier: 1 } }).reason, 'upgrade');
+  const near = stationNear([{ id: 'a', type: 'workbench-3', x: 2, z: 0 }, { id: 'b', type: 'workbench', x: 1, z: 0 }], 0, 0);
+  assert.deepEqual([near.id, near.tier], ['a', 3]);
 });

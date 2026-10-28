@@ -1,8 +1,9 @@
 /**
  * Death & respawn screen: "You died" / "Je bent gestorven", the cause, a 5 s
- * countdown ring and three respawn choices (Spawn beacon / Base / Overlook →
- * C.RESPAWN {at}). Opened as a blocking modal (input off, pointer released,
- * touch controls hidden); keys 1–3 pick an option once the countdown is done.
+ * countdown ring and the respawn choices → C.RESPAWN {at}: smp's list when it
+ * exists (ctx.smp.respawnOptions() → [{at, title, sub, ok, icon}], bed first), else
+ * Spawn beacon / Base / Overlook. Opened as a blocking modal (input off, pointer
+ * released, touch controls hidden); keys 1–4 pick an option once the countdown is done.
  *
  *   const death = createDeath(ctx, { onRespawn(at) })
  *   death.show({ cause, killer, drop, delay })   death.hide()   death.open
@@ -34,6 +35,22 @@ const TXT = {
   spawnSub: { en: 'Safe ridge in the hub', nl: 'Veilige richel in de hub' },
 };
 
+/** smp's respawn choices (bed / beacon / base / spawn) when the module provides them, else null. */
+function smpOptions(ctx) {
+  try {
+    const list = ctx.smp?.respawnOptions?.();
+    if (!Array.isArray(list) || !list.length) return null;
+    const out = [];
+    for (const o of list) {
+      if (!o || typeof o.at !== 'string' || !o.title) continue;
+      out.push({ at: o.at, icon: typeof o.icon === 'string' ? o.icon : 'cbt-ridge', title: o.title, sub: o.sub || '', ok: o.ok !== false });
+    }
+    return out.length ? out.slice(0, 4) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createDeath(ctx, { onRespawn, hasBeacon = () => true, hasBase = () => true }) {
   const { ui } = ctx;
   const h = ui.h;
@@ -49,11 +66,12 @@ export function createDeath(ctx, { onRespawn, hasBeacon = () => true, hasBase = 
   let btns = [];
   let keyOff = null;
 
-  const OPTS = [
+  const DEFAULT_OPTS = [
     { at: 'beacon', icon: 'cbt-beacon', title: TXT.beacon, sub: TXT.beaconSub },
     { at: 'base', icon: 'home', title: TXT.base, sub: TXT.baseSub },
     { at: 'spawn', icon: 'cbt-ridge', title: TXT.spawn, sub: TXT.spawnSub },
   ];
+  let OPTS = DEFAULT_OPTS;
 
   function choose(at) {
     if (!open || remaining > 0 || waiting) return;
@@ -86,16 +104,19 @@ export function createDeath(ctx, { onRespawn, hasBeacon = () => true, hasBase = 
     const svg = '<svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="20" pathLength="100"/><circle class="fg" cx="22" cy="22" r="20" pathLength="100" style="stroke-dashoffset:0"/></svg>';
     const count = h('div', { class: 'cbt-death-count', html: svg }, numEl);
     ringEl = count.querySelector('.fg');
+    const fromSmp = smpOptions(ctx);
+    OPTS = fromSmp || DEFAULT_OPTS;
     const beaconOk = !!hasBeacon();
     const baseOk = !!hasBase();
     btns = OPTS.map((o, i) => {
-      const disabled = (o.at === 'beacon' && !beaconOk) || (o.at === 'base' && !baseOk);
+      const disabled = fromSmp ? !o.ok : (o.at === 'beacon' && !beaconOk) || (o.at === 'base' && !baseOk);
+      const sub = fromSmp ? o.sub : disabled ? (o.at === 'base' ? TXT.noBase : TXT.noBeacon) : o.sub;
       const b = h(
         'button',
         { class: 'cbt-death-opt', type: 'button', disabled: true, dataset: { at: o.at }, onclick: () => choose(o.at) },
         h('span', { class: 'ic', html: icon(o.icon, 26) }),
         h('span', { class: 't', text: t(o.title) }),
-        h('span', { class: 's', text: t(disabled ? (o.at === 'base' ? TXT.noBase : TXT.noBeacon) : o.sub) }),
+        h('span', { class: 's', text: sub ? t(sub) : '' }),
         h('span', { class: 'k', text: String(i + 1) }),
       );
       return { at: o.at, el: b, never: disabled };
@@ -109,14 +130,15 @@ export function createDeath(ctx, { onRespawn, hasBeacon = () => true, hasBase = 
       drop ? h('div', { class: 'cbt-death-drop', text: t(TXT.drop) }) : null,
       count,
       lblEl,
-      h('div', { class: 'cbt-death-opts' }, btns.map((b) => b.el)),
+      h('div', { class: 'cbt-death-opts', dataset: { n: String(btns.length) } }, btns.map((b) => b.el)),
     );
     ui.openModal('cbt-death', el, { closeOnEsc: false, closeOnBackdrop: false, className: 'cbt-death-wrap' });
     open = true;
     const onKey = (e) => {
       if (!open) return;
-      const i = ['Digit1', 'Digit2', 'Digit3', 'Numpad1', 'Numpad2', 'Numpad3'].indexOf(e.code) % 3;
-      if (i >= 0 && e.code.match(/[123]$/)) choose(OPTS[i].at);
+      const m = /^(?:Digit|Numpad)([1-4])$/.exec(e.code);
+      const o = m ? OPTS[Number(m[1]) - 1] : null;
+      if (o) choose(o.at);
     };
     window.addEventListener('keydown', onKey);
     keyOff = () => window.removeEventListener('keydown', onKey);

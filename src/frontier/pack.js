@@ -18,6 +18,7 @@
 const REASON_CODE = { safe: 1, hub: 2, highway: 3, poi: 4 };
 import { snowAt, BIOME_LIST, BIOME_INDEX, FIELDS } from '../../shared/worldgen/index.js';
 import { hash3, u01, nextHash, sstep } from '../../shared/worldgen/noise.js';
+import { featureRule, mushroomFor } from '../../shared/defs/tools.js';
 
 const { S_LEN, S_T, S_M, S_RIVER, S_LAKE, S_MOUNT, S_BAD, S_PLAT } = FIELDS;
 const S = new Float64Array(S_LEN);
@@ -152,18 +153,50 @@ export function packTile(wg, { id, x0, z0, size, cells }) {
 
 /**
  * Chunk features → decor (Float32 ×8 per item: kind, variant, x, y, z, rot, scale, biome index;
- * kind 0 tree, 1 bush, 2 rock, 3 crystal), nodes / pois / waystones as small
+ * kind 0 tree, 1 bush, 2 rock, 3 crystal, 4 mushroom cluster (variant 1 = glowing jungle), 5 berry
+ * crop on a bush (variant 0 red, 1 blue)) + ids (Uint16 per item: the feature index k of
+ * 't|b|r|c|m:<cx>:<cz>:<k>'; crops carry their bush's k), nodes / pois / waystones as small
  * objects, and optional grass clumps (Float32 ×5: x, y, z, rot, scale + Uint8 ×4 colour + Uint8 kind:
  * 0 grass, 1 meadow flowers, 2 glowing flowers).
  */
+const CROP_VARIANT = { 'berries-red': 0, 'berries-blue': 1 };
+
 export function packChunk(wg, { id, cx, cz, grass = false, gstep = 2.2 }) {
   const feats = wg.features(cx, cz);
+  const H = (x, z) => wg.heightAt(x, z);
+  const extra = []; // [kind, variant, feature, k]
   let nd = 0;
-  for (const f of feats) if (f.type === 'tree' || f.type === 'bush' || f.type === 'rock' || f.type === 'crystal') nd++;
-  const decor = new Float32Array(nd * 8);
+  for (const f of feats) {
+    if (f.type === 'tree' || f.type === 'bush' || f.type === 'rock' || f.type === 'crystal') {
+      nd++;
+      if (f.type === 'tree') {
+        const m = mushroomFor(f, H);
+        if (m) extra.push([4, m.variant, m, kOf(f.id)]);
+      } else if (f.type === 'bush') {
+        const crop = featureRule(f)?.crop;
+        if (crop) extra.push([5, CROP_VARIANT[crop] ?? 0, f, kOf(f.id)]);
+      }
+    }
+  }
+  const total = nd + extra.length;
+  const decor = new Float32Array(total * 8);
+  const ids = new Uint16Array(total);
   const nodes = [];
   const pois = [];
   let d = 0;
+  const put = (kind, variant, f, k) => {
+    const o = d * 8;
+    decor[o] = kind;
+    decor[o + 1] = variant;
+    decor[o + 2] = f.x;
+    decor[o + 3] = f.y;
+    decor[o + 4] = f.z;
+    decor[o + 5] = f.rot;
+    decor[o + 6] = f.scale;
+    decor[o + 7] = BIOME_INDEX[f.biome] ?? 2;
+    ids[d] = k;
+    d++;
+  };
   for (const f of feats) {
     let kind = -1;
     let variant = 0;
@@ -180,22 +213,13 @@ export function packChunk(wg, { id, cx, cz, grass = false, gstep = 2.2 }) {
       kind = 3;
       variant = f.variant | 0;
     }
-    if (kind >= 0) {
-      const o = d * 8;
-      decor[o] = kind;
-      decor[o + 1] = variant;
-      decor[o + 2] = f.x;
-      decor[o + 3] = f.y;
-      decor[o + 4] = f.z;
-      decor[o + 5] = f.rot;
-      decor[o + 6] = f.scale;
-      decor[o + 7] = BIOME_INDEX[f.biome] ?? 2;
-      d++;
-    } else if (f.type === 'node') nodes.push({ id: f.id, type: f.resource, x: f.x, y: f.y, z: f.z, rot: f.rot, scale: f.scale });
+    if (kind >= 0) put(kind, variant, f, kOf(f.id));
+    else if (f.type === 'node') nodes.push({ id: f.id, type: f.resource, x: f.x, y: f.y, z: f.z, rot: f.rot, scale: f.scale });
     else pois.push({ id: f.id, type: f.type, variant: f.variant | 0, x: f.x, y: f.y, z: f.z, rot: f.rot, radius: f.radius || 0, name: f.name || null, km: f.km || 0 });
   }
-  const msg = { type: 'chunk', id, cx, cz, decor, nodes, pois, grass: null, gcol: null, gkind: null };
-  const transfer = [decor.buffer];
+  for (const [kind, variant, f, k] of extra) put(kind, variant, f, k);
+  const msg = { type: 'chunk', id, cx, cz, decor, ids, nodes, pois, grass: null, gcol: null, gkind: null };
+  const transfer = [decor.buffer, ids.buffer];
   if (grass) {
     const g = grassClumps(wg, cx, cz, gstep);
     msg.grass = g.inst;
@@ -204,6 +228,12 @@ export function packChunk(wg, { id, cx, cz, grass = false, gstep = 2.2 }) {
     transfer.push(g.inst.buffer, g.col.buffer, g.kind.buffer);
   }
   return { msg, transfer };
+}
+
+/** 't:12:-3:45' → 45 */
+function kOf(id) {
+  const i = id.lastIndexOf(':');
+  return +id.slice(i + 1) | 0;
 }
 
 // grass ramp (linear-ish sRGB bytes): lush → olive → golden, jungle green, red-dust tint

@@ -13,6 +13,10 @@
  *   m     mode: 'drive' → avatar hidden, the remote vehicle shown at veh {type, p, h}
  *         (remote-vehicles.js); 'space' → hidden; otherwise on foot
  *   hp/sh health / shield (absolute, max 100 / 50 unless view.maxHp / maxSh) → tag bars
+ * Work: the anim states chop / mine / gather / eat / use (once the sim accepts them) loop the
+ * matching swing with a tool in the hands (axe / pickaxe …, tool-models.js); until then every
+ * validated hit of a remote (S.FEATURE {by, tool}) plays one swing. The impact frame emits
+ * 'remote:impact' {id, action, tool, at} (sounds / chips for other players' work).
  * Weapons: shown while the anim is aim/shoot/reload (and 6 s after); the kind
  * comes from view.w (when the snapshot carries it) or net:fired {w}; one InstancedMesh per kind (weapon-models.js), arms
  * solved by the WeaponRig IK within 35 m. Name tags (cyan, shield + health bars,
@@ -34,11 +38,15 @@ import { Character, arraysKey, cachedArrays } from './character.js';
 import { CharacterBatch } from './batch.js';
 import { normalizeAppearance, appearanceKey } from './appearance.js';
 import { requestArrays } from './build-client.js';
-import { WeaponRig } from './weapon-rig.js';
+import { WeaponRig, TOOL_GRIP_OF, solveGesture } from './weapon-rig.js';
 import { RemoteWeapons } from './weapon-models.js';
 import { createRemoteVehicles, VEH_TAG_HEIGHT } from './remote-vehicles.js';
 import { createMockNet } from './remotes-mock.js';
-import { GRIP_OF } from './player.js';
+import { GRIP_OF, WORK_ANIMS } from './player.js';
+import { actionTiming, usesTool, toolKind, DEFAULT_TOOL, TOOL_KIND } from './tool-actions.js';
+import { createToolModel, createFoodModel } from './tool-models.js';
+import { inStrike } from './swing-trail.js';
+import { S } from '../../shared/protocol.js';
 import { t } from '../core/i18n.js';
 import { hashString } from '../core/math.js';
 
@@ -50,6 +58,29 @@ const IK_DIST = 35;
 const WEAPON_DIST = 90;
 const ARMED_HOLD = 6; // s the weapon stays out after combat
 const GONE_AFTER = 12; // s without a view before an unannounced remote is removed
+const WORK_LINGER = 2.2; // s a tool stays in the hands after the last swing
+const _itemM = new THREE.Matrix4();
+const _imp = new THREE.Vector3();
+const _imp2 = new THREE.Vector3();
+/** Tool shown for a remote's action: the reported tool when it fits the action, else the default (axe / pickaxe). */
+function toolFor(action, hint) {
+  if (!usesTool(action)) return null;
+  if (hint && TOOL_KIND[hint]) {
+    const k = toolKind(hint);
+    if ((action === 'chop' && k === 'axe') || (action === 'mine' && k !== 'axe')) return hint;
+  }
+  return DEFAULT_TOOL[action] || 'axe';
+}
+/** Action of a validated feature hit (S.FEATURE): by the feature id's kind (t: tree, r: rock, c: crystal, b: bush), else by the tool. */
+export function featureAction(msg) {
+  const id = typeof msg?.id === 'string' ? msg.id : '';
+  const k = id.charAt(1) === ':' ? id.charAt(0) : '';
+  if (k === 't') return 'chop';
+  if (k === 'r' || k === 'c') return 'mine';
+  if (k === 'b' || msg?.state === 'picked' || msg?.tool === 'hands') return 'gather';
+  const tk = toolKind(msg?.tool);
+  return tk === 'pick' || tk === 'laser' ? 'mine' : 'chop';
+}
 /** Avatars farther than this from the camera (m) are culled, by render quality. */
 const CULL = { low: 120, medium: 190, high: 420 };
 const _cam = new THREE.Vector3();
@@ -64,7 +95,7 @@ const vx = (p) => p?.x ?? p?.[0];
 const vy = (p) => p?.y ?? p?.[1];
 const vz = (p) => p?.z ?? p?.[2];
 
-export function createRemotes(ctx, { material, labels, fx = null }) {
+export function createRemotes(ctx, { material, labels, fx = null, trails = null }) {
   // the world scene is read lazily (planets / other worlds may swap it later): everything re-parents
   let scene = sceneOf(ctx);
   const list = [];
@@ -141,6 +172,13 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
       prev: new THREE.Vector3(),
       target: new THREE.Vector3(),
       rig: new WeaponRig(chr),
+      toolRig: null, // WeaponRig (tool) — created on the first swing
+      toolId: null, // tool id in the hands
+      tools: null, // Map id → model (per remote, shared geometry)
+      work: { name: null, t: 0, dur: 1, impact: 0.5, tool: null, hit: false },
+      workLinger: 0,
+      pendingSwing: null, // { action, tool } from S.FEATURE
+      food: null,
       weapon: null, // grip kind while shown
       weaponKind: 'pistol', // last known
       armedT: 0,
@@ -193,6 +231,8 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
     labels.remove(r.label);
     vehicles.release(r);
     r.rig.set(null);
+    setTool(r, null);
+    trails?.drop(r);
     r.character.onArrays = null;
     r.object.removeFromParent();
     r.character.batch?.remove(r.character);
@@ -210,7 +250,101 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
     if (!r.character.hidden) r.character.setHidden(true);
     r.hiddenTag = true;
     r.weapon = null;
+    if (r.toolId) setTool(r, null);
+    if (r.food) r.food.visible = false;
+    r.work.name = null;
+    r.pendingSwing = null;
+    trails?.drop(r);
   }
+
+  // ------------------------------------------------------------ work actions
+  /** Puts a tool model in a remote's hands (null = none). */
+  function setTool(r, id) {
+    if (r.toolId === id) return;
+    r.toolId = id;
+    if (!id) {
+      r.toolRig?.set(null);
+      return;
+    }
+    if (!r.toolRig) r.toolRig = new WeaponRig(r.character, { tool: true });
+    if (!r.tools) r.tools = new Map();
+    let o = r.tools.get(id);
+    if (!o) {
+      o = createToolModel(id);
+      r.tools.set(id, o);
+    }
+    const kind = TOOL_GRIP_OF[id] || TOOL_GRIP_OF[toolKind(id)] || 'axe';
+    r.toolRig.set(kind, { object: o, muzzle: o.userData.tip.toArray(), support: o.userData.support });
+  }
+
+  /** One swing / gesture on a remote avatar (tool drawn first so the pose family matches). */
+  function startSwing(r, action, hint) {
+    const an = r.character.anim;
+    if (an.dead) return false;
+    const toolId = toolFor(action, hint);
+    if (toolId) setTool(r, toolId);
+    const tm = actionTiming(action, toolId);
+    if (!tm || !an.action(action, tm.dur)) return false;
+    const w = r.work;
+    w.name = action;
+    w.t = 0;
+    w.dur = tm.dur;
+    w.impact = tm.impact;
+    w.tool = toolId;
+    w.hit = false;
+    r.workLinger = toolId ? WORK_LINGER + tm.dur : 0;
+    if (!toolId && r.toolId) setTool(r, null);
+    if (action === 'eat') {
+      if (!r.food) {
+        r.food = createFoodModel('berries');
+        r.object.add(r.food);
+      }
+    }
+    return true;
+  }
+
+  /** Per frame: advances the swing clock (impact event), loops work anim states, retires the tool. */
+  function updateWork(r, a, dt) {
+    const w = r.work;
+    if (w.name) {
+      w.t += dt;
+      if (!w.hit && w.t >= w.impact) {
+        w.hit = true;
+        if (r.toolId && r.toolRig?.kind) _imp.copy(r.toolRig.muzzle).applyMatrix4(r.toolRig.matrixWorld);
+        else r.character.headTop(_imp);
+        ctx.events.emit('remote:impact', { id: r.id, action: w.name, tool: w.tool, at: _imp });
+      }
+      if (w.t >= w.dur) w.name = null;
+    }
+    if (!w.name) {
+      if (WORK_ANIMS.has(a)) startSwing(r, a, r.pendingSwing?.tool || w.tool);
+      else if (r.pendingSwing) startSwing(r, r.pendingSwing.action, r.pendingSwing.tool);
+      r.pendingSwing = null;
+    }
+    if (r.workLinger > 0) {
+      r.workLinger -= dt;
+      if (r.workLinger <= 0 && r.toolId && !WORK_ANIMS.has(a)) setTool(r, null);
+    }
+    if (r.food) {
+      const an = r.character.anim;
+      const show = w.name === 'eat' && w.t > w.dur * 0.05 && w.t < w.impact + w.dur * 0.08;
+      r.food.visible = show;
+      if (show) {
+        r.food.position.copy(an.itemPos);
+        r.food.quaternion.copy(an.itemQuat);
+      }
+    }
+  }
+
+  /** A validated feature hit by another player (S.FEATURE {by, tool, id, state}) → one swing on their avatar. */
+  function onFeature(msg) {
+    if (msg?.by == null) return;
+    const r = byId.get(String(msg.by));
+    if (!r || !r.present || r.mode !== 'foot') return;
+    if (WORK_ANIMS.has(r.anim)) return; // the anim state drives the swings already
+    r.pendingSwing = { action: featureAction(msg), tool: typeof msg.tool === 'string' ? msg.tool : null };
+  }
+  let netSub = null;
 
   function onAnim(r, a, prev) {
     const an = r.character.anim;
@@ -347,6 +481,7 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
       onAnim(r, a, r.lastA);
       r.lastA = a;
     }
+    updateWork(r, a, dt);
     const prevH = r.heading;
     r.heading += wrapPi(h - r.heading) * (1 - Math.exp(-14 * dt));
     chr.object.rotation.y = r.heading;
@@ -384,7 +519,7 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
     an.set('tablet', a === 'build' ? 1 : 0);
 
     // ---- weapon (kind from net:fired; shown in combat + a while after)
-    const armed = r.armedT > 0 && a !== 'swim' && a !== 'sit' && a !== 'wave';
+    const armed = r.armedT > 0 && a !== 'swim' && a !== 'sit' && a !== 'wave' && !r.toolId && !r.work.name;
     const kind = armed ? r.weaponKind : null;
     if (kind !== r.weapon) {
       r.weapon = kind;
@@ -406,6 +541,20 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
       r.rig.update(posed && dc < IK_DIST);
       weapons.push(kind, r.rig.matrixWorld);
     }
+    // tools (work) and bare-hand gestures (gather / eat / use)
+    if (r.toolId && r.toolRig?.kind) {
+      const near = onScreen && dc < WEAPON_DIST;
+      if (r.toolRig.object) r.toolRig.object.visible = near;
+      if (near) {
+        r.toolRig.update(posed && dc < IK_DIST);
+        const w = r.work;
+        if (trails && w.name && usesTool(w.name) && r.toolRig.kind !== 'laser' && dc < 60 && inStrike(w.t, w.impact, w.dur)) {
+          _imp.copy(r.toolRig.muzzle).applyMatrix4(r.toolRig.matrixWorld);
+          _imp2.copy(r.toolRig.muzzle).multiplyScalar(0.62).applyMatrix4(r.toolRig.matrixWorld);
+          trails.sample(r, _imp, _imp2, w.tool);
+        }
+      }
+    } else if (posed && an.actW > 0.001 && onScreen && dc < IK_DIST) solveGesture(chr, true, _itemM);
     labels.setBars(r.label, r.hp, r.sh);
     labels.setDim(r.label, a === 'dead');
   }
@@ -432,6 +581,7 @@ export function createRemotes(ctx, { material, labels, fx = null }) {
       dirtyAt = Infinity;
       for (const b of batches) if (b.dirty) b.rebuild();
     }
+    if (!netSub && typeof ctx.net?.on === 'function') netSub = ctx.net.on(S.FEATURE, onFeature) || true;
     const src = source();
     // late joiners / missed join events: pick up every player the source knows
     if (src?.players && frame % 20 === 0) {

@@ -16,7 +16,23 @@ export const SETTINGS_DEFAULTS = {
   showFps: false,
   timeFlow: true,
   creative: false,
+  // camera (shown here, applied by the characters / first-person module): 'third' | 'first' (V toggles),
+  // field of view in degrees, view bob while walking in first person
+  camera: 'third',
+  fov: 70,
+  headBob: true,
+  // HUD (applied by the shell): overall HUD scale, contextual key hints, minimap rotates with the camera
+  hudScale: 1,
+  keyHints: true,
+  minimapRotate: true,
+  // touch: aim assist strength 0..1 (read by combat)
+  aimAssist: 1,
 };
+
+/** Field-of-view slider range (degrees). */
+export const FOV_RANGE = { min: 55, max: 100, step: 1 };
+/** HUD scale slider range. */
+export const HUD_SCALE_RANGE = { min: 0.8, max: 1.2, step: 0.05 };
 
 /** Graphics quality presets; `label` is { en, nl } — resolve with t() where shown. */
 export const QUALITY_OPTIONS = [
@@ -61,7 +77,9 @@ export function createSettings(ctx) {
           input.invertY = !!v;
           break;
         default:
-          break; // showFps (shell overlay), timeFlow (world), creative (build) are read where used
+          // showFps / hudScale / keyHints / minimapRotate (shell), timeFlow (world), creative (build),
+          // camera / fov / headBob (characters), aimAssist (combat) are read where used
+          break;
       }
     } catch (err) {
       console.warn(`[shell] could not apply setting "${key}"`, err);

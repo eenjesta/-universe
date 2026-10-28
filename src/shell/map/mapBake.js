@@ -183,6 +183,9 @@ export async function bakeMap(input, { yieldFn = null, budget = 8 } = {}) {
   const FOREST = input.forest || null;
   const RIVER = input.river || null;
   const playable = input.playBounds || E * 0.875;
+  // seamless: the procedural planet continues around the hub (PLATFORM.md §11) — no edge mist,
+  // no edge clouds, no corner glow, so the hub image meets the frontier layer without a frame
+  const seamless = !!input.seamless;
   const [lx, ly, lz] = input.light || [0.43, 0.5, -0.75];
   const lh = Math.hypot(lx, lz) || 1;
   const ldx = lx / lh; // horizontal direction toward the light
@@ -473,7 +476,7 @@ export async function bakeMap(input, { yieldFn = null, budget = 8 } = {}) {
 
       // ---- outside the playable area: dusky mist
       const edge = Math.max(Math.abs(x), Math.abs(z));
-      if (edge > playable - 90) {
+      if (!seamless && edge > playable - 90) {
         const k2 = smooth(playable - 90, E - 4, edge) * 0.66;
         mix3(MIST, k2);
       }
@@ -521,6 +524,7 @@ export async function bakeMap(input, { yieldFn = null, budget = 8 } = {}) {
 
   // 5) clouds around the edges (lit from the light, with ground shadows) --------
   const cloudAt = (x, z) => {
+    if (seamless) return 0;
     const edge = Math.max(Math.abs(x), Math.abs(z));
     const m = smooth(playable - 60, E - 20, edge);
     if (m <= 0) return 0;
@@ -530,12 +534,12 @@ export async function bakeMap(input, { yieldFn = null, budget = 8 } = {}) {
   const cs = 2; // cloud field resolution (px)
   const cw = Math.ceil(S / cs);
   const cloud = new Float32Array(cw * cw);
-  for (let j = 0; j < cw; j++) {
+  for (let j = 0; j < cw && !seamless; j++) {
     for (let i = 0; i < cw; i++) cloud[j * cw + i] = cloudAt(-E + (i + 0.5) * cs * mpp, -E + (j + 0.5) * cs * mpp);
     if ((j & 15) === 15) await maybeYield();
   }
   const cshift = 60 / mpp / cs; // cloud shadow offset (cells)
-  for (let py = 0; py < S; py++) {
+  for (let py = 0; py < S && !seamless; py++) {
     const cj = py / cs;
     for (let px = 0; px < S; px++) {
       const cii = px / cs;
@@ -583,9 +587,9 @@ export async function bakeMap(input, { yieldFn = null, budget = 8 } = {}) {
       r = (l + (r - l) * 1.04) * curve;
       g = (l + (g - l) * 1.04) * curve;
       b = (l + (b - l) * 1.04) * curve;
-      // golden glow from the top-right corner, cool toward the bottom-left
-      const d = Math.hypot(1.05 - u, v + 0.05);
-      const warm = Math.max(0, 1 - d / 1.2);
+      // golden glow from the top-right corner, cool toward the bottom-left (not when seamless)
+      const d = seamless ? 0.9 : Math.hypot(1.05 - u, v + 0.05);
+      const warm = seamless ? 0 : Math.max(0, 1 - d / 1.2);
       const w2 = warm * warm * 0.2; // screen-blend a sunset haze (255, 190, 120)
       r = 255 - (255 - r) * (1 - w2);
       g = 255 - (255 - g) * (1 - w2 * 0.75);

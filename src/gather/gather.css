@@ -1,0 +1,40 @@
+/* Gathering HUD (src/gather): damage bar above the worked feature + floating rewards. */
+.gth-bar {
+  position: absolute; left: 0; top: 0;
+  width: 92px; height: 7px; margin-top: -6px;
+  border-radius: 6px;
+  background: rgba(8, 11, 16, 0.62);
+  box-shadow: 0 0 0 1px rgba(236, 230, 220, 0.18), 0 4px 14px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.gth-bar-fill, .gth-bar-ghost {
+  position: absolute; inset: 1px;
+  border-radius: 5px;
+  transform-origin: 0 50%;
+}
+.gth-bar-ghost { background: rgba(255, 210, 154, 0.55); }
+.gth-bar-fill {
+  z-index: 1;
+  background: linear-gradient(90deg, #f0b46a, #ffd29a);
+  box-shadow: 0 0 8px rgba(240, 180, 106, 0.6);
+}
+
+.gth-float {
+  position: absolute; left: 0; top: 0;
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font);
+  font-size: 15px; font-weight: 500; letter-spacing: 0.03em;
+  color: var(--ink);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.6);
+  pointer-events: none; white-space: nowrap;
+  will-change: transform, opacity;
+}
+.gth-float.big { font-size: 19px; font-weight: 600; color: var(--gold-2); }
+.gth-float-icon { display: flex; filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.7)); }
+.gth-float-icon:empty { display: none; }
+
+body[data-device='phone'] .gth-float { font-size: 13px; }
+body[data-device='phone'] .gth-float.big { font-size: 16px; }
+body[data-device='phone'] .gth-bar { width: 72px; }

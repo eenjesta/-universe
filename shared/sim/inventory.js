@@ -1,8 +1,11 @@
 /**
  * Inventory helpers (server truth). Shape: see shared/defs/items.js.
  * All amounts are integers ≥ 0; carry limits from the defs.
+ * Costs ({metal, stone, wood, energy, credits, <item id>…}) may include item ids (fiber,
+ * crystal-shard, schematics …): canAfford / pay check and take them from `items`.
+ * Equipped gear lives in `gear` ({armor, module}: item id | null), not in `items`.
  */
-import { RESOURCE_IDS, RESOURCE_MAX, CREDITS_MAX, AMMO_IDS, ITEMS, ITEM_IDS, START } from '../defs/items.js';
+import { RESOURCE_IDS, RESOURCE_MAX, CREDITS_MAX, AMMO_IDS, ITEMS, ITEM_IDS, START, GEAR_SLOTS } from '../defs/items.js';
 import { WEAPONS, WEAPON_SLOTS } from '../defs/weapons.js';
 import { MARKET } from '../defs/market.js';
 
@@ -19,7 +22,7 @@ export const AMMO_MAX = Object.fromEntries(
 /** A clean inventory from a save (or the start inventory). */
 export function newInventory(save) {
   const src = save && typeof save === 'object' ? save : START;
-  const inv = { res: {}, credits: 0, ammo: {}, items: {}, weapons: [], slot: 0, mag: {}, unlocks: [] };
+  const inv = { res: {}, credits: 0, ammo: {}, items: {}, weapons: [], slot: 0, mag: {}, unlocks: [], gear: {} };
   for (const r of RESOURCE_IDS) inv.res[r] = int(src.res?.[r], RESOURCE_MAX);
   inv.credits = int(src.credits, CREDITS_MAX);
   for (const a of AMMO_IDS) inv.ammo[a] = int(src.ammo?.[a], AMMO_MAX[a] || 0);
@@ -32,7 +35,26 @@ export function newInventory(save) {
   if (!hasSlot(inv, inv.slot)) inv.slot = 0;
   const unlocks = Array.isArray(src.unlocks) ? src.unlocks : [];
   for (const u of unlocks) if (typeof u === 'string' && MARKET[u] && !inv.unlocks.includes(u)) inv.unlocks.push(u);
+  for (const slot of GEAR_SLOTS) {
+    const g = src.gear?.[slot];
+    inv.gear[slot] = typeof g === 'string' && ITEMS[g]?.gear?.slot === slot ? g : null;
+  }
   return inv;
+}
+
+/** Gear stats of an inventory: {dr, maxHp, maxSh, regenDelay, sprint}. */
+export function gearStats(inv) {
+  const out = { dr: 0, maxHp: 0, maxSh: 0, regenDelay: 0, sprint: 1 };
+  for (const slot of GEAR_SLOTS) {
+    const g = ITEMS[inv?.gear?.[slot]]?.gear;
+    if (!g) continue;
+    out.dr = Math.min(0.6, out.dr + (g.dr || 0));
+    out.maxHp += g.maxHp || 0;
+    out.maxSh += g.maxSh || 0;
+    out.regenDelay += g.regenDelay || 0;
+    out.sprint *= g.sprint || 1;
+  }
+  return out;
 }
 
 /** Owns the weapon in slot (grenade slot: owns ≥ 1 grenade). */
@@ -50,7 +72,7 @@ export function hasWeapon(inv, w) {
   return inv.weapons.includes(w);
 }
 
-/** cost = {metal, stone, wood, energy, credits} */
+/** cost = {metal, stone, wood, energy, credits, <item id>} */
 export function canAfford(inv, cost) {
   if (!cost) return true;
   for (const [k, v] of Object.entries(cost)) {
@@ -58,9 +80,24 @@ export function canAfford(inv, cost) {
     if (n <= 0) continue;
     if (k === 'credits') {
       if (inv.credits < n) return false;
-    } else if (inv.res[k] === undefined || inv.res[k] < n) return false;
+    } else if (inv.res[k] !== undefined) {
+      if (inv.res[k] < n) return false;
+    } else if (ITEMS[k]) {
+      if ((inv.items[k] || 0) < n) return false;
+    } else return false;
   }
   return true;
+}
+
+/** The first cost key the inventory can't cover (for deny / UI texts), or null. */
+export function missingOf(inv, cost) {
+  for (const [k, v] of Object.entries(cost || {})) {
+    const n = int(v);
+    if (n <= 0) continue;
+    const have = k === 'credits' ? inv.credits : inv.res[k] !== undefined ? inv.res[k] : ITEMS[k] ? inv.items[k] || 0 : 0;
+    if (have < n) return k;
+  }
+  return null;
 }
 
 /** Subtracts a cost (call canAfford first); marks dirty sections on `dirty` (Set). */
@@ -74,6 +111,9 @@ export function pay(inv, cost, dirty) {
     } else if (inv.res[k] !== undefined) {
       inv.res[k] = Math.max(0, inv.res[k] - n);
       dirty?.add('res');
+    } else if (ITEMS[k]) {
+      inv.items[k] = Math.max(0, (inv.items[k] || 0) - n);
+      dirty?.add('items');
     }
   }
 }
@@ -108,6 +148,7 @@ export function gain(inv, amounts, dirty) {
     else if (k === 'res' && v) for (const [r, n] of Object.entries(v)) RESOURCE_IDS.includes(r) && add('res', r, n, RESOURCE_MAX);
     else if (k === 'ammo' && v) for (const [a, n] of Object.entries(v)) AMMO_IDS.includes(a) && add('ammo', a, n, AMMO_MAX[a] || 0);
     else if (k === 'items' && v) for (const [i, n] of Object.entries(v)) ITEMS[i] && add('items', i, n, ITEMS[i].max);
+    else if (ITEMS[k]) add('items', k, v, ITEMS[k].max); // flat item ids ({fiber: 3}) like flat resources
   }
   return got;
 }
@@ -139,6 +180,7 @@ export function invPayload(inv, sections = null) {
   if (all || sections.has('slot')) out.slot = inv.slot;
   if (all || sections.has('mag')) out.mag = { ...inv.mag };
   if (all || sections.has('unlocks')) out.unlocks = inv.unlocks.slice();
+  if (all || sections.has('gear')) out.gear = { ...(inv.gear || {}) };
   return out;
 }
 

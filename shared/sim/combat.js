@@ -13,9 +13,16 @@
  * at one of several rewound positions around tView (enemy position history),
  * `at` lies on the target, within range, inside the spread cone, and the terrain
  * does not block origin → at.
+ * Shapes: sphere, capsule (crit above def.hit.crit × height), box (raider barriers,
+ * 3 spheres along the wall) and 'boss' (De Wachter: WARDEN_PARTS spheres; the Ø
+ * runes are weak points → opts.weak, ×rune.mult damage). A raider barrier between
+ * the shooter and the claimed point blocks the hit ('blocked'), so do POI structures (outpost huts, palisade,
+ * crates, wreck hulls: enemiesSys.coverBlocked — the same boxes the client traces). Every shot makes
+ * noise (enemies around come to look: enemiesSys.noise).
  */
 import { NET, S } from '../protocol.js';
 import { WEAPONS, WEAPON_SLOTS, PROJECTILES } from '../defs/weapons.js';
+import { wardenParts } from '../defs/enemies.js';
 import { hasSlot, hasWeapon } from './inventory.js';
 import { terrainLOS } from './los.js';
 import { isNum, isVec3, r2, clamp, raySegDist, DEG } from './util.js';
@@ -133,7 +140,55 @@ export function createCombat(W) {
     s.at = now;
     s.used = false;
     W.emit({ near: [p.x, p.z, NET.INTEREST_RADIUS] }, { t: S.FIRED, id: p.id, w: def.id, o: [r2(o[0]), r2(o[1]), r2(o[2])], d: [Math.round(dx * 1000) / 1000, Math.round(dy * 1000) / 1000, Math.round(dz * 1000) / 1000] });
+    W.enemiesSys.noise?.(p, W.enemiesSys.noiseOf?.(def.id) ?? 50);
     return true;
+  }
+
+  // ------------------------------------------------------------ shapes
+  const parts = new Float64Array(16 * 5);
+  /** Hit spheres [x, y, z, r, part] × n of an enemy at a rewound pose (box → 3 spheres, boss → WARDEN_PARTS). */
+  function spheresOf(e, x, y, z, h) {
+    const hs = e.def.hit;
+    if (hs.shape === 'boss') return wardenParts(x, y, z, h, parts, e.kneel || 0);
+    if (hs.shape === 'box') {
+      const c = Math.cos(h);
+      const s = Math.sin(h);
+      const r = hs.h / 2;
+      const cy = y + r;
+      for (let i = 0; i < 3; i++) {
+        const lx = (i - 1) * (hs.w / 3);
+        parts[i * 5] = x + lx * c;
+        parts[i * 5 + 1] = cy;
+        parts[i * 5 + 2] = z - lx * s;
+        parts[i * 5 + 3] = r;
+        parts[i * 5 + 4] = 0;
+      }
+      return 3;
+    }
+    return 0;
+  }
+
+  /** A raider barrier (other than `skip`) on the segment a → b? */
+  function barrierBetween(ax, ay, az, bx, by, bz, skip) {
+    const len = Math.hypot(bx - ax, by - ay, bz - az) || 1;
+    const ux = (bx - ax) / len;
+    const uy = (by - ay) / len;
+    const uz = (bz - az) / len;
+    for (const b of W.enemies.values()) {
+      if (b === skip || b.def.hit?.shape !== 'box' || b.hp <= 0) continue;
+      if (Math.abs(b.x - ax) > len + 4 && Math.abs(b.x - bx) > 4) continue;
+      const n = spheresOf(b, b.x, b.y, b.z, b.h);
+      for (let i = 0; i < n; i++) {
+        const cx = parts[i * 5] - ax;
+        const cy = parts[i * 5 + 1] - ay;
+        const cz = parts[i * 5 + 2] - az;
+        const t = cx * ux + cy * uy + cz * uz;
+        if (t < 0.3 || t > len - 0.3) continue;
+        const d = Math.hypot(cx - ux * t, cy - uy * t, cz - uz * t);
+        if (d < parts[i * 5 + 3] * 0.85) return b;
+      }
+    }
+    return null;
   }
 
   // ------------------------------------------------------------ HIT
@@ -170,11 +225,39 @@ export function createCombat(W) {
     const tol = 0.55 + dist * 0.004;
     let ok = false;
     let footY = e.y;
+    let weak = 0;
     for (const off of SAMPLE_OFFSETS) {
       W.enemiesSys.posAt(e, s.tView + off, pos);
       let rayD;
       let pointD;
-      if (hs.shape === 'sphere') {
+      if (hs.shape === 'boss' || hs.shape === 'box') {
+        // the sphere the claimed point is on, provided the shot ray passes it
+        const n = spheresOf(e, pos[0], pos[1], pos[2], Number.isFinite(pos[3]) ? pos[3] : e.h);
+        let best = Infinity;
+        let bestRay = Infinity;
+        let bestPart = 0;
+        for (let i = 0; i < n; i++) {
+          const cx = parts[i * 5];
+          const cy = parts[i * 5 + 1];
+          const cz = parts[i * 5 + 2];
+          const r = parts[i * 5 + 3];
+          const pd = Math.hypot(ax - cx, ay - cy, az - cz) - r;
+          const wx = cx - s.ox;
+          const wy = cy - s.oy;
+          const wz = cz - s.oz;
+          const tt = clamp(wx * s.dx + wy * s.dy + wz * s.dz, 0, def.range);
+          const rd = Math.hypot(wx - s.dx * tt, wy - s.dy * tt, wz - s.dz * tt) - r;
+          if (rd > tol + 0.3) continue;
+          if (pd < best) {
+            best = pd;
+            bestRay = rd;
+            bestPart = parts[i * 5 + 4];
+          }
+        }
+        rayD = bestRay;
+        pointD = best;
+        if (rayD <= tol + 0.3 && pointD <= tol + 0.8) weak = bestPart;
+      } else if (hs.shape === 'sphere') {
         const cy = pos[1] + (hs.y || 0);
         // ray (shot dir) → sphere centre
         const wx = pos[0] - s.ox;
@@ -198,13 +281,20 @@ export function createCombat(W) {
     }
     if (!ok) return W.deny(p, msg, 'miss');
     if (!terrainLOS(W.H, s.ox, s.oy, s.oz, ax, ay, az, 0.4)) return W.deny(p, msg, 'blocked');
+    if (W.enemiesSys.coverBlocked?.(s.ox, s.oy, s.oz, ax, ay, az)) return W.deny(p, msg, 'blocked');
+    if (hs.shape !== 'box' && barrierBetween(s.ox, s.oy, s.oz, ax, ay, az, e)) return W.deny(p, msg, 'blocked');
     s.used = true;
     let dmg = def.dmg;
     if (dist > def.falloffStart) dmg *= 1 - (1 - def.falloff) * clamp((dist - def.falloffStart) / Math.max(1, def.range - def.falloffStart), 0, 1);
-    const crit = hs.shape === 'capsule' && ay - footY > hs.h * 0.72;
+    let crit = hs.shape === 'capsule' && ay - footY > hs.h * (hs.crit ?? 0.72);
     if (crit) dmg *= def.crit || 1;
+    // De Wachter's glowing runes: weak points (until broken)
+    if (hs.shape === 'boss' && weak > 0 && !((e.runes || 0) & (1 << (weak - 1)))) {
+      dmg *= e.def.rune?.mult || 2;
+      crit = true;
+    } else weak = 0;
     dmg = Math.round(dmg * 10) / 10;
-    W.enemiesSys.damage(e, dmg, p, s.w, [ax, ay, az], { crit });
+    W.enemiesSys.damage(e, dmg, p, s.w, [ax, ay, az], { crit, weak });
     return true;
   }
 
@@ -297,15 +387,36 @@ export function createCombat(W) {
     W.emit({ near: [g.x, g.z, NET.INTEREST_RADIUS] }, { t: S.EXPLODE, at, r: def.radius, kind: 'shock', id: g.id, by: g.owner });
     const owner = W.players.get(g.owner) || { id: g.owner, name: '', x: g.x, z: g.z, kills: 0 };
     for (const e of [...W.enemies.values()]) {
-      const cy = e.y + (e.def.flying ? 0 : 0.8);
-      const d = Math.hypot(e.x - g.x, cy - g.y, e.z - g.z);
+      if (!W.enemies.has(e.id)) continue;
+      let cx = e.x;
+      let cy = e.y + (e.def.flying ? 0 : e.def.small ? 0.4 : 0.8);
+      let cz = e.z;
+      let d = Math.hypot(e.x - g.x, cy - g.y, e.z - g.z);
+      const shape = e.def.hit?.shape;
+      if (shape === 'boss' || shape === 'box') {
+        // nearest surface of the big shapes
+        if (Math.hypot(e.x - g.x, e.z - g.z) > def.radius + 12) continue;
+        const n = spheresOf(e, e.x, e.y, e.z, e.h);
+        d = Infinity;
+        for (let i = 0; i < n; i++) {
+          const dd = Math.hypot(parts[i * 5] - g.x, parts[i * 5 + 1] - g.y, parts[i * 5 + 2] - g.z) - parts[i * 5 + 3];
+          if (dd < d) {
+            d = Math.max(0, dd);
+            cx = parts[i * 5];
+            cy = parts[i * 5 + 1];
+            cz = parts[i * 5 + 2];
+          }
+        }
+      }
       if (d > def.radius) continue;
-      if (!terrainLOS(W.H, g.x, g.y + 0.4, g.z, e.x, cy, e.z, 0.6)) continue;
+      if (!terrainLOS(W.H, g.x, g.y + 0.4, g.z, cx, cy, cz, 0.6) || W.enemiesSys.coverBlocked?.(g.x, g.y + 0.4, g.z, cx, cy, cz)) continue;
       const k = d / def.radius;
       const dmg = Math.round(def.dmg * (1 - (1 - def.edge) * k) * 10) / 10;
       W.enemiesSys.stun(e, def.stun);
-      W.enemiesSys.damage(e, dmg, owner, def.id, [e.x, cy, e.z], { aoe: true });
+      W.enemiesSys.damage(e, dmg, owner, def.id, [cx, cy, cz], { aoe: true });
     }
+    const op = W.players.get(g.owner);
+    if (op) W.enemiesSys.alertAround?.(g.x, g.z, 55, op);
   }
 
   // ------------------------------------------------------------ RELOAD / EQUIP

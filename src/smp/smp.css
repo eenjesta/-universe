@@ -203,3 +203,141 @@ body[data-touch='1'] .smp-quick-slot { width: 50px; height: 50px; }
 .smp-loot-label[data-kind='mine'] { border-color: rgba(240, 180, 106, 0.6); color: var(--gold-2); }
 .smp-loot-label[data-kind='other'] { border-color: rgba(255, 122, 110, 0.4); color: var(--red); }
 .smp-loot-label-icon { display: inline-flex; }
+
+/* ------------------------------------------------------------ buff strip (above the vitals) */
+.smp-buffs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-bottom: 6px; pointer-events: none; }
+.smp-buff {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 7px; border-radius: 999px;
+  background: rgba(10, 14, 20, 0.62); border: 1px solid rgba(255, 196, 120, 0.35); color: var(--ink);
+  font-size: 11.5px; letter-spacing: 0.04em; backdrop-filter: blur(6px); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  animation: smp-buff-in 0.35s var(--ease) both;
+}
+.smp-buff-icon { display: inline-flex; color: var(--gold); }
+.smp-buff[data-buff='warm'] { border-color: rgba(255, 150, 70, 0.6); background: linear-gradient(90deg, rgba(255, 120, 40, 0.22), rgba(10, 14, 20, 0.62)); }
+.smp-buff[data-buff='warm'] .smp-buff-icon { color: #ffab5c; filter: drop-shadow(0 0 4px rgba(255, 140, 60, 0.8)); }
+.smp-buff[data-buff='charged'] { border-color: rgba(127, 224, 255, 0.45); }
+.smp-buff[data-buff='charged'] .smp-buff-icon, .smp-buff[data-buff='swift'] .smp-buff-icon { color: var(--cyan); }
+.smp-buff[data-buff='rested'] .smp-buff-icon { color: #c9b8ff; }
+.smp-buff.crate { border-color: rgba(240, 180, 106, 0.7); background: linear-gradient(90deg, rgba(240, 180, 106, 0.22), rgba(10, 14, 20, 0.62)); }
+.smp-buff.crate .smp-buff-icon { color: #f0b46a; }
+.smp-buff.bad { border-color: rgba(140, 200, 255, 0.5); background: linear-gradient(90deg, rgba(90, 150, 255, 0.2), rgba(10, 14, 20, 0.62)); }
+.smp-buff.bad .smp-buff-icon { color: #a8d4ff; }
+.smp-buff-time { color: var(--ink-2); font-size: 11px; }
+.smp-buff-time:empty { display: none; }
+.smp-buff.ending .smp-buff-time { color: var(--orange); }
+@keyframes smp-buff-in { from { opacity: 0; transform: translateY(6px) scale(0.96); } to { opacity: 1; transform: none; } }
+.smp-quick-food .smp-quick-icon { color: #ffcf8a; }
+
+/* ------------------------------------------------------------ base panels (campfire, chest) */
+.smp-base-wrap .modal-backdrop { background: radial-gradient(ellipse at 50% 70%, rgba(40, 20, 8, 0.25), rgba(4, 6, 10, 0.7)); }
+.smp-base {
+  position: relative; display: flex; flex-direction: column; overflow: hidden;
+  width: min(860px, calc(100vw - 32px - var(--sal, 0px) - var(--sar, 0px)));
+  max-height: min(600px, calc(100dvh - 32px - var(--sat, 0px) - var(--sab, 0px)));
+  background: linear-gradient(180deg, rgba(18, 16, 16, 0.94), rgba(9, 10, 14, 0.95));
+  border: 1px solid var(--line-2); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.smp-fire::before {
+  content: ''; position: absolute; inset: auto 0 0 0; height: 140px; pointer-events: none;
+  background: radial-gradient(ellipse at 28% 120%, rgba(255, 130, 40, 0.22), transparent 70%);
+}
+.smp-base-head { display: flex; align-items: center; gap: 14px; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+.smp-base-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); color: var(--ink-2); flex: none; }
+.smp-base-icon.fire { color: #ffab5c; background: radial-gradient(circle at 50% 70%, rgba(255, 120, 40, 0.35), rgba(255, 255, 255, 0.04)); filter: drop-shadow(0 0 8px rgba(255, 130, 50, 0.45)); }
+.smp-base-titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.smp-base-title { font-size: 19px; font-weight: 300; text-transform: uppercase; letter-spacing: 0.36em; color: var(--ink); }
+.smp-base-sub { font-size: 11.5px; color: var(--ink-3); }
+.smp-base-warm { font-size: 11px; letter-spacing: 0.08em; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-3); white-space: nowrap; }
+.smp-base-warm.on { color: #ffcf8a; border-color: rgba(255, 160, 80, 0.5); background: rgba(255, 130, 50, 0.1); }
+.smp-base-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.25fr; }
+.smp-chest .smp-base-body { grid-template-columns: 1fr 1fr; }
+.smp-base-col { min-height: 0; overflow-y: auto; padding: 14px 20px 16px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.smp-base-right { border-left: 1px solid var(--line); background: rgba(255, 255, 255, 0.015); }
+.smp-base-hint { margin-top: 10px; font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
+
+/* grill slots with progress dials */
+.smp-grill { display: grid; gap: 8px; margin-bottom: 12px; }
+.smp-grill-slot { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--radius); border: 1px dashed var(--line-2); background: rgba(255, 255, 255, 0.02); }
+.smp-grill-slot[data-state='cooking'] { border-style: solid; border-color: rgba(255, 150, 70, 0.4); background: rgba(255, 120, 40, 0.06); }
+.smp-grill-slot[data-state='done'] { border-style: solid; border-color: rgba(255, 207, 138, 0.7); background: rgba(255, 180, 90, 0.12); box-shadow: 0 0 18px rgba(255, 150, 60, 0.18) inset; }
+.smp-grill-slot.foreign { opacity: 0.7; }
+.smp-grill-dial { position: relative; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; }
+.smp-grill-ring {
+  --p: 0; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(#ffab5c calc(var(--p) * 360deg), rgba(255, 255, 255, 0.08) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+}
+.smp-grill-slot[data-state='done'] .smp-grill-ring { background: #ffcf8a; filter: drop-shadow(0 0 6px rgba(255, 170, 80, 0.8)); }
+.smp-grill-icon { display: inline-flex; color: #ffcf8a; }
+.smp-grill-slot[data-state='empty'] .smp-grill-icon { color: var(--ink-3); }
+.smp-grill-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.smp-grill-name { font-size: 13px; }
+.smp-grill-slot[data-state='empty'] .smp-grill-name { color: var(--ink-3); font-size: 12px; }
+.smp-grill-sub { font-size: 12px; color: var(--ink-2); }
+.smp-grill-slot[data-state='done'] .smp-grill-sub { color: #ffcf8a; letter-spacing: 0.06em; }
+.smp-take { width: 100%; }
+.smp-take.pulse:not([disabled]) { animation: smp-take-pulse 1.4s ease-in-out infinite; }
+@keyframes smp-take-pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 180, 90, 0.2), 0 0 22px rgba(255, 150, 60, 0.35); } }
+
+/* cooking recipes */
+.smp-cook-list { display: grid; gap: 6px; }
+.smp-cook { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: rgba(255, 255, 255, 0.02); }
+.smp-cook.ok { border-color: rgba(255, 170, 90, 0.42); }
+.smp-cook-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: rgba(255, 150, 70, 0.1); color: #ffcf8a; }
+.smp-cook-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.smp-cook-name { font-size: 13.5px; }
+.smp-cook-fx { font-size: 11px; color: #ffcf8a; letter-spacing: 0.02em; }
+.smp-cook-time { font-size: 11px; color: var(--ink-3); margin-left: 4px; }
+.smp-chip.short { color: var(--orange); background: rgba(255, 154, 74, 0.1); }
+
+/* chest transfer */
+.smp-xfer-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.smp-xfer-list { display: grid; gap: 4px; }
+.smp-xfer { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
+.smp-xfer-main {
+  display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; padding: 6px 10px; text-align: left; cursor: pointer;
+  border-radius: var(--radius-sm); border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); color: var(--ink); font: inherit; font-size: 13px;
+  transition: border-color 0.12s var(--ease), background 0.12s var(--ease);
+}
+.smp-xfer-main:hover { border-color: var(--cyan); background: rgba(127, 224, 255, 0.07); }
+.smp-xfer-all { min-width: 52px; }
+
+@media (max-width: 760px), (max-height: 460px) {
+  .smp-base { width: calc(100vw - 16px - var(--sal, 0px) - var(--sar, 0px)); max-height: calc(100dvh - 16px - var(--sat, 0px) - var(--sab, 0px)); }
+  .smp-base-body, .smp-chest .smp-base-body { grid-template-columns: 1fr 1fr; }
+  .smp-base-head { padding: 10px 14px 8px; }
+  .smp-base-sub { display: none; }
+  .smp-base-col { padding: 10px 12px; }
+  .smp-base-title { font-size: 15px; letter-spacing: 0.24em; }
+  .smp-cook { grid-template-columns: 32px 1fr; }
+  .smp-cook .smp-recipe-actions { grid-column: 1 / -1; justify-content: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) { .smp-buff, .smp-take.pulse { animation: none !important; } }
+
+/* ------------------------------------------------------------ inventory: gear slots, item tiles */
+.smp-gear { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.smp-gslot { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--radius); border: 1px dashed var(--line-2); background: rgba(255, 255, 255, 0.02); min-height: 62px; }
+.smp-gslot.on { border-style: solid; border-color: rgba(127, 224, 255, 0.45); background: linear-gradient(180deg, rgba(127, 224, 255, 0.08), rgba(127, 224, 255, 0.02)); }
+.smp-gslot-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); color: var(--ink-3); }
+.smp-gslot.on .smp-gslot-icon { color: var(--cyan); background: rgba(127, 224, 255, 0.1); }
+.smp-gslot-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.smp-gslot-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: var(--track); color: var(--ink-3); }
+.smp-gslot-name { font-size: 13px; color: var(--ink); }
+.smp-gslot:not(.on) .smp-gslot-name { font-size: 11.5px; color: var(--ink-3); }
+.smp-gslot-desc { font-size: 11px; color: var(--ink-3); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.smp-gstats { grid-column: 1 / -1; display: flex; gap: 14px; font-size: 11.5px; color: var(--ink-2); padding: 2px 4px; }
+.smp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.smp-tile { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 8px; padding: 5px 6px 5px 5px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); }
+.smp-tile-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); color: var(--ink-2); }
+.smp-tile.k-food .smp-tile-icon, .smp-tile.k-meal .smp-tile-icon, .smp-tile.k-consumable .smp-tile-icon { color: #ffcf8a; }
+.smp-tile.k-meal { border-color: rgba(255, 170, 90, 0.35); }
+.smp-tile.k-material .smp-tile-icon { color: #b9d98a; }
+.smp-tile.k-schematic .smp-tile-icon { color: #c9b0ff; }
+.smp-tile.k-gear .smp-tile-icon { color: var(--cyan); }
+.smp-tile-main { display: flex; flex-direction: column; min-width: 0; }
+.smp-tile-name { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.smp-tile-n { font-size: 11px; color: var(--ink-3); }
+.smp-tile-btn { min-width: 0; padding: 0 10px; }
+.smp-tiles-empty { font-size: 11.5px; color: var(--ink-3); grid-column: 1 / -1; }

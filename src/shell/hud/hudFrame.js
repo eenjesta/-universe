@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import { objectPosition } from '../util.js';
+import { hubBorderPoint, DISCOVERY } from '../logic.js';
 
 const RAD2DEG = 180 / Math.PI;
 
@@ -25,6 +26,17 @@ export class HudFrame {
     this._prev = new THREE.Vector3();
     this._hasPrev = false;
     this._dir = new THREE.Vector3();
+    // wilderness (set by the shell): POIs near the focus + "home" bearings, pooled
+    this.wild = null;
+    this.wildEntries = []; // { poi, x, y, z, dist, bearing, known } valid up to wildCount
+    this.wildCount = 0;
+    this.wayEntries = [0, 1].map(() => ({ x: 0, z: 0, dist: 0, bearing: 0, label: '', id: '' })); // nearest highway waystones
+    this.wayCount = 0;
+    this.home = { hub: null, base: null }; // { x, z, dist, bearing } | null; base: + kind 'base' | 'bed' | 'beacon'
+    this._hubEntry = { x: 0, z: 0, dist: 0, bearing: 0 };
+    this._baseEntry = { x: 0, z: 0, dist: 0, bearing: 0, kind: 'base', near: 30, beacon: false, ok: false };
+    this._wildAcc = 1;
+    this._bp = { x: 0, z: 0 };
   }
 
   /** Vehicle object while driving/flying (vehicle APIs differ: be lenient). */
@@ -72,6 +84,113 @@ export class HudFrame {
     this._hasPrev = true;
 
     this._collectMarkers();
+    this._collectWild(dt);
+  }
+
+  /**
+   * Wilderness POIs within ~1.6 km (refreshed 2×/s, distances every frame), the bearing to the
+   * safe zone when outside it, and to your base (claim, else spawn beacon).
+   */
+  _collectWild(dt) {
+    const w = this.wild;
+    const fx = this.focus.x;
+    const fz = this.focus.z;
+    if (!w || !this.ctx.modes.is('explore', 'drive')) {
+      this.wildCount = 0;
+      this.wayCount = 0;
+      this.home.hub = this.home.base = null;
+      return;
+    }
+    this._wildAcc += dt;
+    const e = this._baseEntry;
+    if (this._wildAcc >= 0.5) {
+      this._wildAcc = 0;
+      // home (claim > bed > spawn beacon), resolved twice a second (beds / beacons scan the build records)
+      const claim = w.myClaim();
+      const bed = claim ? null : w.bed?.();
+      const beacon = claim || bed ? null : w.beacon();
+      const at = claim || bed || beacon;
+      e.ok = !!at;
+      if (at) {
+        e.x = at.x;
+        e.z = at.z;
+        e.kind = claim ? 'base' : bed ? 'bed' : 'beacon';
+        e.beacon = e.kind === 'beacon';
+        e.near = claim ? claim.r + 20 : 30;
+      }
+      const list = w.inHub(fx, fz) && Math.max(Math.abs(fx), Math.abs(fz)) < 700 ? [] : w.poisNear(fx, fz, 1600);
+      // the two nearest waystones within 650 m (outside the hub)
+      this.wayCount = 0;
+      if (!w.inHub(fx, fz) && w.waystonesNear) {
+        let a = null;
+        let b = null;
+        let da = Infinity;
+        let db = Infinity;
+        for (const s of w.waystonesNear(fx, fz, 650)) {
+          const d = (s.x - fx) ** 2 + (s.z - fz) ** 2;
+          if (d > 650 * 650) continue;
+          if (d < da) {
+            b = a;
+            db = da;
+            a = s;
+            da = d;
+          } else if (d < db) {
+            b = s;
+            db = d;
+          }
+        }
+        for (const s of [a, b]) {
+          if (!s) continue;
+          const e = this.wayEntries[this.wayCount++];
+          if (e.id !== s.id) {
+            e.id = s.id;
+            const road = w.roadName(s.road);
+            e.label = road ? `${road} · km ${s.km}` : `km ${s.km}`;
+          }
+          e.x = s.x;
+          e.z = s.z;
+        }
+      }
+      this.wildCount = 0;
+      for (const p of list) {
+        let e = this.wildEntries[this.wildCount];
+        if (!e) e = this.wildEntries[this.wildCount] = { poi: null, x: 0, y: 0, z: 0, dist: 0, bearing: 0, known: false };
+        this.wildCount++;
+        e.poi = p;
+        e.x = p.x;
+        e.z = p.z;
+        e.y = Number.isFinite(p.y) ? p.y + 6 : (this.ctx.world?.getHeightAt?.(p.x, p.z) ?? 0) + 6;
+        e.known = w.isDiscovered(p.id);
+      }
+    }
+    for (let i = 0; i < this.wayCount; i++) {
+      const e = this.wayEntries[i];
+      e.dist = Math.hypot(e.x - fx, e.z - fz);
+      e.bearing = ((Math.atan2(e.x - fx, -(e.z - fz)) * RAD2DEG) % 360 + 360) % 360;
+    }
+    for (let i = 0; i < this.wildCount; i++) {
+      const e = this.wildEntries[i];
+      const dx = e.x - fx;
+      const dz = e.z - fz;
+      e.dist = Math.hypot(dx, dz);
+      e.bearing = ((Math.atan2(dx, -dz) * RAD2DEG) % 360 + 360) % 360;
+      if (!e.known && e.dist < DISCOVERY.reveal * 0.2) e.known = w.isDiscovered(e.poi.id);
+    }
+    // home bearings
+    if (!w.inHub(fx, fz)) {
+      const b = hubBorderPoint(fx, fz, this._bp);
+      const h = this._hubEntry;
+      h.x = b.x;
+      h.z = b.z;
+      h.dist = Math.hypot(b.x - fx, b.z - fz);
+      h.bearing = ((Math.atan2(b.x - fx, -(b.z - fz)) * RAD2DEG) % 360 + 360) % 360;
+      this.home.hub = h;
+    } else this.home.hub = null;
+    if (e.ok) {
+      e.dist = Math.hypot(e.x - fx, e.z - fz);
+      e.bearing = ((Math.atan2(e.x - fx, -(e.z - fz)) * RAD2DEG) % 360 + 360) % 360;
+      this.home.base = e.dist > e.near ? e : null;
+    } else this.home.base = null;
   }
 
   _collectMarkers() {

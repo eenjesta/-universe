@@ -59,4 +59,8 @@ export const REASONS = {
   moved: { en: 'Travel cancelled — you moved', nl: 'Reis geannuleerd — je bewoog' },
   busy: { en: 'Already travelling', nl: 'Al onderweg' },
   noSpot: { en: 'No safe spot found — try again', nl: 'Geen veilige plek gevonden — probeer opnieuw' },
+  // survival depth: base structures (C.STORE), piece limits, gathering tools
+  private: { en: 'Locked — it belongs to someone else', nl: 'Op slot — het is van iemand anders' },
+  pieceLimit: { en: 'You can’t place more of these', nl: 'Je kunt er niet meer van plaatsen' },
+  tool: { en: 'Needs a better tool', nl: 'Heeft beter gereedschap nodig' },
 };

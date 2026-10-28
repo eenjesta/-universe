@@ -47,6 +47,7 @@ import { createLoot } from './loot.js';
 import { createEconomy } from './economy.js';
 import { createBuild } from './build.js';
 import { generateNodes } from './nodes.js';
+import { createStorage } from './storage.js';
 import { WEAPON_SLOTS } from '../defs/weapons.js';
 import { resolveWorld } from './world.js';
 import { createTravel } from './travel.js';
@@ -111,7 +112,9 @@ export function createSim(opts = {}) {
   W.build = createBuild(W);
   W.enemiesSys = createEnemies(W);
   W.combat = createCombat(W);
+  W.worldgen = opts.worldgen && typeof opts.worldgen === 'object' ? opts.worldgen : null; // gathering: world features
   W.economy = createEconomy(W);
+  W.storage = createStorage(W);
   W.travel = createTravel(W);
 
   if (opts.world) importWorld(opts.world);
@@ -148,6 +151,7 @@ export function createSim(opts = {}) {
       claims: W.build.claimList(),
       loot: W.loot.list(),
       nodes: depleted,
+      features: W.economy.featureStates?.() ?? undefined, // felled trees / broken rocks (gathering)
     };
     if (notices.length) welcome.notices = notices;
     return welcome;
@@ -185,6 +189,7 @@ export function createSim(opts = {}) {
     [C.EQUIP]: (p, m) => W.combat.equip(p, m),
     [C.RESPAWN]: (p, m) => handleRespawn(W, p, m),
     [C.HARVEST]: (p, m) => W.economy.harvest(p, m),
+    [C.STORE]: (p, m) => W.storage.handle(p, m),
     [C.CRAFT]: (p, m) => W.economy.craft(p, m),
     [C.USE]: (p, m) => handleUse(W, p, m),
     [C.PICKUP]: (p, m) => W.loot.pickup(p, m),
@@ -278,6 +283,8 @@ export function createSim(opts = {}) {
       claims: W.build.claimList(),
       owners: W.build.exportOwners(),
       loot: W.loot.exportSave(),
+      features: W.economy.exportFeatures?.() ?? null,
+      storage: W.storage.exportSave?.() ?? null,
     };
   }
 
@@ -290,6 +297,8 @@ export function createSim(opts = {}) {
     if (save.ids && typeof save.ids === 'object') for (const k of Object.keys(W.ids)) if (isNum(save.ids[k])) W.ids[k] = Math.max(W.ids[k], save.ids[k]);
     W.build.importSave(save);
     W.loot.importSave(save.loot);
+    W.economy.importFeatures?.(save.features);
+    W.storage.importSave?.(save.storage);
     for (const p of W.players.values()) W.build.attachPlayer(p);
     return true;
   }

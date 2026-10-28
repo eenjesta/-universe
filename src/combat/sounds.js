@@ -13,7 +13,7 @@
  * opts.pitch scales most of them (remote shots are played a little lower).
  */
 import { Graph, num, rand, perc, sweep } from '../audio/lib/dsp.js';
-import { bell, tone, burst, whoosh, thump } from '../audio/lib/voices.js';
+import { bell, tone, burst, whoosh, thump, echo } from '../audio/lib/voices.js';
 
 export const COMBAT_SOUNDS = {
   'combat.pistol': {
@@ -442,6 +442,425 @@ export const COMBAT_SOUNDS = {
     },
   },
 };
+
+// ------------------------------------------------------------------ threats wave
+Object.assign(COMBAT_SOUNDS, {
+  // drone charge-up: a rising, slightly unstable whine (the tell)
+  'combat.drone.charge': {
+    limit: 4,
+    gap: 0.08,
+    fn(g, o) {
+      const t = g.t;
+      const dur = Math.max(0.2, num(o.duration, 0.55));
+      const a = g.osc('warm', 260);
+      sweep(a.frequency, 260, 820, t, dur);
+      g.lfo(a.frequency, 24, 18, 'sine', t, t + dur);
+      const lp = g.filter('lowpass', 1500, 1.2);
+      sweep(lp.frequency, 700, 2100, t, dur);
+      const amp = g.gain(0);
+      amp.gain.setValueAtTime(0, t);
+      amp.gain.linearRampToValueAtTime(0.11, t + dur * 0.92);
+      amp.gain.linearRampToValueAtTime(0.0001, t + dur + 0.05);
+      a.connect(lp).connect(amp).connect(g.out);
+      g.play(a, t, t + dur + 0.08);
+      g.finish();
+    },
+  },
+  // raider aim: a two-note targeting chirp
+  'combat.raider.aim': {
+    limit: 3,
+    gap: 0.12,
+    fn(g) {
+      const t = g.t;
+      tone(g, g.out, t, 880, { type: 'sine', peak: 0.07, a: 0.004, d: 0.07, lp: 2000 });
+      tone(g, g.out, t + 0.09, 1175, { type: 'sine', peak: 0.07, a: 0.004, d: 0.1, lp: 2200 });
+      g.finish();
+    },
+  },
+  // raider carbine: a deep, buzzy plasma thump — heavier than the player's rifle, never shrill
+  'combat.raider.shot': {
+    limit: 6,
+    gap: 0.035,
+    fn(g, o) {
+      const t = g.t;
+      const p = num(o.pitch, 1) * rand(0.94, 1.06);
+      const lp = g.filter('lowpass', 1500, 0.9);
+      const amp = g.gain(0);
+      perc(amp.gain, t, 0.26, 0.002, 0.11);
+      lp.connect(amp).connect(g.out);
+      const a = g.osc('bright', 330 * p);
+      sweep(a.frequency, 330 * p, 95 * p, t, 0.1);
+      const sat = g.shaper(1.8);
+      a.connect(sat).connect(lp);
+      g.play(a, t, t + 0.13);
+      burst(g, g.out, t, { kind: 'pink', type: 'bandpass', f: 900 * p, Q: 1.1, peak: 0.08, a: 0.001, d: 0.05 });
+      thump(g, g.out, t, { f0: 110 * p, f1: 45 * p, peak: 0.24, d: 0.09, drop: 0.06 });
+      g.finish();
+    },
+  },
+  // raider radio: "contact" — two clipped vocoder-ish blips + static
+  'combat.raider.alert': {
+    limit: 2,
+    gap: 0.6,
+    fn(g) {
+      const t = g.t;
+      burst(g, g.out, t, { kind: 'pink', type: 'bandpass', f: 1400, Q: 2, peak: 0.05, a: 0.005, d: 0.18 });
+      for (const [dt, f] of [
+        [0.06, 520],
+        [0.2, 440],
+      ]) {
+        const s = g.osc('square', f);
+        g.lfo(s.frequency, 30, 40, 'square', t + dt, t + dt + 0.12);
+        const bp = g.filter('bandpass', 1100, 3);
+        const lp = g.filter('lowpass', 2200, 0.7);
+        const a = g.gain(0);
+        perc(a.gain, t + dt, 0.07, 0.006, 0.11);
+        s.connect(bp).connect(lp).connect(a).connect(g.out);
+        g.play(s, t + dt, t + dt + 0.15);
+      }
+      g.finish();
+    },
+  },
+  // raider destroyed: electric crackle, a clank, servos winding down
+  'combat.raider.die': {
+    limit: 3,
+    gap: 0.1,
+    fn(g) {
+      const t = g.t;
+      const z = g.osc('bright', 180);
+      sweep(z.frequency, 420, 60, t, 0.7);
+      const zl = g.filter('lowpass', 1800, 0.8);
+      const tr = g.gain(0.7);
+      g.lfo(tr.gain, 32, 0.5, 'square', t, t + 0.6);
+      const za = g.gain(0);
+      perc(za.gain, t, 0.14, 0.004, 0.65);
+      z.connect(zl).connect(tr).connect(za).connect(g.out);
+      g.play(z, t, t + 0.75);
+      thump(g, g.out, t + 0.05, { f0: 160, f1: 70, peak: 0.22, d: 0.18 });
+      bell(g, g.out, t + 0.32, 330, { peak: 0.05, decay: 0.5, ratio: 2.76, index: 3 });
+      for (let i = 0; i < 4; i++) burst(g, g.out, t + 0.05 + Math.random() * 0.4, { f: rand(1000, 2200), Q: 2.5, peak: 0.05, a: 0.001, d: 0.02 });
+      g.finish();
+    },
+  },
+  // crystal mites: glassy chitter
+  'combat.mite': {
+    limit: 3,
+    gap: 0.2,
+    fn(g) {
+      const t = g.t;
+      for (let i = 0; i < 6; i++) burst(g, g.out, t + i * 0.045 + Math.random() * 0.02, { f: rand(1500, 2300), Q: 6, peak: 0.045, a: 0.001, d: 0.025, pan: rand(-0.4, 0.4) });
+      bell(g, g.out, t, 1568, { peak: 0.025, decay: 0.3, ratio: 3.1, index: 1 });
+      g.finish();
+    },
+  },
+  'combat.mite.bite': {
+    limit: 4,
+    gap: 0.06,
+    fn(g) {
+      const t = g.t;
+      burst(g, g.out, t, { f: 1700, Q: 4, peak: 0.08, a: 0.001, d: 0.02 });
+      burst(g, g.out, t + 0.04, { f: 1300, Q: 4, peak: 0.07, a: 0.001, d: 0.02 });
+      thump(g, g.out, t, { f0: 200, f1: 90, peak: 0.12, d: 0.06 });
+      g.finish();
+    },
+  },
+  // a mite shatters: crystal partials + a soft thump
+  'combat.mite.die': {
+    limit: 4,
+    gap: 0.05,
+    fn(g) {
+      const t = g.t;
+      for (const f of [1318, 1760, 2093]) bell(g, g.out, t + Math.random() * 0.03, f * rand(0.97, 1.03), { peak: 0.04, decay: 0.55, ratio: 2.4, index: 1.5, pan: rand(-0.3, 0.3) });
+      burst(g, g.out, t, { kind: 'white', type: 'lowpass', f: 2400, Q: 0.7, peak: 0.08, a: 0.001, d: 0.12 });
+      thump(g, g.out, t, { f0: 140, f1: 60, peak: 0.14, d: 0.12 });
+      g.finish();
+    },
+  },
+  // stalker howl: a long eerie rising-falling call (the pack hears it — so do you)
+  'combat.stalker.howl': {
+    limit: 2,
+    gap: 0.8,
+    fn(g, o) {
+      const t = g.t;
+      const p = num(o.pitch, 1) * rand(0.9, 1.1);
+      const dur = 1.6;
+      const s = g.osc('warm', 240 * p);
+      s.frequency.setValueAtTime(240 * p, t);
+      s.frequency.linearRampToValueAtTime(520 * p, t + 0.45);
+      s.frequency.linearRampToValueAtTime(470 * p, t + 1.0);
+      s.frequency.exponentialRampToValueAtTime(260 * p, t + dur);
+      g.lfo(s.frequency, 6, 12 * p, 'sine', t, t + dur);
+      const f1 = g.filter('bandpass', 900, 3);
+      sweep(f1.frequency, 700, 1300, t, 0.5);
+      const lp = g.filter('lowpass', 2300, 0.7);
+      const amp = g.gain(0);
+      amp.gain.setValueAtTime(0, t);
+      amp.gain.linearRampToValueAtTime(0.22, t + 0.2);
+      amp.gain.linearRampToValueAtTime(0.18, t + 1.0);
+      amp.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      s.connect(f1).connect(lp).connect(amp).connect(g.out);
+      g.play(s, t, t + dur + 0.05);
+      amp.connect(echo(g, g.out, { time: 0.28, fb: 0.35, wet: 0.35, lp: 1800 }));
+      g.finish();
+    },
+  },
+  'combat.barrier.deploy': {
+    limit: 2,
+    gap: 0.2,
+    fn(g) {
+      const t = g.t;
+      thump(g, g.out, t, { f0: 130, f1: 55, peak: 0.25, d: 0.14 });
+      const h = g.osc('hum', 110);
+      sweep(h.frequency, 80, 160, t, 0.35);
+      const lp = g.filter('lowpass', 900, 1);
+      const a = g.gain(0);
+      perc(a.gain, t + 0.02, 0.16, 0.08, 0.6);
+      h.connect(lp).connect(a).connect(g.out);
+      g.play(h, t, t + 0.75);
+      whoosh(g, g.out, t, { kind: 'pink', f: 400, f1: 1500, Q: 1.3, peak: 0.08, a: 0.18, r: 0.25 });
+      g.finish();
+    },
+  },
+  'combat.barrier.hit': {
+    limit: 4,
+    gap: 0.05,
+    fn(g) {
+      const t = g.t;
+      tone(g, g.out, t, 300, { type: 'hum', f1: 190, sweepDur: 0.12, peak: 0.1, a: 0.002, d: 0.14, lp: 1400 });
+      burst(g, g.out, t, { f: 1200, Q: 2, peak: 0.05, a: 0.001, d: 0.03 });
+      g.finish();
+    },
+  },
+  'combat.barrier.break': {
+    limit: 2,
+    gap: 0.1,
+    fn(g) {
+      const t = g.t;
+      tone(g, g.out, t, 700, { type: 'warm', f1: 90, sweepDur: 0.4, peak: 0.16, a: 0.002, d: 0.45, lp: 2000 });
+      burst(g, g.out, t, { kind: 'white', type: 'lowpass', f: 2200, Q: 0.7, peak: 0.12, a: 0.001, d: 0.3 });
+      thump(g, g.out, t, { f0: 120, f1: 45, peak: 0.2, d: 0.2 });
+      g.finish();
+    },
+  },
+  // ---- De Wachter
+  'combat.warden.lift': {
+    limit: 2,
+    gap: 0.2,
+    fn(g, o) {
+      const t = g.t;
+      const dur = Math.max(0.5, num(o.duration, 1.1));
+      const n = g.noise('brown');
+      const bp = g.filter('bandpass', 180, 1.5);
+      sweep(bp.frequency, 120, 320, t, dur);
+      const a = g.gain(0);
+      a.gain.setValueAtTime(0, t);
+      a.gain.linearRampToValueAtTime(0.4, t + dur * 0.8);
+      a.gain.linearRampToValueAtTime(0.0001, t + dur + 0.1);
+      n.connect(bp).connect(a).connect(g.out);
+      g.play(n, t, t + dur + 0.15);
+      const h = g.osc('warm', 55);
+      sweep(h.frequency, 48, 90, t, dur);
+      const ha = g.gain(0);
+      ha.gain.setValueAtTime(0, t);
+      ha.gain.linearRampToValueAtTime(0.18, t + dur);
+      ha.gain.linearRampToValueAtTime(0.0001, t + dur + 0.1);
+      h.connect(ha).connect(g.out);
+      g.play(h, t, t + dur + 0.15);
+      g.finish();
+    },
+  },
+  'combat.warden.stomp': {
+    limit: 2,
+    gap: 0.15,
+    fn(g) {
+      const t = g.t;
+      const bus = g.gain(0.9);
+      bus.connect(g.out);
+      thump(g, bus, t, { f0: 70, f1: 22, peak: 0.75, d: 1.2, drop: 0.5 });
+      thump(g, bus, t, { f0: 160, f1: 50, peak: 0.35, d: 0.3, drop: 0.12 });
+      const n = g.noise('brown');
+      const lp = g.filter('lowpass', 1400, 0.7);
+      sweep(lp.frequency, 1400, 120, t, 1.4);
+      const sat = g.shaper(2);
+      const a = g.gain(0);
+      perc(a.gain, t, 0.55, 0.004, 1.5);
+      n.connect(lp).connect(sat).connect(a).connect(bus);
+      g.play(n, t, t + 1.6);
+      for (let i = 0; i < 8; i++) burst(g, bus, t + 0.1 + Math.random() * 0.9, { kind: 'pink', type: 'lowpass', f: rand(500, 1400), Q: 1, peak: rand(0.03, 0.07), a: 0.001, d: rand(0.03, 0.08), pan: rand(-0.6, 0.6) });
+      g.finish();
+    },
+  },
+  'combat.warden.step': {
+    limit: 2,
+    gap: 0.3,
+    fn(g) {
+      const t = g.t;
+      thump(g, g.out, t, { f0: 60, f1: 26, peak: 0.45, d: 0.55, drop: 0.3 });
+      burst(g, g.out, t, { kind: 'brown', type: 'lowpass', f: 500, Q: 0.7, peak: 0.12, a: 0.004, d: 0.4 });
+      g.finish();
+    },
+  },
+  'combat.warden.beam': {
+    limit: 1,
+    gap: 0.5,
+    fn(g, o) {
+      const t = g.t;
+      const dur = Math.max(1, num(o.duration, 3.2));
+      const charge = Math.min(1.2, dur * 0.3);
+      const a = g.osc('warm', 70);
+      a.frequency.setValueAtTime(70, t);
+      a.frequency.exponentialRampToValueAtTime(220, t + charge);
+      a.frequency.setValueAtTime(110, t + charge);
+      g.lfo(a.frequency, 9, 8, 'sine', t + charge, t + dur);
+      const b = g.osc('bright', 220);
+      g.lfo(b.frequency, 13, 20, 'sine', t, t + dur);
+      const lp = g.filter('lowpass', 900, 1.2);
+      sweep(lp.frequency, 500, 1700, t, charge);
+      const bg = g.gain(0.3);
+      const amp = g.gain(0);
+      amp.gain.setValueAtTime(0, t);
+      amp.gain.linearRampToValueAtTime(0.2, t + charge);
+      amp.gain.setValueAtTime(0.32, t + charge + 0.02);
+      amp.gain.linearRampToValueAtTime(0.26, t + dur - 0.2);
+      amp.gain.linearRampToValueAtTime(0.0001, t + dur + 0.1);
+      a.connect(lp);
+      b.connect(bg).connect(lp);
+      const sat = g.shaper(2.4);
+      lp.connect(sat).connect(amp).connect(g.out);
+      g.play(a, t, t + dur + 0.15);
+      g.play(b, t, t + dur + 0.15);
+      thump(g, g.out, t + charge, { f0: 120, f1: 40, peak: 0.3, d: 0.4 });
+      g.finish();
+    },
+  },
+  'combat.warden.summon': {
+    limit: 1,
+    gap: 1,
+    fn(g) {
+      const t = g.t;
+      for (let i = 0; i < 3; i++) {
+        whoosh(g, g.out, t + i * 0.18, { kind: 'pink', f: 300, f1: 1200, Q: 1.2, peak: 0.1, a: 0.15, r: 0.3, pan: (i - 1) * 0.5 });
+        tone(g, g.out, t + 0.2 + i * 0.18, 660 + i * 110, { type: 'sine', peak: 0.05, a: 0.01, d: 0.15, lp: 2000 });
+      }
+      thump(g, g.out, t, { f0: 90, f1: 40, peak: 0.25, d: 0.4 });
+      g.finish();
+    },
+  },
+  'combat.warden.roar': {
+    limit: 1,
+    gap: 1,
+    fn(g, o) {
+      const t = g.t;
+      const dur = Math.max(1.2, num(o.duration, 1.6)) + 0.6;
+      const s = g.osc('warm', 46);
+      s.frequency.setValueAtTime(42, t);
+      s.frequency.linearRampToValueAtTime(64, t + dur * 0.35);
+      s.frequency.exponentialRampToValueAtTime(34, t + dur);
+      g.lfo(s.frequency, 7, 5, 'sine', t, t + dur);
+      const f = g.filter('bandpass', 260, 2);
+      sweep(f.frequency, 200, 420, t, dur * 0.4);
+      const sat = g.shaper(3);
+      const lp = g.filter('lowpass', 1100, 0.7);
+      const a = g.gain(0);
+      a.gain.setValueAtTime(0, t);
+      a.gain.linearRampToValueAtTime(0.5, t + 0.25);
+      a.gain.linearRampToValueAtTime(0.38, t + dur * 0.6);
+      a.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      s.connect(f).connect(sat).connect(lp).connect(a).connect(g.out);
+      g.play(s, t, t + dur + 0.05);
+      const n = g.noise('brown');
+      const nl = g.filter('lowpass', 500, 0.7);
+      const na = g.gain(0);
+      perc(na.gain, t, 0.25, 0.2, dur);
+      n.connect(nl).connect(na).connect(g.out);
+      g.play(n, t, t + dur + 0.05);
+      g.finish();
+    },
+  },
+  'combat.warden.rune': {
+    limit: 2,
+    gap: 0.3,
+    fn(g) {
+      const t = g.t;
+      for (const f of [523, 784, 1046, 1568]) bell(g, g.out, t + Math.random() * 0.02, f, { peak: 0.06, decay: 1.4, ratio: 2.4, index: 1.6, pan: rand(-0.3, 0.3) });
+      thump(g, g.out, t, { f0: 90, f1: 28, peak: 0.55, d: 0.9, drop: 0.4 });
+      burst(g, g.out, t, { kind: 'white', type: 'lowpass', f: 2300, Q: 0.7, peak: 0.12, a: 0.001, d: 0.35 });
+      g.finish();
+    },
+  },
+  'combat.warden.die': {
+    limit: 1,
+    gap: 2,
+    fn(g) {
+      const t = g.t;
+      const bus = g.gain(0.9);
+      bus.connect(g.out);
+      for (let i = 0; i < 5; i++) thump(g, bus, t + i * 0.55 + Math.random() * 0.2, { f0: 80 - i * 6, f1: 24, peak: 0.5, d: 1, drop: 0.5 });
+      const n = g.noise('brown');
+      const lp = g.filter('lowpass', 900, 0.7);
+      sweep(lp.frequency, 900, 120, t, 4.5);
+      const a = g.gain(0);
+      a.gain.setValueAtTime(0, t);
+      a.gain.linearRampToValueAtTime(0.45, t + 1.5);
+      a.gain.exponentialRampToValueAtTime(0.001, t + 5);
+      n.connect(lp).connect(a).connect(bus);
+      g.play(n, t, t + 5.1);
+      g.finish();
+    },
+  },
+  // ---- stings
+  'combat.boss.sting': {
+    limit: 1,
+    gap: 2,
+    fn(g) {
+      const t = g.t;
+      for (const f of [65.4, 98, 130.8, 155.6]) tone(g, g.out, t, f, { type: 'warm', peak: 0.12, a: 0.02, d: 2.2, lp: 1400 });
+      thump(g, g.out, t, { f0: 70, f1: 30, peak: 0.45, d: 0.9 });
+      g.finish();
+    },
+  },
+  'combat.boss.victory': {
+    limit: 1,
+    gap: 2,
+    fn(g) {
+      const t = g.t;
+      const notes = [523.3, 659.3, 784, 1046.5];
+      notes.forEach((f, i) => bell(g, g.out, t + i * 0.12, f, { peak: 0.08, decay: 1.8, ratio: 2, index: 1 }));
+      for (const f of [130.8, 196, 261.6]) tone(g, g.out, t + 0.36, f, { type: 'warm', peak: 0.09, a: 0.05, d: 2.4, lp: 1600 });
+      g.finish();
+    },
+  },
+  'combat.hunt': {
+    limit: 1,
+    gap: 2,
+    fn(g) {
+      const t = g.t;
+      burst(g, g.out, t, { kind: 'pink', type: 'bandpass', f: 1200, Q: 1.5, peak: 0.06, a: 0.05, d: 0.6 });
+      tone(g, g.out, t + 0.1, 98, { type: 'warm', f1: 92, sweepDur: 1.4, peak: 0.16, a: 0.25, d: 1.5, lp: 600 });
+      tone(g, g.out, t + 0.1, 146.8, { type: 'warm', f1: 138, sweepDur: 1.4, peak: 0.09, a: 0.3, d: 1.4, lp: 700 });
+      g.finish();
+    },
+  },
+  'combat.dodged': {
+    limit: 2,
+    gap: 0.15,
+    fn(g) {
+      const t = g.t;
+      whoosh(g, g.out, t, { kind: 'pink', f: 500, f1: 1800, Q: 1.4, peak: 0.1, a: 0.06, r: 0.18 });
+      tone(g, g.out, t + 0.05, 988, { type: 'sine', peak: 0.04, a: 0.005, d: 0.18, lp: 2400 });
+      g.finish();
+    },
+  },
+  'combat.cleared': {
+    limit: 1,
+    gap: 1,
+    fn(g) {
+      const t = g.t;
+      [587.3, 740, 880].forEach((f, i) => bell(g, g.out, t + i * 0.1, f, { peak: 0.07, decay: 1.1, ratio: 2, index: 1 }));
+      g.finish();
+    },
+  },
+});
 
 /** Registers every recipe on ctx.audio with a per-name voice limit + minimum gap. */
 export function registerCombatSounds(ctx) {

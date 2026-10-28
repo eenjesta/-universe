@@ -1,10 +1,20 @@
 /**
- * Round HUD minimap (bottom-left, explore/drive). Rotates with the camera
- * heading, shows the shared map image (terrain), N/E/S/W (nl N/O/Z/W) around the ring, a
- * view cone, the player arrow and ctx.markers as icons (quest markers clamp
- * to the rim). Zooms out with vehicle speed. Drawn on a 2D canvas.
+ * Round HUD minimap (bottom-left; top-left on touch), explore/drive. Rotates with the camera
+ * (or north-up: settings.minimapRotate = false) and shows, bottom to top:
+ *   - the hub map image (terrain preview, then the baked map) inside ±1200 m,
+ *   - the infinite planet beyond it (ctx.frontier.minimap via a cached FrontierLayer that keeps
+ *     painting tiles while they stream in),
+ *   - the safe-zone border (cyan dashed square |x|, |z| = 1100), claims (yours cyan, others amber,
+ *     decaying grey), wilderness POIs (type icon once discovered, "?" until then), other players (violet dots),
+ *   - ctx.markers by kind: quest / waypoint / boss clamp to the rim; enemy red dots; POI icons,
+ *   - N/E/S/W around the ring (nl N/O/Z/W), the view cone and the player arrow.
+ * Zooms out with vehicle speed and a little in the wilderness. Drawn on a 2D canvas, redrawn only
+ * when something visible changed.
  */
 import { worldToUV, MAP_EXTENT } from '../map/mapImage.js';
+import { FrontierLayer, quantMpp } from '../map/frontierLayer.js';
+import { POI_STYLE } from '../wild.js';
+import { HUB_HALF } from '../logic.js';
 import { iconImage, imageReady } from '../util.js';
 import { damp, clamp } from '../../core/math.js';
 import { t } from '../../core/i18n.js';
@@ -35,15 +45,24 @@ const KIND_COLORS = {
   npc: '#b48cff',
   friendly: '#8fe3a8',
   vehicle: '#ece6dc',
-  enemy: '#ff7a6e',
+  enemy: '#ff5a4e',
+  boss: '#ff4a3d',
+  waypoint: '#ffd27a',
   station: '#ece6dc',
 };
+/** Markers that stay visible on the rim when out of range (boss: only out in the wilds within this many m). */
+const RIM_KINDS = new Set(['quest', 'waypoint', 'boss']);
+const BOSS_RIM = 2500;
+const RADIUS_HUB = 115; // m from centre to rim on foot in the hub
+const RADIUS_WILD = 150; // … in the wilderness (less detail, more navigation)
 
 export class Minimap {
-  constructor(ctx, frame, mapImage) {
+  constructor(ctx, frame, mapImage, wild = null, settings = null) {
     this.ctx = ctx;
     this.frame = frame;
     this.mapImage = mapImage;
+    this.wild = wild;
+    this.settings = settings;
     const h = ctx.ui.h;
     this.canvas = h('canvas', { class: 'shell-minimap-canvas', 'aria-hidden': 'true' });
     this.el = h('div', { class: 'shell-minimap', role: 'img', 'aria-label': t({ en: 'Minimap', nl: 'Minikaart' }) }, this.canvas);
@@ -52,17 +71,24 @@ export class Minimap {
     this.g = this.canvas.getContext('2d');
     this.size = 0;
     this.dpr = 1;
-    this.radiusM = 115; // world metres from centre to rim
+    this.radiusM = RADIUS_HUB; // world metres from centre to rim
     this.mapAlpha = 0; // baked high-res map
     this.previewAlpha = 0; // terrain preview (world.minimap)
+    this.layer = new FrontierLayer({ settle: 3, every: 0.25 });
     this._uv = [0, 0];
-    this._sig = { x: NaN, z: NaN, h: NaN, fh: NaN, r: NaN, a: NaN, m: NaN };
+    this._sig = { x: NaN, z: NaN, h: NaN, fh: NaN, r: NaN, a: NaN, m: NaN, v: -1 };
     this._force = true;
     this._dirty = true;
     this._discGrad = null;
     this._vignette = null;
     this._cone = null;
+    this._time = 0;
     window.addEventListener('resize', () => (this._dirty = true));
+  }
+
+  /** Map rotation (rad): the camera heading, or 0 when the player chose a north-up minimap. */
+  get rotation() {
+    return this.settings?.get?.('minimapRotate') === false ? 0 : this.frame.heading;
   }
 
   _layout() {
@@ -86,7 +112,7 @@ export class Minimap {
     this._vignette = g.createRadialGradient(c, c, this.R * 0.45, c, c, this.R);
     this._vignette.addColorStop(0, 'rgba(6, 10, 16, 0)');
     this._vignette.addColorStop(1, 'rgba(6, 10, 16, 0.62)');
-    this._cone = g.createLinearGradient(c, c, c, c - this.R);
+    this._cone = g.createLinearGradient(0, 0, 0, -this.R);
     this._cone.addColorStop(0, 'rgba(236, 230, 220, 0.16)');
     this._cone.addColorStop(1, 'rgba(236, 230, 220, 0)');
   }
@@ -95,10 +121,12 @@ export class Minimap {
     if (this.el.hidden) return;
     this._layout();
     if (!this.R || this.R < 20) return;
+    this._time += dt;
     const f = this.frame;
-    // zoom out with speed (vehicles), a little more when flying high
+    // zoom: vehicles zoom out with speed (and altitude); on foot a little wider in the wilderness
     const veh = f.vehicle();
-    let target = 115;
+    const wildNow = Math.max(Math.abs(f.focus.x), Math.abs(f.focus.z)) > HUB_HALF;
+    let target = wildNow ? RADIUS_WILD : RADIUS_HUB;
     if (veh) {
       const ground = this.ctx.world?.getHeightAt?.(f.focus.x, f.focus.z) ?? 0;
       const alt = Math.max(0, f.focus.y - ground);
@@ -112,32 +140,66 @@ export class Minimap {
       // fully cross-faded: the preview's filtered copy is no longer needed
       if (this.mapAlpha >= 1) for (const key of [...(this._hudCache?.keys() || [])]) if (key !== this.mapImage.canvas) this._hudCache.delete(key);
     }
+    // the procedural planet beyond the hub: (re)paint the cached layer when needed
+    const fr = this.ctx.frontier;
+    const pxPerM = this.R / this.radiusM;
+    if (fr?.minimap && this._seesFrontier(f.focus.x, f.focus.z)) {
+      const mpp = quantMpp(1 / (pxPerM * this.dpr));
+      const side = Math.ceil(this.R * this.dpr * 2 * 1.5); // covers the rotated disc + some travel
+      this.layer.ensure(fr, f.focus.x, f.focus.z, mpp, side, side, this._time);
+    }
     // redraw only when something visible changed (standing still costs nothing)
     const s = this._sig;
     const fx = f.focus.x;
     const fz = f.focus.z;
-    let markerSum = f.count;
-    for (let i = 0; i < f.count; i++) markerSum += f.entries[i].x * 0.37 + f.entries[i].z * 0.73;
+    const rot = this.rotation;
+    const dyn = this._dynamicSum();
     if (
       !this._force &&
       Math.abs(s.x - fx) < 0.04 &&
       Math.abs(s.z - fz) < 0.04 &&
-      Math.abs(s.h - f.heading) < 0.0015 &&
+      Math.abs(s.h - rot) < 0.0015 &&
       Math.abs(s.fh - f.focusHeading) < 0.01 &&
       Math.abs(s.r - this.radiusM) < 0.05 &&
       s.a === this.mapAlpha + this.previewAlpha * 2 &&
-      Math.abs(s.m - markerSum) < 0.01
+      Math.abs(s.m - dyn) < 0.01 &&
+      s.v === this.layer.version
     )
       return;
     this._force = false;
     s.x = fx;
     s.z = fz;
-    s.h = f.heading;
+    s.h = rot;
     s.fh = f.focusHeading;
     s.r = this.radiusM;
     s.a = this.mapAlpha + this.previewAlpha * 2;
-    s.m = markerSum;
+    s.m = dyn;
+    s.v = this.layer.version;
     this._draw();
+  }
+
+  /** True when the disc (plus rotation margin) reaches beyond the hub map image. */
+  _seesFrontier(x, z) {
+    const reach = this.radiusM * 1.5;
+    return Math.abs(x) + reach > MAP_EXTENT || Math.abs(z) + reach > MAP_EXTENT;
+  }
+
+  /** Cheap checksum of everything dynamic drawn on the disc (markers, players, claims, waypoint, cache). */
+  _dynamicSum() {
+    const f = this.frame;
+    let sum = f.count;
+    for (let i = 0; i < f.count; i++) sum += f.entries[i].x * 0.37 + f.entries[i].z * 0.73;
+    const players = this.ctx.net?.players;
+    if (players?.size) {
+      for (const p of players.values()) {
+        const v = p?.view?.p;
+        if (v) sum += v.x * 0.11 + v.z * 0.29 + 1;
+      }
+    }
+    const claims = this.wild?.claims?.() || [];
+    sum += claims.length * 7 + (claims.length ? claims[0].x * 0.01 : 0);
+    sum += this.wild?.discovered?.size || 0;
+    return sum;
   }
 
   _draw() {
@@ -146,7 +208,7 @@ export class Minimap {
     const css = this.size;
     const c = css / 2;
     const R = this.R;
-    const h = f.heading;
+    const h = this.rotation;
     const cos = Math.cos(h);
     const sin = Math.sin(h);
     const pxPerM = R / this.radiusM;
@@ -164,33 +226,54 @@ export class Minimap {
 
     let drew = false;
     const preview = this.mapAlpha < 1 ? this.mapImage.preview() : null;
-    if (preview && this.previewAlpha > 0) drew = this._drawMap(g, preview.canvas, preview.extent, c, h, pxPerM, this.previewAlpha);
-    if (this.mapImage.ready && this.mapAlpha > 0) drew = this._drawMap(g, this.mapImage.canvas, MAP_EXTENT, c, h, pxPerM, this.mapAlpha) || drew;
+    const nearHub = Math.abs(f.focus.x) - this.radiusM * 1.5 < MAP_EXTENT && Math.abs(f.focus.z) - this.radiusM * 1.5 < MAP_EXTENT;
+    if (nearHub && preview && this.previewAlpha > 0) drew = this._drawMap(g, preview.canvas, preview.extent, c, h, pxPerM, this.previewAlpha);
+    if (nearHub && this.mapImage.ready && this.mapAlpha > 0) drew = this._drawMap(g, this.mapImage.canvas, MAP_EXTENT, c, h, pxPerM, this.mapAlpha) || drew;
     // the infinite planet beyond the hub (PLATFORM.md §11) — the layer paints only outside the hub square
-    const fr = this.ctx.frontier;
-    if (fr?.minimap) {
+    const L = this.layer;
+    if (this.ctx.frontier?.minimap && L.version > 0 && Number.isFinite(L.cx) && this._seesFrontier(f.focus.x, f.focus.z)) {
+      const k = pxPerM * L.mpp; // canvas px → minimap css px
       g.save();
-      g.setTransform(1, 0, 0, 1, 0, 0); // the layer works in device pixels around the canvas centre
-      g.globalAlpha = 0.92;
-      fr.minimap.draw(g, this.frame.focus.x, this.frame.focus.z, 1 / (pxPerM * this.dpr), { rotate: h });
+      g.translate(c, c);
+      g.rotate(h);
+      g.translate((L.cx - f.focus.x) * pxPerM, (L.cz - f.focus.z) * pxPerM);
+      g.scale(k, k);
+      g.globalAlpha = HAS_FILTER ? 0.9 : 0.8;
+      if (HAS_FILTER) g.filter = 'saturate(0.7) brightness(0.8) contrast(1.05)';
+      g.drawImage(L.canvas, -L.w / 2, -L.h / 2);
+      g.filter = 'none';
       g.restore();
       drew = true;
     }
     if (drew) {
-      g.fillStyle = HAS_FILTER ? 'rgba(8, 18, 30, 0.26)' : 'rgba(8, 18, 30, 0.5)';
+      g.fillStyle = HAS_FILTER ? 'rgba(8, 18, 30, 0.22)' : 'rgba(8, 18, 30, 0.45)';
       g.fillRect(0, 0, css, css);
     }
+    // world-space overlays: safe-zone border, claims, discovered POIs, players
+    g.save();
+    g.translate(c, c);
+    g.rotate(h);
+    g.scale(pxPerM, pxPerM);
+    g.translate(-f.focus.x, -f.focus.z);
+    this._drawWorldOverlays(g, pxPerM);
+    g.restore();
+
     g.fillStyle = this._vignette;
     g.fillRect(0, 0, css, css);
 
-    // view cone (camera looks "up" on a rotating map)
+    // view cone (points where the camera looks)
     const half = 0.62;
+    const coneAng = -Math.PI / 2 - (f.heading - h);
+    g.save();
+    g.translate(c, c);
+    g.rotate(coneAng + Math.PI / 2);
     g.fillStyle = this._cone;
     g.beginPath();
-    g.moveTo(c, c);
-    g.arc(c, c, R, -Math.PI / 2 - half, -Math.PI / 2 + half);
+    g.moveTo(0, 0);
+    g.arc(0, 0, R, -Math.PI / 2 - half, -Math.PI / 2 + half);
     g.closePath();
     g.fill();
+    g.restore();
 
     // faint grid: cross + inner ring
     g.strokeStyle = 'rgba(236, 230, 220, 0.10)';
@@ -208,6 +291,7 @@ export class Minimap {
 
     // ---- markers -----------------------------------------------------------
     const rim = R - 8;
+    const wildNow = !(this.wild ? this.wild.inHub(f.focus.x, f.focus.z) : Math.max(Math.abs(f.focus.x), Math.abs(f.focus.z)) <= HUB_HALF);
     for (let i = 0; i < f.count; i++) {
       const e = f.entries[i];
       const m = e.m;
@@ -217,9 +301,9 @@ export class Minimap {
       let sx = dx * cos - dz * sin;
       let sy = dx * sin + dz * cos;
       const r = Math.hypot(sx, sy);
-      const isQuest = m.kind === 'quest';
       if (r > rim) {
-        if (!isQuest && e !== f.tracked) continue;
+        if (!RIM_KINDS.has(m.kind) && e !== f.tracked) continue;
+        if (m.kind === 'boss' && e !== f.tracked && (e.dist > BOSS_RIM || !wildNow)) continue;
         sx *= rim / r;
         sy *= rim / r;
       }
@@ -240,12 +324,12 @@ export class Minimap {
     // ticks every 30°, rotating with the map
     g.lineWidth = 1;
     for (let a = 0; a < 12; a++) {
+      if (a % 3 === 0) continue; // cardinal positions carry the letters instead
       const ang = (a / 12) * TAU;
       const wx = Math.sin(ang);
       const wz = -Math.cos(ang);
       const tx = wx * cos - wz * sin;
       const ty = wx * sin + wz * cos;
-      if (a % 3 === 0) continue; // cardinal positions carry the letters instead
       g.strokeStyle = 'rgba(236, 230, 220, 0.45)';
       g.beginPath();
       g.moveTo(c + tx * (R - 4), c + ty * (R - 4));
@@ -254,17 +338,16 @@ export class Minimap {
     }
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    for (const L of this.letters) {
-      const tx = L.dx * cos - L.dz * sin;
-      const ty = L.dx * sin + L.dz * cos;
-      const isN = L.north;
+    for (const Lt of this.letters) {
+      const tx = Lt.dx * cos - Lt.dz * sin;
+      const ty = Lt.dx * sin + Lt.dz * cos;
+      const isN = Lt.north;
       g.font = `${isN ? 600 : 500} ${isN ? 12 : 11}px Jost, system-ui, sans-serif`;
       g.fillStyle = isN ? '#ffffff' : 'rgba(236, 230, 220, 0.78)';
       g.shadowColor = 'rgba(0, 0, 0, 0.8)';
       g.shadowBlur = 4;
-      g.fillText(L.text, c + tx * (R + 11), c + ty * (R + 11) + 0.5);
+      g.fillText(Lt.text, c + tx * (R + 11), c + ty * (R + 11) + 0.5);
       g.shadowBlur = 0;
-      // small cyan notch on the ring for north
       if (isN) {
         g.fillStyle = '#7fe0ff';
         g.beginPath();
@@ -287,6 +370,88 @@ export class Minimap {
     g.lineTo(-6.5, 7);
     g.closePath();
     g.fill();
+    g.restore();
+  }
+
+  /** Overlays in world metres (the caller set up translate/rotate/scale). */
+  _drawWorldOverlays(g, pxPerM) {
+    const f = this.frame;
+    const fx = f.focus.x;
+    const fz = f.focus.z;
+    const reach = this.radiusM * 1.5;
+    const px = 1 / pxPerM; // one css pixel in metres
+    // safe-zone border: dashed cyan square, a faint tint inside (only when the border is in view)
+    const H = HUB_HALF;
+    const nearBorder = Math.abs(Math.abs(fx) - H) < reach || Math.abs(Math.abs(fz) - H) < reach;
+    if (nearBorder && Math.abs(fx) < H + reach && Math.abs(fz) < H + reach) {
+      g.save();
+      g.lineWidth = 6 * px;
+      g.strokeStyle = 'rgba(127, 224, 255, 0.14)';
+      g.strokeRect(-H, -H, 2 * H, 2 * H);
+      g.setLineDash([7 * px, 5 * px]);
+      g.lineWidth = 1.6 * px;
+      g.strokeStyle = 'rgba(127, 224, 255, 0.9)';
+      g.strokeRect(-H, -H, 2 * H, 2 * H);
+      g.restore();
+    }
+    // claims
+    const wild = this.wild;
+    const me = wild?.me?.();
+    for (const cl of wild?.claims?.() || []) {
+      if (Math.abs(cl.x - fx) > reach + cl.r || Math.abs(cl.z - fz) > reach + cl.r) continue;
+      const mine = me != null && cl.owner === me;
+      const col = cl.decay > 0 ? '150, 146, 140' : mine ? '127, 224, 255' : '255, 160, 80';
+      g.fillStyle = `rgba(${col}, ${mine ? 0.16 : 0.1})`;
+      g.strokeStyle = `rgba(${col}, 0.9)`;
+      g.lineWidth = 1.4 * px;
+      g.beginPath();
+      g.arc(cl.x, cl.z, cl.r, 0, TAU);
+      g.fill();
+      g.stroke();
+    }
+    // wilderness POIs over the layer's diamond: their icon once discovered, a dim "?" until then
+    if (wild && !(Math.abs(fx) < HUB_HALF - reach && Math.abs(fz) < HUB_HALF - reach)) {
+      for (const p of wild.poisNear(fx, fz, reach)) {
+        if (Math.abs(p.x - fx) > reach || Math.abs(p.z - fz) > reach) continue;
+        const st = POI_STYLE[p.type];
+        if (wild.isDiscovered(p.id) && st) this._iconAt(g, p.x, p.z, st.icon, st.color, px, 7.5);
+        else this._iconAt(g, p.x, p.z, 'shell-question', 'rgba(236, 230, 220, 0.8)', px, 6.5);
+      }
+    }
+    // other players (violet dots; names live on the world map)
+    const players = this.ctx.net?.players;
+    if (players?.size) {
+      g.fillStyle = '#c4a2ff';
+      g.strokeStyle = 'rgba(8, 10, 16, 0.9)';
+      g.lineWidth = 1.2 * px;
+      for (const p of players.values()) {
+        const v = p?.view;
+        if (!v?.p || v.dead) continue;
+        if (Math.abs(v.p.x - fx) > reach || Math.abs(v.p.z - fz) > reach) continue;
+        g.beginPath();
+        g.arc(v.p.x, v.p.z, 3 * px, 0, TAU);
+        g.fill();
+        g.stroke();
+      }
+    }
+  }
+
+  /** An icon on a small dark disc at a world point (world-space transform active; px = metres per css px). */
+  _iconAt(g, x, z, name, color, px, r) {
+    const img = iconImage(name, color, 32, 1.8);
+    g.save();
+    g.translate(x, z);
+    g.rotate(-this.rotation); // keep the icon upright
+    g.scale(px, px);
+    g.fillStyle = 'rgba(6, 10, 16, 0.78)';
+    g.beginPath();
+    g.arc(0, 0, r, 0, TAU);
+    g.fill();
+    g.strokeStyle = color;
+    g.lineWidth = 1;
+    g.stroke();
+    if (imageReady(img)) g.drawImage(img, -r + 1.5, -r + 1.5, 2 * r - 3, 2 * r - 3);
+    else this._force = true;
     g.restore();
   }
 
@@ -334,15 +499,47 @@ export class Minimap {
   }
 
   _drawMarker(g, x, y, m, tracked, clamped) {
-    const color = m.color && m.kind !== 'poi' ? m.color : KIND_COLORS[m.kind] || '#ece6dc';
-    if (m.kind === 'quest' || tracked) {
-      // cyan diamond with glow (+ icon when it fits)
-      const s = clamped ? 5 : 6.5;
+    const kind = m.kind;
+    const color = m.color && kind !== 'poi' ? m.color : KIND_COLORS[kind] || '#ece6dc';
+    if (kind === 'enemy') {
+      g.fillStyle = color;
+      g.strokeStyle = 'rgba(20, 4, 4, 0.9)';
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.arc(x, y, 3.2, 0, TAU);
+      g.fill();
+      g.stroke();
+      return;
+    }
+    if (kind === 'boss' || kind === 'waypoint') {
+      const img = iconImage(kind === 'boss' ? 'shell-boss' : 'shell-waypoint', color, 32, 1.9);
+      const r = clamped ? 7 : 8.5;
       g.save();
-      g.shadowColor = 'rgba(127, 224, 255, 0.85)';
+      g.shadowColor = kind === 'boss' ? 'rgba(255, 74, 61, 0.85)' : 'rgba(255, 210, 122, 0.8)';
+      g.shadowBlur = 8;
+      g.fillStyle = 'rgba(8, 10, 14, 0.88)';
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.fill();
+      g.restore();
+      g.strokeStyle = color;
+      g.lineWidth = 1.4;
+      g.beginPath();
+      g.arc(x, y, r, 0, TAU);
+      g.stroke();
+      if (imageReady(img)) g.drawImage(img, x - r + 2, y - r + 2, 2 * r - 4, 2 * r - 4);
+      else this._force = true;
+      return;
+    }
+    if (kind === 'quest' || tracked) {
+      // diamond with glow (+ the marker's own colour, e.g. the gold death crate)
+      const s = clamped ? 5 : 6.5;
+      const qc = kind === 'quest' && m.color ? m.color : color;
+      g.save();
+      g.shadowColor = qc === '#7fe0ff' ? 'rgba(127, 224, 255, 0.85)' : qc;
       g.shadowBlur = 8;
       g.fillStyle = 'rgba(8, 14, 20, 0.85)';
-      g.strokeStyle = color;
+      g.strokeStyle = qc;
       g.lineWidth = 1.6;
       g.beginPath();
       g.moveTo(x, y - s);
@@ -353,13 +550,13 @@ export class Minimap {
       g.fill();
       g.stroke();
       g.restore();
-      g.fillStyle = color;
+      g.fillStyle = qc;
       g.beginPath();
       g.arc(x, y, 1.7, 0, TAU);
       g.fill();
       return;
     }
-    if (m.kind === 'npc' || m.kind === 'friendly' || m.kind === 'enemy') {
+    if (kind === 'npc' || kind === 'friendly') {
       g.fillStyle = color;
       g.beginPath();
       g.arc(x, y, 2.6, 0, TAU);

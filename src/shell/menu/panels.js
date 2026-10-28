@@ -7,7 +7,7 @@
 import { icon } from '../../ui/icons.js';
 import { t } from '../../core/i18n.js';
 import { CONTROLS, KERN, PILLARS, TAGLINE, VERSION, MOTTO } from '../data.js';
-import { QUALITY_OPTIONS } from '../settings.js';
+import { QUALITY_OPTIONS, FOV_RANGE, HUD_SCALE_RANGE } from '../settings.js';
 import { logoMarkSVG, renderKeys, uiSound } from '../util.js';
 
 // ---------------------------------------------------------------- settings
@@ -62,7 +62,34 @@ export function settingsPanel(ctx, settings) {
     return row(label, null, h('div', { class: 'shell-range-wrap' }, input, out));
   };
 
+  /** Segmented choice bound to a setting: options [{ id, label: { en, nl } }]. */
+  const segment = (key, label, sub, options) => {
+    const el = h(
+      'div',
+      { class: 'shell-seg', role: 'radiogroup', 'aria-label': t(label) },
+      options.map((o) =>
+        h('button', {
+          class: 'shell-seg-btn',
+          type: 'button',
+          role: 'radio',
+          dataset: { v: o.id },
+          text: t(o.label),
+          onclick: () => {
+            uiSound(ctx, 'ui.click');
+            settings.set(key, o.id);
+          },
+        }),
+      ),
+    );
+    refreshers.push(() => {
+      const cur = settings.get(key);
+      for (const b of el.children) b.setAttribute('aria-checked', b.dataset.v === cur ? 'true' : 'false');
+    });
+    return row(label, sub, el);
+  };
+
   const pct = (v) => `${Math.round(v * 100)}%`;
+  const deg = (v) => `${Math.round(v)}°`;
   const factor = (v) => `×${v.toLocaleString(i18n.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const seg = h(
     'div',
@@ -126,6 +153,23 @@ export function settingsPanel(ctx, settings) {
       toggle('showFps', { en: 'Show FPS', nl: 'FPS tonen' }, { en: 'Frames per second in the top-right corner', nl: 'Beelden per seconde rechtsboven' }),
     ),
     group(
+      { en: 'Camera', nl: 'Camera' },
+      'shell-eye',
+      segment('camera', { en: 'View', nl: 'Weergave' }, ctx.device?.touch ? null : { en: 'V switches in the game', nl: 'V wisselt in het spel' }, [
+        { id: 'third', label: { en: 'Third person', nl: 'Derde persoon' } },
+        { id: 'first', label: { en: 'First person', nl: 'Eerste persoon' } },
+      ]),
+      slider('fov', { en: 'Field of view', nl: 'Kijkhoek' }, { min: FOV_RANGE.min, max: FOV_RANGE.max, step: FOV_RANGE.step, fmt: deg }),
+      toggle('headBob', { en: 'Head bob', nl: 'Hoofdbeweging' }, { en: 'The view sways gently while walking in first person', nl: 'Het beeld wiegt zacht mee tijdens het lopen in eerste persoon' }),
+    ),
+    group(
+      { en: 'Interface', nl: 'Interface' },
+      'shell-layers',
+      slider('hudScale', { en: 'HUD size', nl: 'HUD-grootte' }, { min: HUD_SCALE_RANGE.min, max: HUD_SCALE_RANGE.max, step: HUD_SCALE_RANGE.step, fmt: pct }),
+      toggle('minimapRotate', { en: 'Rotating minimap', nl: 'Draaiende minikaart' }, { en: 'Off: north is always up', nl: 'Uit: het noorden is altijd boven' }),
+      ctx.device?.touch ? null : toggle('keyHints', { en: 'Key hints', nl: 'Toetstips' }, { en: 'Shortcuts for what you are doing, bottom right', nl: 'Sneltoetsen voor wat je doet, rechtsonder' }),
+    ),
+    group(
       { en: 'Sound', nl: 'Geluid' },
       'sound',
       slider('volume', { en: 'Master volume', nl: 'Hoofdvolume' }, { fmt: pct }),
@@ -141,6 +185,7 @@ export function settingsPanel(ctx, settings) {
         { en: 'Invert Y axis', nl: 'Y-as omkeren' },
         ctx.device?.touch ? { en: 'Dragging up looks down', nl: 'Omhoog slepen kijkt omlaag' } : { en: 'Moving the mouse up looks down', nl: 'Muis omhoog kijkt omlaag' },
       ),
+      ctx.device?.touch ? slider('aimAssist', { en: 'Aim assist', nl: 'Richthulp' }, { min: 0, max: 1, step: 0.05, fmt: (v) => (v <= 0.001 ? t({ en: 'Off', nl: 'Uit' }) : pct(v)) }) : null,
     ),
     group(
       { en: 'Game', nl: 'Spel' },
@@ -165,15 +210,22 @@ const TOUCH_ROWS = [
   { icon: 'touch-pinch', t: { en: 'Zoom', nl: 'Zoomen' }, d: { en: 'Pinch with two fingers', nl: 'Knijp met twee vingers' } },
   { icon: 'touch-jump', t: { en: 'Jump', nl: 'Springen' } },
   { icon: 'hand', t: { en: 'Interact', nl: 'Interactie' }, d: { en: 'Tap the action button or the prompt; hold it to scan or harvest', nl: 'Tik op de actieknop of de melding; houd vast om te scannen of te oogsten' } },
-  { icon: 'touch-menu', t: { en: 'Menu', nl: 'Menu' }, d: { en: 'Missions, map, character, marketplace, building, vehicles, help and pause', nl: 'Missies, kaart, karakter, marktplaats, bouwen, voertuigen, help en pauze' } },
+  { icon: 'swords', t: { en: 'Fight (wilderness)', nl: 'Vechten (wildernis)' }, d: { en: 'Fire, Aim, Reload, Switch, Grenade (hold to aim) and Dodge appear on the right; aim assist: Settings → Controls', nl: 'Vuren, Richten, Herladen, Wissel, Granaat (vasthouden om te richten) en Ontwijken verschijnen rechts; richthulp: Instellingen → Besturing' } },
+  { icon: 'shell-axe', t: { en: 'Gather', nl: 'Verzamelen' }, d: { en: 'Look at a tree, rock or plant and hold the action button', nl: 'Kijk naar een boom, rots of plant en houd de actieknop vast' } },
+  { icon: 'shell-bag', t: { en: 'Inventory & supplies', nl: 'Inventaris & voorraad' }, d: { en: 'Menu → Inventory; tap food, a medkit or a shield cell in the quick bar', nl: 'Menu → Inventaris; tik op eten, een medkit of een schildcel in de snelbalk' } },
+  { icon: 'shell-bed', t: { en: 'Campfire · chest · bed · door', nl: 'Kampvuur · kist · bed · deur' }, d: { en: 'Walk up and tap the action button: cook, store, sleep (sets your respawn), open', nl: 'Loop erheen en tik op de actieknop: koken, opbergen, slapen (je respawnplek), openen' } },
+  { icon: 'shell-eye', t: { en: 'First / third person', nl: 'Eerste / derde persoon' }, d: { en: 'Tap View (eye button); field of view and head bob: Settings → Camera', nl: 'Tik op Beeld (oogknop); kijkhoek en hoofdbeweging: Instellingen → Camera' } },
+  { icon: 'map', t: { en: 'Map & travel', nl: 'Kaart & reizen' }, d: { en: 'Menu → Map: Gateway in the hub, Return to hub outside it, tap the ground for a waypoint', nl: 'Menu → Kaart: Poort in de hub, terug naar de hub daarbuiten, tik op de grond voor een markering' } },
+  { icon: 'touch-menu', t: { en: 'Menu', nl: 'Menu' }, d: { en: 'Missions, map, inventory, character, marketplace, building, vehicles, help and pause', nl: 'Missies, kaart, inventaris, karakter, marktplaats, bouwen, voertuigen, help en pauze' } },
   { icon: 'chat', t: { en: 'Chat', nl: 'Chat' }, d: { en: 'Top right, next to the menu', nl: 'Rechtsboven, naast het menu' } },
 ];
 
 /** Controls reference; groups relevant to `mode` come first and are marked. */
-export function controlsPanel(ctx, { mode = null, compact = false } = {}) {
+export function controlsPanel(ctx, { mode = null, compact = false, first = null } = {}) {
   const h = ctx.ui.h;
   const groups = [...CONTROLS];
-  if (mode) groups.sort((a, b) => Number(b.modes.includes(mode)) - Number(a.modes.includes(mode)));
+  const rank = (g) => (first?.includes(g.id) ? 10 - first.indexOf(g.id) : 0) + (mode && g.modes.includes(mode) ? 1 : 0);
+  if (mode || first) groups.sort((a, b) => rank(b) - rank(a));
   const touch = ctx.device?.touch
     ? h(
         'section',
@@ -202,6 +254,7 @@ export function controlsPanel(ctx, { mode = null, compact = false } = {}) {
         'section',
         { class: `shell-ctrl-group${mode && gr.modes.includes(mode) ? ' is-current' : ''}`, dataset: { group: gr.id } },
         h('h3', { class: 'shell-ctrl-title' }, h('span', { html: icon(gr.icon, 16) }), t(gr.title)),
+        gr.note ? h('p', { class: 'shell-ctrl-note', text: t(gr.note) }) : null,
         h(
           'div',
           { class: 'shell-ctrl-rows' },

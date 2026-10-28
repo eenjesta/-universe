@@ -264,3 +264,48 @@ body[data-touch="1"] .chr-cc-toggle { min-height: 44px; }
   body[data-touch="1"] .chr-cc-actions { left: calc(10px + var(--sal, 0px)); right: calc(10px + var(--sar, 0px)); width: auto; bottom: calc(12px + var(--sab, 0px)); gap: 10px; }
   .chr-cc-btn { height: 52px; font-size: 14px; }
 }
+
+/* ---- first person: centre dot (unarmed) + view-switch hint ---- */
+.chr-fp-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: rgba(246, 242, 234, 0.92);
+  box-shadow: 0 0 0 1px rgba(8, 10, 14, 0.55), 0 0 6px rgba(127, 224, 255, 0.35);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+.chr-fp-dot.is-on {
+  opacity: 1;
+}
+.chr-fp-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 64px);
+  transform: translate(-50%, 0);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(12, 15, 20, 0.62);
+  border: 1px solid rgba(127, 224, 255, 0.28);
+  color: var(--text, #f2efe8);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.chr-fp-hint.is-on {
+  animation: chr-fp-hint 1.4s ease forwards;
+}
+@keyframes chr-fp-hint {
+  0% { opacity: 0; transform: translate(-50%, 6px); }
+  14% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}

@@ -53,6 +53,7 @@ const MOUSE_GLYPHS = {
   '@scroll': { icon: 'shell-wheel', label: { en: 'Scroll wheel', nl: 'Scrollwiel' } },
   '@click': { icon: 'shell-lmb', label: { en: 'Left mouse button', nl: 'Linkermuisknop' } },
   '@right': { icon: 'shell-rmb', label: { en: 'Right mouse button', nl: 'Rechtermuisknop' } },
+  '@middle': { icon: 'shell-mmb', label: { en: 'Middle mouse button', nl: 'Middelste muisknop' } },
 };
 const SEPARATORS = new Set(['/', '–']);
 const OR_WORDS = new Set(['or', 'of']); // "A / D or Q / E" — shown as the active language's word

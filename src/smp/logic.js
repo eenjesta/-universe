@@ -12,10 +12,14 @@
  *   claimOverlap(claims, me, x, z, r, gap)  someone else's claim closer than r + its r + gap (§11.2: 30 m) | null
  *   bundleList(bundle)                      loot/crate contents → [{kind, id, n}]
  *   clock(sec)                              "9:05"
+ *   haveOf(inv, key)                         amount of a cost key (resource, credits or item id)
+ *   bestFood(inv, stats)                     the food the quick bar's eat slot uses ({id, n} | null)
+ *   cookStatus(recipe, inv)                  {ok, n (affordable batches), missing}
+ *   stationTier(type)                        workbench tier of a structure type (0 = none)
  */
 import { RECIPES, RECIPE_RANGE } from '../../shared/defs/recipes.js';
-import { RESOURCE_IDS, AMMO_IDS, ITEM_IDS } from '../../shared/defs/items.js';
-import { CLAIM_RADIUS } from '../../shared/defs/pieces.js';
+import { RESOURCE_IDS, AMMO_IDS, ITEM_IDS, ITEMS, FOOD_ORDER, GEAR_SLOTS } from '../../shared/defs/items.js';
+import { CLAIM_RADIUS, PIECE } from '../../shared/defs/pieces.js';
 import { CLAIM_RULES } from '../../shared/defs/world.js';
 
 /** Minimum gap between the edges of claims of different owners (§11.2). */
@@ -37,8 +41,50 @@ export function emptyInv() {
     slot: 0,
     mag: {},
     unlocks: [],
+    gear: Object.fromEntries(GEAR_SLOTS.map((k) => [k, null])),
     known: false, // true once the server sent an inventory
   };
+}
+
+/** Amount of a cost key: a resource, credits or an item id (fiber, crystal-shard, schematics …). */
+export function haveOf(inv, k) {
+  if (k === 'credits') return inv?.credits ?? 0;
+  if (RESOURCE_IDS.includes(k)) return inv?.res?.[k] ?? 0;
+  return inv?.items?.[k] ?? 0;
+}
+
+/** Workbench tier of a structure type (shared piece defs; 0 = not a workbench). */
+export function stationTier(type) {
+  const smp = PIECE[type]?.smp;
+  return smp?.station === 'workbench' ? smp.tier | 0 : 0;
+}
+
+/** The food the eat slot would use: meals first (FOOD_ORDER), then rations / raw food. */
+export function bestFood(inv) {
+  for (const id of FOOD_ORDER) {
+    const n = inv?.items?.[id] | 0;
+    if (n > 0) return { id, n };
+  }
+  return null;
+}
+
+/** Total food portions carried (eat slot count). */
+export function foodCount(inv) {
+  let n = 0;
+  for (const id of FOOD_ORDER) n += inv?.items?.[id] | 0;
+  return n;
+}
+
+/** Campfire recipe: how many batches the bag pays for. */
+export function cookStatus(recipe, inv) {
+  const missing = {};
+  let n = recipe?.max || 1;
+  for (const [k, v] of Object.entries(recipe?.cost || {})) {
+    const have = haveOf(inv, k);
+    if (have < v) missing[k] = v - have;
+    n = Math.min(n, Math.floor(have / v));
+  }
+  return { ok: !Object.keys(missing).length && n > 0, n: Math.max(0, n), missing };
 }
 
 /**
@@ -78,6 +124,12 @@ export function mergeInv(inv, msg) {
     inv.unlocks = msg.unlocks.filter((u) => typeof u === 'string');
     changed.push('unlocks');
   }
+  if (msg.gear && typeof msg.gear === 'object' && !Array.isArray(msg.gear)) {
+    const next = { ...(inv.gear || {}) };
+    for (const k of GEAR_SLOTS) if (k in msg.gear) next[k] = typeof msg.gear[k] === 'string' && ITEMS[msg.gear[k]] ? msg.gear[k] : null;
+    inv.gear = next;
+    changed.push('gear');
+  }
   if (changed.length) inv.known = true;
   return changed;
 }
@@ -104,14 +156,18 @@ export function recipeStatus(recipe, inv, station = null, { ownStation = null } 
   if (!recipe) return { ok: false, reason: 'unknown', missing };
   const tier = recipe.tier | 0;
   for (const [k, v] of Object.entries(recipe.cost || {})) {
-    const have = k === 'credits' ? inv?.credits ?? 0 : inv?.res?.[k] ?? 0;
+    const have = haveOf(inv, k);
     if (have < v) missing[k] = v - have;
   }
+  const outItem = Object.keys(recipe.out?.items || {})[0];
+  const upgradeFrom = recipe.upgrade ? stationTier(recipe.upgrade) : 0;
   let reason = null;
   if (tier > 0 && !station) reason = 'workbench';
   else if (tier > 0 && (station.tier | 0) < tier) reason = 'tier';
   else if (recipe.out?.weapon && inv?.weapons?.includes(recipe.out.weapon)) reason = 'owned';
-  else if (recipe.upgrade && !(ownStation && ownStation.tier === 1)) reason = 'upgrade';
+  else if (outItem && ITEMS[outItem]?.max === 1 && (inv?.items?.[outItem] | 0) >= 1) reason = 'owned';
+  else if (recipe.upgrade && !(ownStation && ownStation.tier === upgradeFrom)) reason = 'upgrade';
+  else if (Object.keys(missing).some((k) => ITEMS[k]?.kind === 'schematic')) reason = 'schematic';
   else if (Object.keys(missing).length) reason = 'cost';
   return { ok: !reason, reason, missing };
 }
@@ -122,8 +178,7 @@ export function craftableCount(recipe, inv) {
   let n = recipe.max || 1;
   for (const [k, v] of Object.entries(recipe.cost || {})) {
     if (!(v > 0)) continue;
-    const have = k === 'credits' ? inv?.credits ?? 0 : inv?.res?.[k] ?? 0;
-    n = Math.min(n, Math.floor(have / v));
+    n = Math.min(n, Math.floor(haveOf(inv, k) / v));
   }
   return Math.max(0, n);
 }
@@ -135,7 +190,7 @@ export function craftableCount(recipe, inv) {
 export function stationNear(records, x, z, range = RECIPE_RANGE, owner = null) {
   let best = null;
   for (const r of records || []) {
-    const tier = r?.type === 'workbench-2' ? 2 : r?.type === 'workbench' ? 1 : 0;
+    const tier = stationTier(r?.type);
     if (!tier) continue;
     if (owner && r.owner !== owner) continue;
     const d = Math.hypot(r.x - x, r.z - z);
@@ -212,8 +267,20 @@ export function clock(sec) {
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** All recipes in display order (ammo, survival, weapons, upgrades). */
+/** Crafting group of a recipe (UI sections). */
+export function recipeGroup(r) {
+  if (r.upgrade) return 'upgrades';
+  if (r.group === 'tools' || ITEMS[Object.keys(r.out?.items || {})[0]]?.tool) return 'tools';
+  if (r.group === 'gear' || ITEMS[Object.keys(r.out?.items || {})[0]]?.kind === 'gear') return 'gear';
+  if (r.out?.weapon || r.out?.items?.['shock-grenade']) return 'weapons';
+  if (r.out?.ammo) return 'ammo';
+  return 'supplies';
+}
+
+const GROUP_ORDER = { tools: 0, supplies: 1, gear: 2, ammo: 3, weapons: 4, upgrades: 5 };
+
+/** All recipes in display order (tools, supplies, gear, ammo, weapons, upgrades), then by tier. */
 export function recipeList() {
-  const order = (r) => (r.upgrade ? 3 : r.out?.weapon ? 2 : r.out?.ammo ? 0 : 1);
+  const order = (r) => GROUP_ORDER[recipeGroup(r)] ?? 9;
   return Object.values(RECIPES).sort((a, b) => order(a) - order(b) || (a.tier | 0) - (b.tier | 0));
 }
