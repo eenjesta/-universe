@@ -108,6 +108,42 @@ function shrub(S, x, y, z, r, rng, colors = [0x3f6a2a, 0x557a34, 0x2f5a26]) {
   }
 }
 
+/** Workbench body (tier 1 + 2): steel-framed table, wood top, drawer cabinet, tool board, holo screen. */
+function benchBase(S, B, accent = 0x7fe0ff) {
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) S.metal.box(0.08, 0.9, 0.08, sx * 1.02, 0.45, sz * 0.38, { color: FRAME });
+  S.metal.box(2.04, 0.04, 0.8, 0, 0.22, 0, { color: FRAME2 });
+  S.wood.box(2.2, 0.07, 0.95, 0, 0.935, 0, { color: WOOD });
+  S.metal.box(2.22, 0.06, 0.03, 0, 0.935, -0.485, { color: STEEL });
+  S.neon.box(1.9, 0.015, 0.015, 0, 0.885, -0.47, { color: accent, intensity: 1.6 });
+  // drawer cabinet (right) + parts crates on the shelf (left)
+  S.metal.box(0.7, 0.66, 0.8, 0.62, 0.55, 0, { color: 0x3a3e46 });
+  for (let k = 0; k < 3; k++) {
+    S.metal.box(0.62, 0.17, 0.02, 0.62, 0.35 + k * 0.2, -0.405, { color: 0xc4c8ce });
+    S.metal.box(0.18, 0.025, 0.03, 0.62, 0.38 + k * 0.2, -0.42, { color: FRAME });
+  }
+  S.wood.box(0.5, 0.3, 0.42, -0.62, 0.39, 0.05, { color: 0x9a7448 });
+  S.metal.box(0.34, 0.22, 0.34, -0.15, 0.35, 0.1, { color: FRAME2 });
+  S.neon.box(0.2, 0.03, 0.02, -0.15, 0.4, -0.075, { color: accent, intensity: 1.8 });
+  // tool board with a warm light bar, tools, holo screen
+  S.metal.box(0.06, 1.15, 0.06, -1.02, 1.5, 0.42, { color: FRAME });
+  S.metal.box(0.06, 1.15, 0.06, 1.02, 1.5, 0.42, { color: FRAME });
+  S.matte.box(2.0, 0.95, 0.03, 0, 1.45, 0.44, { color: 0x2b2f36 });
+  S.metal.box(2.1, 0.06, 0.16, 0, 2.06, 0.38, { color: FRAME });
+  S.glow.box(1.8, 0.02, 0.06, 0, 2.025, 0.36, { color: 0xffd6a0, intensity: 2.4 });
+  S.metal.box(0.05, 0.42, 0.03, 0.2, 1.45, 0.42, { rz: 0.25, color: STEEL });
+  S.metal.box(0.05, 0.36, 0.03, 0.34, 1.48, 0.42, { rz: -0.2, color: STEEL });
+  S.metal.box(0.22, 0.08, 0.03, 0.27, 1.72, 0.42, { color: 0xc94a2a });
+  S.metal.box(0.04, 0.3, 0.03, 0.55, 1.42, 0.42, { color: STEEL });
+  S.metal.box(0.6, 0.38, 0.03, -0.52, 1.5, 0.405, { color: FRAME });
+  S.neon.box(0.54, 0.32, 0.01, -0.52, 1.5, 0.388, { color: accent, intensity: 1.15 });
+  // vise + a part on the top
+  S.metal.box(0.22, 0.12, 0.18, -0.92, 1.03, -0.3, { color: FRAME2 });
+  S.metal.box(0.06, 0.16, 0.16, -0.84, 1.08, -0.3, { color: STEEL });
+  S.metal.cyl(0.08, 0.08, 0.18, 0.05, 1.06, -0.12, { seg: 10, rz: Math.PI / 2, color: STEEL });
+  B.push(bx(0, 0.5, 0, 2.2, 1.0, 0.95));
+  B.push(bx(0, 1.5, 0.42, 2.1, 1.1, 0.12, true, false));
+}
+
 // ------------------------------------------------------------------ builders
 const BUILD = {
   // ================================================================ STRUCTURE
@@ -668,6 +704,74 @@ const BUILD = {
     }
     S.pool.geo(hplane(5.5, 5.5), 0, 0.05, 0, { uv: 'keep', color: 0x7fe0ff, intensity: 0.6 });
     B.push(bx(0, 1.25, 0, 2.4, 2.5, 2.4, true, false));
+  },
+  // ================================================================= SURVIVAL
+  workbench(S, ground, B) {
+    benchBase(S, B);
+    // tier 1: a single cyan status light on the cabinet
+    S.neon.box(0.12, 0.03, 0.02, 0.62, 0.84, -0.416, { color: 0x7fe0ff, intensity: 2.2 });
+  },
+
+  'workbench-2'(S, ground, B) {
+    benchBase(S, B, 0xc9a45a);
+    // fabricator arm (right): turntable, two links, cyan emitter
+    S.metal.cyl(0.16, 0.19, 0.1, 0.78, 1.02, 0.18, { seg: 14, color: FRAME2 });
+    S.metal.beam([0.78, 1.06, 0.18], [0.6, 1.62, 0.02], 0.07, { color: STEEL });
+    S.metal.beam([0.6, 1.62, 0.02], [0.3, 1.36, -0.16], 0.055, { color: STEEL });
+    S.metal.geo(ico(0.07, 0), 0.6, 1.62, 0.02, { color: FRAME });
+    S.neon.cyl(0.0, 0.04, 0.1, 0.27, 1.3, -0.17, { seg: 8, color: 0x9fe8ff, intensity: 3.2 });
+    // hologram projector ring + core (left)
+    S.metal.cyl(0.22, 0.24, 0.05, -0.5, 1.0, -0.05, { seg: 18, color: FRAME });
+    S.neon.geo(torus(0.2, 0.012, 4, 28), -0.5, 1.03, -0.05, { rx: Math.PI / 2, color: 0x7fe0ff, intensity: 2.4 });
+    S.neon.geo(torus(0.27, 0.008, 4, 28), -0.5, 1.32, -0.05, { rx: Math.PI / 2, color: 0x7fe0ff, intensity: 1.6 });
+    S.neon.geo(ico(0.09, 1), -0.5, 1.3, -0.05, { color: 0x9fe8ff, intensity: 2.6 });
+    // energy cells on the back board + tier badge (two lights)
+    for (const x of [0.62, 0.82]) {
+      S.metal.cyl(0.07, 0.07, 0.42, x, 1.32, 0.38, { seg: 10, color: FRAME2 });
+      S.neon.cyl(0.05, 0.05, 0.3, x, 1.32, 0.33, { seg: 10, color: 0x7fe0ff, intensity: 2.0 });
+    }
+    S.neon.box(0.12, 0.03, 0.02, 0.55, 0.84, -0.416, { color: 0x7fe0ff, intensity: 2.2 });
+    S.neon.box(0.12, 0.03, 0.02, 0.69, 0.84, -0.416, { color: 0x7fe0ff, intensity: 2.2 });
+  },
+
+  'claim-beacon'(S, ground, B) {
+    S.concrete.box(1.2, 0.3, 1.2, 0, 0.15, 0, { color: CONC_D });
+    S.concrete.box(0.84, 0.22, 0.84, 0, 0.41, 0, { color: CONC_L });
+    S.metal.cyl(0.13, 0.2, 2.7, 0, 1.87, 0, { seg: 6, color: FRAME });
+    for (const sx of [-1, 1]) S.metal.box(0.04, 1.9, 0.34, sx * 0.17, 1.55, 0.02, { color: FRAME2 });
+    // light seams down the front + a ring at the collar
+    S.neon.box(0.035, 2.1, 0.02, 0, 1.62, -0.17, { color: 0x7fe0ff, intensity: 2.0 });
+    S.neon.cyl(0.215, 0.215, 0.04, 0, 0.62, 0, { seg: 18, open: true, color: 0x7fe0ff, intensity: 1.8 });
+    // Ø emblem near the top, facing front (−Z) and back
+    S.metal.geo(torus(0.34, 0.05, 6, 28), 0, 3.0, 0, { color: 0xd8d2c6 });
+    S.metal.beam([-0.38, 2.62, 0], [0.38, 3.38, 0], 0.045, { color: 0xd8d2c6 });
+    S.neon.geo(torus(0.34, 0.014, 4, 32), 0, 3.0, -0.055, { color: 0x7fe0ff, intensity: 2.4 });
+    S.neon.geo(torus(0.34, 0.014, 4, 32), 0, 3.0, 0.055, { color: 0x7fe0ff, intensity: 2.4 });
+    // beacon lamp
+    S.metal.cyl(0.1, 0.14, 0.12, 0, 3.27, 0, { seg: 10, color: FRAME });
+    S.neon.geo(ico(0.12, 1), 0, 3.45, 0, { color: 0x9fe8ff, intensity: 3.6 });
+    S.pool.geo(hplane(4.2, 4.2), 0, 0.05, 0, { uv: 'keep', color: 0x38d2ff, intensity: 0.8 });
+    B.push(bx(0, 0.26, 0, 1.2, 0.52, 1.2));
+    B.push(bx(0, 1.9, 0, 0.5, 2.8, 0.5, true, false));
+  },
+
+  'spawn-beacon'(S, ground, B) {
+    S.metal.cyl(1.08, 1.14, 0.16, 0, 0.08, 0, { seg: 28, color: FRAME2 });
+    S.concrete.cyl(0.94, 0.94, 0.04, 0, 0.17, 0, { seg: 28, color: CONC_L });
+    S.neon.geo(torus(1.0, 0.022, 4, 48), 0, 0.165, 0, { rx: Math.PI / 2, color: 0x7fe0ff, intensity: 2.2 });
+    // Ø on the pad
+    S.neon.geo(torus(0.42, 0.03, 4, 36), 0, 0.195, 0, { rx: Math.PI / 2, color: 0x9fe8ff, intensity: 1.8 });
+    S.neon.box(1.02, 0.012, 0.06, 0, 0.195, 0, { ry: Math.PI / 4, color: 0x9fe8ff, intensity: 1.8 });
+    // three light posts around the rim
+    for (let k = 0; k < 3; k++) {
+      const a = (k / 3) * Math.PI * 2 + Math.PI / 2;
+      const x = Math.cos(a) * 1.22;
+      const z = Math.sin(a) * 1.22;
+      S.metal.cyl(0.06, 0.08, 0.95, x, 0.475, z, { seg: 8, color: FRAME });
+      S.neon.cyl(0.045, 0.045, 0.22, x, 1.02, z, { seg: 8, color: 0x7fe0ff, intensity: 2.6 });
+    }
+    S.pool.geo(hplane(4.4, 4.4), 0, 0.04, 0, { uv: 'keep', color: 0x38d2ff, intensity: 0.7 });
+    B.push(bx(0, 0.095, 0, 2.2, 0.19, 2.2, true, true));
   },
 };
 

@@ -48,6 +48,15 @@ export function registerTitleMode(ctx, shell) {
       pinnedHour = Number.isFinite(ctx.world?.timeOfDay) ? ctx.world.timeOfDay : null;
       pinAcc = 0;
 
+      // platform Home instead of the poster title: after the character creator / Studio /
+      // an experience (params.home), or at boot with ?home or after a language switch made on Home
+      const plat = ctx.platform?.available ? ctx.platform : null;
+      const wantHome = !!plat && (!!params.home || (initial && visits === 1 && !!plat.wantsHomeAtBoot?.()));
+      if (wantHome) {
+        plat.openHome({ tab: params.homeTab || null });
+        camera.begin('short');
+        return;
+      }
       // mount first: the camera composition reads the title layout
       screen.mount({ intro: initial && visits === 1 ? 'long' : 'short' });
       camera.begin(initial && visits === 1 ? 'long' : 'short');

@@ -166,6 +166,16 @@ export class Minimap {
     const preview = this.mapAlpha < 1 ? this.mapImage.preview() : null;
     if (preview && this.previewAlpha > 0) drew = this._drawMap(g, preview.canvas, preview.extent, c, h, pxPerM, this.previewAlpha);
     if (this.mapImage.ready && this.mapAlpha > 0) drew = this._drawMap(g, this.mapImage.canvas, MAP_EXTENT, c, h, pxPerM, this.mapAlpha) || drew;
+    // the infinite planet beyond the hub (PLATFORM.md §11) — the layer paints only outside the hub square
+    const fr = this.ctx.frontier;
+    if (fr?.minimap) {
+      g.save();
+      g.setTransform(1, 0, 0, 1, 0, 0); // the layer works in device pixels around the canvas centre
+      g.globalAlpha = 0.92;
+      fr.minimap.draw(g, this.frame.focus.x, this.frame.focus.z, 1 / (pxPerM * this.dpr), { rotate: h });
+      g.restore();
+      drew = true;
+    }
     if (drew) {
       g.fillStyle = HAS_FILTER ? 'rgba(8, 18, 30, 0.26)' : 'rgba(8, 18, 30, 0.5)';
       g.fillRect(0, 0, css, css);

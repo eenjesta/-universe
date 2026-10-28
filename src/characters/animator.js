@@ -5,10 +5,15 @@
  *   idle (breathing, weight shift, glances) → locomotion cycle (walk ↔ run ↔
  *   sprint lean, phase driven by distance so feet don't slide, idle turn
  *   shuffle) → air (jump / fall) → swim (tread / breaststroke) → sit →
- *   upper-body actions (talk, wave, cheer, clap, tablet) → additive landing
+ *   upper-body actions (talk, wave, cheer, clap, tablet) → combat stance (aim
+ *   torso + pitch, strafe / backpedal legs) → one-shots (recoil, hit flinch,
+ *   reload, dodge roll, death collapse, respawn materialize) → additive landing
  *   impact, look-at, turn lean, blink and a spring-driven ponytail.
  * Controllers write the inputs (speed, grounded, vy, swimming, turnRate,
- * actions via set(), lookAt()) and call update(dt). No per-frame allocation.
+ * actions via set(), lookAt(); combat: aimOn, aimPitch, aimYaw, grip, strafe,
+ * moveAngle, fire(), hit(), reload(), dodge(), die(), revive(), materialize())
+ * and call update(dt). Arms holding a weapon are solved afterwards by the
+ * WeaponRig (weapon-rig.js, two-bone IK). No per-frame allocation.
  */
 import * as THREE from 'three';
 import { J, BONE_COUNT } from './skeleton.js';
@@ -51,6 +56,29 @@ const FULL = new Float32Array(N).fill(1);
 FULL[J.lids] = 0;
 FULL[J.pony1] = 0;
 FULL[J.pony2] = 0;
+const ARMS = new Float32Array(N);
+[J.clavL, J.armL, J.foreL, J.handL, J.clavR, J.armR, J.foreR, J.handR].forEach((j) => (ARMS[j] = 1));
+const TORSO = new Float32Array(N);
+[J.spine, J.chest, J.neck, J.head, J.clavL, J.clavR].forEach((j) => (TORSO[j] = 1));
+const wrapPi = (a) => a - TAU * Math.floor((a + Math.PI) / TAU);
+/** 0 → 1 → 0 envelope over [0, 1] with attack a and release r fractions. */
+const env = (x, a, r) => (x <= 0 || x >= 1 ? 0 : x < a ? sstep(0, a, x) : x > 1 - r ? 1 - sstep(1 - r, 1, x) : 1);
+/** Did a cyclic phase pass `a` between p0 and p1 moving in direction `dir`? */
+function crossedPh(p0, p1, a, dir) {
+  if (dir > 0) return p1 >= p0 ? p0 < a && p1 >= a : p0 < a || p1 >= a;
+  return p1 <= p0 ? p0 >= a && p1 < a : p0 >= a || p1 < a;
+}
+/**
+ * Arm poses [joint, x, y, z, …] for the combat stances (aim: arm x gets + pitch);
+ * fallbacks for the WeaponRig IK (distant characters) and its elbow hints.
+ */
+const AIM_ARMS = {
+  rifle: [J.armR, 0.29, 0.87, 0.2, J.foreR, 2.0, 0, 0, J.handR, -1.97, -0.54, -0.34, J.armL, 0.99, -0.43, -0.03, J.foreL, 0.65, 0, 0, J.handL, 0, 0, 0],
+  pistol: [J.armR, 0.82, 0.74, -0.03, J.foreR, 1.36, 0, 0, J.handR, -1.71, -0.63, -0.27, J.armL, 0.89, -0.67, 0.13, J.foreL, 1.14, 0, 0, J.handL, 0, 0, 0],
+  carry: [J.clavL, 0, -0.1, 0, J.armR, -0.52, 0.47, 0.6, J.foreR, 1.97, 0, 0, J.handR, -1.38, 0.02, -0.28, J.armL, 0.54, -0.74, 0.09, J.foreL, 0.67, 0, 0, J.handL, 0, 0, 0],
+};
+/** Combat one-shot durations (s). */
+export const COMBAT_TIMING = { recoil: 0.16, hit: 0.42, reload: 1.4, dodge: 0.62, die: 1.15, materialize: 0.85 };
 
 export class Animator {
   constructor(chr, seed = 1) {
@@ -105,6 +133,99 @@ export class Animator {
     this.blinkPh = -1;
     this.pony = { x: 0, z: 0, vx: 0, vz: 0 };
     this.energy = 0.7 + rnd() * 0.6; // gesture energy (NPC variety)
+    // ---- combat inputs (see header)
+    this.aimOn = false;
+    this.aimPitch = 0; // + = up (rad, character space)
+    this.aimYaw = 0; // + = left of the facing (rad)
+    this.grip = 'none'; // 'none' | 'pistol' | 'rifle' | 'heavy' (held weapon)
+    this.strafe = false; // keep facing, legs follow moveAngle (combat stance)
+    this.moveAngle = 0; // movement direction relative to the facing (heading convention)
+    // ---- combat state
+    this.aimW = 0;
+    this.carryW = 0;
+    this.recoil = 0;
+    this.legYaw = 0;
+    this.back = false; // backpedalling (cycle runs in reverse)
+    this.recoilT = 9;
+    this.recoilAmt = 1;
+    this.hitT = 9;
+    this.hitSide = 1;
+    this.hitAmt = 1;
+    this.reloadT = 9;
+    this.reloadDur = COMBAT_TIMING.reload;
+    this.dodgeT = 9;
+    this.dodgeDur = COMBAT_TIMING.dodge;
+    this.dead = false;
+    this.deadT = 0;
+    this.deadW = 0;
+    this.deadDir = 1; // 1 = falls on the back, −1 = face down
+    this.spawnT = 9;
+    this.spawnDur = COMBAT_TIMING.materialize;
+    this.spawnScale = 1; // root Y scale of the materialize effect (read by FX)
+  }
+
+  // ------------------------------------------------------------ combat API
+  /** Weapon recoil kick (amount 0.3 … 1.5). */
+  fire(amount = 1) {
+    this.recoilT = 0;
+    this.recoilAmt = amount;
+  }
+
+  /** Hit flinch; side −1 = from the left, 1 = from the right, 0 = front. */
+  hit(side = 0, amount = 1) {
+    this.hitT = 0;
+    this.hitSide = side || (this.rnd() < 0.5 ? -1 : 1) * 0.4;
+    this.hitAmt = clamp(amount, 0.3, 1.5);
+  }
+
+  /** Reload motion (both arms + weapon tilt) over `duration` seconds. */
+  reload(duration = COMBAT_TIMING.reload) {
+    this.reloadT = 0;
+    this.reloadDur = clamp(duration, 0.4, 4);
+  }
+
+  get reloading() {
+    return this.reloadT < this.reloadDur;
+  }
+
+  /** Forward roll (the controller turns the character into the roll direction). */
+  dodge(duration = COMBAT_TIMING.dodge) {
+    this.dodgeT = 0;
+    this.dodgeDur = clamp(duration, 0.35, 1.2);
+  }
+
+  get dodging() {
+    return this.dodgeT < this.dodgeDur;
+  }
+
+  /** Collapse and stay down until revive(). `instant` jumps to the lying pose. */
+  die({ instant = false, dir = 0 } = {}) {
+    if (this.dead && !instant) return;
+    this.dead = true;
+    this.deadT = instant ? COMBAT_TIMING.die + 1 : 0;
+    this.deadDir = dir || (this.rnd() < 0.6 ? 1 : -1);
+    if (instant) this.deadW = 1;
+    this.dodgeT = 9;
+    this.reloadT = 9;
+  }
+
+  /** Back on the feet (pose snaps to standing; pair with materialize()). */
+  revive() {
+    this.dead = false;
+    this.deadW = 0;
+    this.deadT = 0;
+    this.hitT = 9;
+    this.landT = 10;
+  }
+
+  /** Respawn effect: the body is "printed" upward from the feet. */
+  materialize(duration = COMBAT_TIMING.materialize) {
+    this.spawnT = 0;
+    this.spawnDur = clamp(duration, 0.2, 3);
+  }
+
+  get materializing() {
+    return this.spawnT < this.spawnDur;
   }
 
   /** Target weight for an action ('talk' | 'wave' | 'cheer' | 'clap' | 'tablet' | 'sit'). */
@@ -156,15 +277,25 @@ export class Animator {
     const turn = Math.abs(this.turnRate);
     this.shuffleW += (sstep(0.9, 2.6, turn) * (1 - this.moveW) * (this.grounded ? 1 : 0) - this.shuffleW) * (1 - Math.exp(-8 * dt));
 
+    // combat stance: legs turn toward the movement (strafe), backpedal runs the cycle in reverse
+    let legYawT = 0;
+    if (this.strafe && speed > 0.3 && !this.swimming) {
+      const a = wrapPi(this.moveAngle);
+      const aa = Math.abs(a);
+      if (this.back ? aa < 1.62 : aa > 1.95) this.back = !this.back;
+      legYawT = clamp(this.back ? wrapPi(a - Math.PI) : a, -1.15, 1.15) * 0.8;
+    } else if (!this.strafe || speed < 0.15) this.back = false;
+    this.legYaw += (legYawT - this.legYaw) * (1 - Math.exp(-8 * dt));
+    const dir = this.back ? -1 : 1;
+
     // phase: distance-driven stride (+ shuffle when turning on the spot)
     const cycleLen = 0.85 + 0.52 * speed;
     const prevPh = this.phase;
-    this.phase += (speed / cycleLen) * dt + this.shuffleW * turn * 0.16 * dt;
+    this.phase += dir * (speed / cycleLen) * dt + this.shuffleW * turn * 0.16 * dt;
     this.phase -= Math.floor(this.phase);
-    if (this.grounded && !this.swimming && (this.moveW > 0.3 || this.shuffleW > 0.3) && this.onStep) {
-      const crossed = (a) => (prevPh < a && this.phase >= a) || (prevPh > this.phase && (prevPh < a || this.phase >= a));
-      if (crossed(0.25)) this.onStep(-1);
-      if (crossed(0.75)) this.onStep(1);
+    if (this.grounded && !this.swimming && !this.dead && (this.moveW > 0.3 || this.shuffleW > 0.3) && this.onStep) {
+      if (crossedPh(prevPh, this.phase, 0.25, dir)) this.onStep(-1);
+      if (crossedPh(prevPh, this.phase, 0.75, dir)) this.onStep(1);
     }
 
     // ------------------------------------------------------------- idle
@@ -185,6 +316,13 @@ export class Animator {
       this.locoPose(O, hov, this.phase, this.runW, this.sprintW, amp, t);
       this.blend(P, O, mw, FULL);
       hip.lerp(hov, mw);
+    }
+    // strafe twist: hips toward the movement, torso counter-rotated (keeps facing the aim)
+    if (Math.abs(this.legYaw) > 1e-4) {
+      const ly = this.legYaw * this.moveW;
+      P[J.hips * 3 + 1] += ly;
+      P[J.spine * 3 + 1] -= ly * 0.55;
+      P[J.chest * 3 + 1] -= ly * 0.45;
     }
 
     // -------------------------------------------------------------- air
@@ -255,10 +393,90 @@ export class Animator {
       this.blend(P, O, ww, RIGHT_ARM);
     }
 
+    // ------------------------------------------------------ combat stance
+    const two = this.grip === 'rifle' || this.grip === 'heavy';
+    this.carryW += ((two && !this.dead ? 1 : 0) - this.carryW) * (1 - Math.exp(-8 * dt));
+    this.aimW += ((this.aimOn && !this.dead ? 1 : 0) - this.aimW) * (1 - Math.exp(-11 * dt));
+    if (this.carryW > 0.001 && this.aimW < 0.999) {
+      for (let i = 0; i < N * 3; i++) O[i] = P[i];
+      this.carryPose(O, t);
+      this.blend(P, O, this.carryW * (1 - this.aimW), ARMS);
+    }
+    if (this.aimW > 0.001) {
+      for (let i = 0; i < N * 3; i++) O[i] = P[i];
+      this.aimPose(O, t);
+      this.blend(P, O, this.aimW * (1 - this.swimW * 0.5), UPPER);
+    }
+    // reload: look down at the weapon (arms: WeaponRig IK path)
+    if (this.reloadT < this.reloadDur) {
+      this.reloadT += dt;
+      const e = env(this.reloadT / this.reloadDur, 0.14, 0.22);
+      P[J.chest * 3] -= 0.05 * e;
+      P[J.neck * 3] -= 0.12 * e;
+      P[J.head * 3] -= 0.24 * e;
+      P[J.head * 3 + 1] += 0.1 * e;
+    }
+    // recoil kick (weapon kick: WeaponRig reads this.recoil)
+    this.recoil = 0;
+    if (this.recoilT < COMBAT_TIMING.recoil) {
+      this.recoilT += dt;
+      const rt = this.recoilT;
+      this.recoil = (rt < 0.025 ? rt / 0.025 : Math.exp(-(rt - 0.025) * 26)) * this.recoilAmt;
+      const r = this.recoil;
+      P[J.spine * 3] += 0.018 * r;
+      P[J.chest * 3] += 0.045 * r;
+      P[J.head * 3] += 0.03 * r;
+      P[J.clavR * 3 + 1] += 0.06 * r;
+    }
+    // hit flinch
+    if (this.hitT < COMBAT_TIMING.hit) {
+      this.hitT += dt;
+      const x = this.hitT / COMBAT_TIMING.hit;
+      const e = (x < 0.1 ? x / 0.1 : Math.exp(-(x - 0.1) * 7)) * this.hitAmt;
+      const sd = this.hitSide;
+      P[J.spine * 3] += 0.14 * e;
+      P[J.chest * 3] += 0.12 * e;
+      P[J.neck * 3] += 0.08 * e;
+      P[J.head * 3] += 0.24 * e;
+      P[J.spine * 3 + 1] -= 0.2 * e * sd;
+      P[J.chest * 3 + 2] += 0.09 * e * sd;
+      P[J.head * 3 + 2] += 0.14 * e * sd;
+      P[J.armL * 3 + 2] -= 0.22 * e;
+      P[J.armR * 3 + 2] += 0.22 * e;
+      P[J.thighL * 3] += 0.12 * e;
+      P[J.thighR * 3] += 0.12 * e;
+      P[J.shinL * 3] -= 0.22 * e;
+      P[J.shinR * 3] -= 0.22 * e;
+      hip.y -= 0.035 * e;
+    }
+    // dodge: forward roll (tuck blended, the roll itself added so it ends at a full turn)
+    if (this.dodgeT < this.dodgeDur) {
+      this.dodgeT += dt;
+      const x = clamp(this.dodgeT / this.dodgeDur, 0, 1);
+      const w = env(x, 0.14, 0.24);
+      O.fill(0);
+      hov.set(0, 0, 0);
+      this.dodgePose(O, hov, x);
+      this.blend(P, O, w, FULL);
+      hip.lerp(hov, w);
+      P[J.hips * 3] -= TAU * sstep(0.12, 0.8, x);
+    }
+    // death collapse (held until revive())
+    if (this.dead) {
+      this.deadT += dt;
+      this.deadW = clamp(this.deadT / 0.12, 0, 1);
+      O.fill(0);
+      hov.set(0, 0, 0);
+      this.deadPose(O, hov, this.deadT, t);
+      this.blend(P, O, this.deadW, FULL);
+      hip.lerp(hov, this.deadW);
+    }
+    if (this.spawnT < this.spawnDur) this.spawnT += dt;
+
     // ------------------------------------------------------- additives
     // landing impact
     this.landT += dt;
-    if (this.landT < 0.6 && this.landAmt > 0) {
+    if (this.landT < 0.6 && this.landAmt > 0 && !this.dead) {
       const lt = this.landT;
       const env = (lt < 0.07 ? lt / 0.07 : Math.exp(-(lt - 0.07) * 7)) * this.landAmt * (1 - this.swimW);
       hip.y -= 0.14 * env;
@@ -273,9 +491,9 @@ export class Animator {
       this.add(P, J.armR, 0, 0, 0.22 * env);
     }
     // look-at
-    this.updateLook(P, dt);
-    // lean into turns (root roll) — not while swimming or sitting
-    const targetRoll = clamp(this.turnRate * speed * 0.032, -0.2, 0.2) * (1 - this.swimW) * (1 - ws);
+    if (!this.dead) this.updateLook(P, dt);
+    // lean into turns (root roll) — not while swimming, sitting, rolling or dead
+    const targetRoll = this.dead || this.dodgeT < this.dodgeDur ? 0 : clamp(this.turnRate * speed * 0.032, -0.2, 0.2) * (1 - this.swimW) * (1 - ws);
     this.roll += (targetRoll - this.roll) * (1 - Math.exp(-6 * dt));
     // blink
     this.blinkT -= dt;
@@ -290,6 +508,7 @@ export class Animator {
       P[J.lids * 3] = -0.95 * b;
       if (this.blinkPh >= 1) this.blinkPh = -1;
     }
+    if (this.dead) P[J.lids * 3] = -0.95 * this.deadW;
     // ponytail spring
     this.updatePony(P, dt);
     this.apply();
@@ -575,6 +794,121 @@ export class Animator {
     O[J.chest * 3 + 2] = -0.04;
   }
 
+  // ------------------------------------------------------------ combat poses
+  /** Aim stance: torso pitched toward the aim (rifle: bladed stance), arms as the IK fallback. */
+  aimPose(O, t) {
+    const p = clamp(this.aimPitch, -1.25, 1.25);
+    const yw = clamp(this.aimYaw, -0.7, 0.7);
+    const g = this.grip;
+    const two = g === 'rifle' || g === 'heavy';
+    const blade = two ? -0.42 : -0.1;
+    const sway = 0.012 * Math.sin(t * 1.3 + this.gest[0]);
+    const set = (j, x, y, z) => {
+      O[j * 3] = x;
+      O[j * 3 + 1] = y;
+      O[j * 3 + 2] = z;
+    };
+    set(J.spine, -0.02 + p * 0.22, blade * 0.45 + yw * 0.3, 0);
+    set(J.chest, p * 0.3 + sway, blade * 0.55 + yw * 0.35, 0);
+    set(J.neck, p * 0.18, -blade * 0.45 + yw * 0.15, 0);
+    set(J.head, p * 0.2 - 0.04, -blade * 0.55 + yw * 0.2, two ? -0.08 : 0);
+    set(J.clavR, 0, 0, two ? 0.04 : 0);
+    set(J.clavL, 0, two ? -0.15 : -0.06, 0);
+    if (g === 'none') {
+      // point along the aim with the right arm
+      set(J.armR, 1.5 + p * 0.9, 0, 0.12);
+      set(J.foreR, 0.12, 0, 0);
+      set(J.handR, 0, 0, 0);
+      set(J.armL, 0.15, 0.1, -0.08);
+      set(J.foreL, 0.35, 0.2, 0);
+    } else if (two) {
+      const a = AIM_ARMS.rifle;
+      for (let k = 0; k < a.length; k += 4) set(a[k], a[k + 1] + (a[k] === J.armR || a[k] === J.armL ? p * 0.3 : 0), a[k + 2], a[k + 3]);
+    } else {
+      const a = AIM_ARMS.pistol;
+      for (let k = 0; k < a.length; k += 4) set(a[k], a[k + 1] + (a[k] === J.armR || a[k] === J.armL ? p * 0.7 : 0), a[k + 2], a[k + 3]);
+    }
+  }
+
+  /** Two-handed low-ready carry (IK fallback when no WeaponRig solves the arms). */
+  carryPose(O, t) {
+    const a = AIM_ARMS.carry;
+    for (let k = 0; k < a.length; k += 4) {
+      O[a[k] * 3] = a[k + 1];
+      O[a[k] * 3 + 1] = a[k + 2];
+      O[a[k] * 3 + 2] = a[k + 3];
+    }
+    O[J.chest * 3 + 1] += 0.012 * Math.sin(t * 0.9 + this.gest[1]);
+  }
+
+  /** Forward roll tuck at progress x (0…1); the roll rotation is added by update(). */
+  dodgePose(O, hov, x) {
+    const tuck = sstep(0, 0.24, x) * (1 - sstep(0.7, 0.96, x));
+    const fr = this.chr.frame;
+    const set = (j, a, b, c) => {
+      O[j * 3] = a;
+      O[j * 3 + 1] = b;
+      O[j * 3 + 2] = c;
+    };
+    const r = sstep(0.12, 0.8, x);
+    // tucked hip height along the roll (fitted so the curled body stays on the ground)
+    hov.set(0, -(fr.hipY - (0.4 + 0.26 * Math.sin(TAU * r)) * fr.s) * tuck, 0);
+    set(J.thighL, 0.35 + 1.75 * tuck, 0, -0.08);
+    set(J.thighR, 0.3 + 1.65 * tuck, 0, 0.08);
+    set(J.shinL, -0.45 - 1.85 * tuck, 0, 0);
+    set(J.shinR, -0.4 - 1.9 * tuck, 0, 0);
+    set(J.footL, 0.3 * tuck, 0, 0);
+    set(J.footR, 0.3 * tuck, 0, 0);
+    set(J.spine, -0.12 - 0.55 * tuck, 0, 0);
+    set(J.chest, -0.08 - 0.4 * tuck, 0, 0);
+    set(J.neck, -0.3 * tuck, 0, 0);
+    set(J.head, -0.12 - 0.35 * tuck, 0, 0);
+    set(J.armL, 0.8 + 0.7 * tuck, 0.2, -0.3);
+    set(J.armR, 0.8 + 0.7 * tuck, -0.2, 0.3);
+    set(J.foreL, 1.1 + 0.7 * tuck, 0.3, 0);
+    set(J.foreR, 1.1 + 0.7 * tuck, -0.3, 0);
+  }
+
+  /** Death collapse at time tt (s): knees buckle, topple (deadDir 1 = on the back), settle. */
+  deadPose(O, hov, tt, t) {
+    const fr = this.chr.frame;
+    const d = this.deadDir;
+    const b = sstep(0, 0.3, tt);
+    const f = sstep(0.2, 0.86, tt);
+    const st = tt > 0.84 && tt < 1.2 ? Math.sin(((tt - 0.84) / 0.36) * Math.PI) * 0.05 : 0;
+    const lie = 0.13 * fr.s - (fr.hipY + 0.01 * fr.s);
+    const set = (j, x, y, z) => {
+      O[j * 3] = x;
+      O[j * 3 + 1] = y;
+      O[j * 3 + 2] = z;
+    };
+    hov.set(0, lerp(-0.17 * b * fr.s, lie, f * f), 0.1 * f * d);
+    set(J.hips, d * (1.5 * f - st), 0.08 * f, 0.06 * f * d);
+    const back = d > 0;
+    set(J.thighL, lerp(0.7 * b, back ? 0.1 : -0.06, f), 0, -0.12 * f);
+    set(J.thighR, lerp(0.55 * b, back ? 0.5 : 0.05, f), 0, 0.16 * f);
+    set(J.shinL, lerp(-1.3 * b, back ? -0.18 : -0.15, f), 0, 0);
+    set(J.shinR, lerp(-1.05 * b, back ? -0.95 : -0.75, f), 0, 0);
+    set(J.footL, lerp(0.5 * b, 0.35, f), 0, 0);
+    set(J.footR, lerp(0.45 * b, 0.3, f), 0, 0);
+    set(J.spine, lerp(-0.28 * b, back ? 0.04 : 0.05, f), 0, 0);
+    set(J.chest, lerp(-0.12 * b, back ? 0.04 : 0.02, f), 0, 0);
+    set(J.neck, lerp(-0.25 * b, back ? -0.05 : 0.2, f), 0, 0);
+    set(J.head, lerp(-0.3 * b, back ? -0.08 : 0.25, f), (back ? 0.75 : 1.15) * f, 0);
+    if (back) {
+      set(J.armL, lerp(0.25 * b, -0.25, f), 0.1, lerp(-0.3 * b, -1.05, f));
+      set(J.armR, lerp(0.35 * b, -0.15, f), -0.1, lerp(0.25 * b, 1.3, f));
+      set(J.foreL, lerp(0.4 * b, 0.55, f), 0.3, 0);
+      set(J.foreR, lerp(0.3 * b, 0.35, f), -0.2, 0);
+    } else {
+      set(J.armL, lerp(0.25 * b, 2.6, f), 0.1, lerp(-0.3 * b, -0.45, f));
+      set(J.armR, lerp(0.35 * b, -0.12, f), -0.1, lerp(0.25 * b, 1.15, f));
+      set(J.foreL, lerp(0.4 * b, 0.7, f), 0.3, 0);
+      set(J.foreR, lerp(0.3 * b, 0.25, f), -0.2, 0);
+    }
+    void t;
+  }
+
   // ------------------------------------------------------------ helpers
   blend(P, O, w, mask) {
     for (let j = 0; j < N; j++) {
@@ -649,7 +983,18 @@ export class Animator {
       bones[i].quaternion.setFromEuler(_e);
     }
     _e.set(0, 0, this.roll);
-    bones[0].quaternion.setFromEuler(_e);
+    const root = bones[0];
+    root.quaternion.setFromEuler(_e);
+    // respawn: the body is printed upward from the feet (setHidden owns the scale while hidden)
+    if (!this.chr.hidden) {
+      let sy = 1;
+      if (this.spawnT < this.spawnDur) {
+        const x = this.spawnT / this.spawnDur;
+        sy = 0.02 + 0.98 * (1 - (1 - x) * (1 - x) * (1 - x));
+      }
+      this.spawnScale = sy;
+      if (root.scale.y !== sy || root.scale.x !== 1) root.scale.set(1, sy, 1);
+    }
     const hb = bones[J.hips];
     hb.position.copy(this.chr.bindLocal[J.hips]).add(this.hipOff);
     void _v;

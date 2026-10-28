@@ -168,6 +168,8 @@ export function createRegistry(ctx, mats, holoMats) {
       z: +entry.z,
       rot,
       level: entry.level | 0,
+      owner: entry.owner ?? null, // online: owner player id (server record)
+      ownerName: entry.ownerName ?? null,
       info,
       set: null,
       index: -1,
@@ -320,6 +322,7 @@ export function createRegistry(ctx, mats, holoMats) {
         rot: rec.rot,
         level: rec.level,
         variant: rec.variant,
+        ...(rec.owner ? { owner: rec.owner, ownerName: rec.ownerName } : null),
       });
     }
     return out;

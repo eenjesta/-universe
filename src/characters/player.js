@@ -6,6 +6,10 @@
  * step-up, smoothed visually), slope limit + slide, swimming / wading, play
  * bounds, never-fall-through safety, interaction origin, footstep / jump /
  * land / zone events, periodic state.player save and teleport().
+ * Combat (PLATFORM.md §7): holdWeapon(mesh | null, {grip}), setAim(bool) (faces the
+ * camera, strafes, slower walk, also switches ctx.cameraRig to its aim mode),
+ * aimAt(point | null), playAction('shoot' | 'reload' | 'hit' | 'dodge' | 'die' |
+ * 'respawn', opts), dodging (i-frame window), dead, aiming, netAnim(), muzzleWorld(out).
  */
 import * as THREE from 'three';
 import { WORLD, ZONES } from '../world/layout.js';
@@ -14,6 +18,8 @@ import { Character } from './character.js';
 import { CharacterBatch } from './batch.js';
 import { normalizeAppearance } from './appearance.js';
 import { J } from './skeleton.js';
+import { WeaponRig, GRIPS } from './weapon-rig.js';
+import { COMBAT_TIMING } from './animator.js';
 
 const GRAVITY = 21;
 const JUMP_V = 6.6;
@@ -29,6 +35,23 @@ const HEIGHT = 1.75;
 const SLOPE_MIN_NY = 0.66; // ≈ 49°
 const SWIM_DEPTH = 1.28; // water deeper than this → swim
 const SWIM_SINK = 1.24; // feet below the surface while swimming
+const AIM_WALK = 2.65; // m/s while aiming
+const DODGE_V = 9.4; // roll speed at the start (eases out)
+const DODGE_IFRAMES = [0.05, 0.44]; // seconds of the roll during which `dodging` is true
+const DODGE_COOLDOWN = 0.3;
+const HIP_FIRE_HOLD = 0.7; // s the weapon stays raised after a shot without aiming
+/**
+ * Anim states the server accepts in C.STATE `a` (shared/sim/players.js ANIMS); richer local states
+ * are mapped with NET_ANIM_MAP (extend NET_ANIMS when the sim learns sprint / wave / respawn).
+ */
+export const NET_ANIMS = new Set(['idle', 'walk', 'run', 'sprint', 'jump', 'fall', 'swim', 'drive', 'aim', 'shoot', 'dodge', 'build', 'sit', 'wave', 'dead', 'hit', 'reload', 'respawn']);
+export const NET_ANIM_MAP = { sprint: 'run', wave: 'idle', respawn: 'idle', cheer: 'idle', clap: 'idle', talk: 'idle', tablet: 'build' };
+/** Maps a full anim state onto NET_ANIMS. */
+export function toNetAnim(a) {
+  return NET_ANIMS.has(a) ? a : NET_ANIM_MAP[a] || 'idle';
+}
+/** Weapon ids (shared/defs/weapons.js) → grip presets. */
+export const GRIP_OF = { 'pulse-pistol': 'pistol', pistol: 'pistol', 'plasma-rifle': 'rifle', rifle: 'rifle', railgun: 'heavy', heavy: 'heavy', 'shock-grenade': 'pistol' };
 /** Fallback arrival offsets [dx, dz, heading] when landmarks offer no spawnFor(). */
 const ZONE_OFFSETS = {
   plaza: [0, 42, 0],
@@ -40,8 +63,9 @@ const ZONE_OFFSETS = {
   city: [0, 160, 0],
 };
 
-export function createPlayer(ctx, { material }) {
-  const world = ctx.world;
+export function createPlayer(ctx, { material, fx = null }) {
+  // ctx.world is re-read every update / teleport (the seamless world now; other planets may swap it later)
+  let world = ctx.world;
   const scene = world.scene;
   const app = normalizeAppearance(ctx.state.get('profile.appearance'));
   // the crowd LOD is built right away (cheap); the hero mesh follows from the build worker
@@ -78,6 +102,22 @@ export function createPlayer(ctx, { material }) {
   let wasGrounded = true;
   let surface = 'grass';
   let gazing = false;
+  // ---- combat
+  const weapon = new WeaponRig(chr);
+  let aiming = false;
+  let fireHold = 0;
+  let shotT = 9;
+  let hitT = 9;
+  let dodgeT = -1; // s since the roll started (−1 = none)
+  let dodgeCd = 0;
+  const dodgeDir = new THREE.Vector3();
+  let dead = false;
+  let spawning = false;
+  let aimPointSet = false;
+  const aimPoint = new THREE.Vector3();
+  const aimTmp = new THREE.Vector3();
+  const aimDir = new THREE.Vector3();
+  let weaponInfo = null;
 
   const player = {
     object: chr.object,
@@ -109,6 +149,7 @@ export function createPlayer(ctx, { material }) {
 
     /** teleport(zoneId | {x, z} | Vector3, heading?) */
     teleport(target, heading) {
+      syncWorld();
       let x = ZONES.spawn.x;
       let z = ZONES.spawn.z;
       let h = heading;
@@ -170,11 +211,26 @@ export function createPlayer(ctx, { material }) {
     /** Full controller update (explore mode). */
     update(dt) {
       dt = Math.min(dt, 0.05);
+      syncWorld();
       const input = ctx.input;
       const rig = ctx.cameraRig;
-      const can = player.controlsEnabled && player.onFoot;
+      const can = player.controlsEnabled && player.onFoot && !dead && !spawning;
+      // ---- combat timers
+      fireHold = Math.max(0, fireHold - dt);
+      shotT += dt;
+      hitT += dt;
+      dodgeCd = Math.max(0, dodgeCd - dt);
+      if (dodgeT >= 0) {
+        dodgeT += dt;
+        if (dodgeT >= chr.anim.dodgeDur) {
+          dodgeT = -1;
+          dodgeCd = DODGE_COOLDOWN;
+        }
+      }
+      if (spawning && !chr.anim.materializing) spawning = false;
+      const rolling = dodgeT >= 0;
       // ---- input → wish direction (camera relative)
-      const mv = can ? input.moveVector() : NO_MOVE;
+      const mv = can && !rolling ? input.moveVector() : NO_MOVE;
       if (can && input.pressed('CapsLock')) walkMode = !walkMode;
       const yaw = rig ? rig.yaw : player.heading;
       const fx = -Math.sin(yaw);
@@ -190,6 +246,7 @@ export function createPlayer(ctx, { material }) {
       }
       const moving = wl > 0.05;
       const sprintKey = can && input.action('sprint');
+      const stance = (aiming || fireHold > 0) && can && !rolling;
       // ---- environment at the current position
       const th = terrainH(pos.x, pos.z);
       const waterL = world.waterLevel ?? 0;
@@ -202,12 +259,21 @@ export function createPlayer(ctx, { material }) {
       player.wading = wading;
       // ---- target speed
       let speed = walkMode ? WALK : sprintKey ? SPRINT : JOG;
+      if (stance) speed = Math.min(walkMode ? WALK : AIM_WALK, speed);
       if (swimming) speed = sprintKey ? SWIM_FAST : SWIM;
       else if (wading) speed *= 0.62;
-      player.sprinting = sprintKey && moving && !swimming;
-      const tvx = wx * speed;
-      const tvz = wz * speed;
-      const accel = swimming ? 6 : player.grounded ? (moving ? 24 : 30) : 6;
+      player.sprinting = sprintKey && moving && !swimming && !stance;
+      let tvx = wx * speed;
+      let tvz = wz * speed;
+      let accel = swimming ? 6 : player.grounded ? (moving ? 24 : 30) : 6;
+      if (rolling) {
+        // roll: fast start, eases out (camera look stays free)
+        const k = clamp(dodgeT / chr.anim.dodgeDur, 0, 1);
+        const rs = DODGE_V * (1 - k * k) + 1.2;
+        tvx = dodgeDir.x * rs;
+        tvz = dodgeDir.z * rs;
+        accel = 80;
+      }
       const dvx = tvx - vel.x;
       const dvz = tvz - vel.z;
       const dl = Math.hypot(dvx, dvz);
@@ -222,14 +288,19 @@ export function createPlayer(ctx, { material }) {
       // ---- heading
       const prevHeading = player.heading;
       const hsp = Math.hypot(vel.x, vel.z);
-      if (moving && hsp > 0.2) {
+      if (rolling) {
+        player.heading = dampAngle(player.heading, Math.atan2(-dodgeDir.x, -dodgeDir.z), 30, dt);
+      } else if (stance && rig) {
+        // combat stance: face the camera, strafe / backpedal
+        player.heading = dampAngle(player.heading, rig.yaw, 16, dt);
+      } else if (moving && hsp > 0.2) {
         const target = Math.atan2(-wx, -wz);
         player.heading = dampAngle(player.heading, target, swimming ? 5 : 11, dt);
       }
       const turnRate = angleDiff(prevHeading, player.heading) / Math.max(dt, 1e-4);
 
       // ---- jump (coyote + buffer)
-      jumpBuf = can && input.actionPressed('jump') ? 0.13 : Math.max(0, jumpBuf - dt);
+      jumpBuf = can && !rolling && input.actionPressed('jump') ? 0.13 : Math.max(0, jumpBuf - dt);
       coyote = player.grounded ? 0.12 : Math.max(0, coyote - dt);
       if (jumpBuf > 0 && coyote > 0 && !swimming) {
         vel.y = JUMP_V;
@@ -346,11 +417,18 @@ export function createPlayer(ctx, { material }) {
       a.vy = vel.y;
       a.swimming = swimNow;
       a.turnRate = turnRate;
+      a.aimOn = stance;
+      a.strafe = stance;
+      if (stance) {
+        a.moveAngle = hs > 0.3 ? Math.atan2(-vel.x, -vel.z) - player.heading : 0;
+        updateAim(rig);
+      }
       a.update(dt);
+      weapon.update(true);
       wasGrounded = player.grounded;
 
       // ---- state + camera feel
-      player.state = swimNow ? 'swim' : !player.grounded ? (vel.y > 0 ? 'jump' : 'fall') : hs > 5.4 ? 'run' : hs > 0.25 ? 'walk' : 'idle';
+      player.state = dead ? 'idle' : swimNow ? 'swim' : !player.grounded ? (vel.y > 0 ? 'jump' : 'fall') : hs > 5.4 ? 'run' : hs > 0.25 ? 'walk' : 'idle';
       if (rig) {
         rig.fovKick = damp(rig.fovKick, player.sprinting && hs > 5.5 ? 1 : 0, 3, dt);
         rig.sway = damp(rig.sway, player.grounded ? clamp(hs / 6, 0, 1) : 0, 4, dt);
@@ -410,7 +488,10 @@ export function createPlayer(ctx, { material }) {
         a.lookAt(tmp);
       } else if (gazing) a.lookAt(null);
       gazing = gaze;
+      a.aimOn = false;
+      a.strafe = false;
       a.update(dt);
+      weapon.update(true);
     },
 
     save() {
@@ -421,7 +502,230 @@ export function createPlayer(ctx, { material }) {
     headPosition(out = new THREE.Vector3()) {
       return chr.jointWorld(J.head, out);
     },
+
+    // ------------------------------------------------------------ combat
+    /**
+     * Puts a weapon mesh in the right hand (null = unarmed). The mesh is modelled with
+     * the barrel along −Z, top +Y, origin at the trigger grip; it becomes a child of
+     * player.object and is placed every frame (aim / carry / reload / roll / death).
+     * opts: { grip: 'pistol' | 'rifle' | 'heavy' | weapon id, muzzle:[x,y,z], support:[x,y,z]
+     * (left wrist), stock:[x,y,z], holster: bool (ride on the back / thigh) } or a grip string.
+     */
+    holdWeapon(mesh, opts = {}) {
+      if (typeof opts === 'string') opts = { grip: opts };
+      opts = opts || {};
+      if (!mesh && !opts.grip) {
+        weapon.set(null);
+        weaponInfo = null;
+        return null;
+      }
+      const g = opts.grip ?? mesh?.userData?.grip;
+      const kind = GRIPS[g] ? g : GRIP_OF[g] || 'pistol';
+      weapon.set(kind, { object: mesh || null, holster: !!opts.holster, muzzle: opts.muzzle, support: opts.support, stock: opts.stock });
+      weaponInfo = { object: mesh || null, grip: kind, holstered: !!opts.holster };
+      weapon.update(false);
+      return weaponInfo;
+    },
+
+    /** { object, grip, holstered } | null */
+    get weapon() {
+      return weaponInfo;
+    },
+
+    /** Holster (true: back / thigh) or draw (false) the held weapon. */
+    holster(on = true) {
+      weapon.setHolstered(on);
+      if (weaponInfo) weaponInfo.holstered = !!on;
+    },
+
+    /** Aim stance (faces the camera, strafes, slower walk) + the camera rig's aim mode. */
+    setAim(on) {
+      aiming = !!on;
+      ctx.cameraRig?.setAim?.(aiming && !dead && player.onFoot);
+    },
+    get aiming() {
+      return aiming && !dead;
+    },
+
+    /** Point the arms converge on (e.g. the crosshair hit point); null = 40 m along the camera ray. */
+    aimAt(point) {
+      if (point && Number.isFinite(point.x)) {
+        aimPoint.copy(point);
+        aimPointSet = true;
+      } else aimPointSet = false;
+    },
+
+    /**
+     * One-shot actions: 'shoot' {recoil}, 'reload' {duration}, 'hit' {from: Vector3, amount},
+     * 'dodge' {dir} (roll in the move direction; i-frames → player.dodging), 'die' {dir: 1 back | −1 front}
+     * (input off until respawn), 'respawn' {duration} (materialize; call teleport() first).
+     * Returns false when the action could not start.
+     */
+    playAction(name, opts = {}) {
+      const a = chr.anim;
+      opts = opts || {};
+      switch (name) {
+        case 'shoot':
+          if (dead) return false;
+          a.fire(opts.recoil ?? (weapon.kind === 'heavy' ? 1.5 : weapon.kind === 'rifle' ? 0.75 : 1));
+          shotT = 0;
+          if (!aiming) fireHold = HIP_FIRE_HOLD;
+          return true;
+        case 'reload':
+          if (dead) return false;
+          a.reload(opts.duration ?? weapon.grip?.reload ?? COMBAT_TIMING.reload);
+          return true;
+        case 'hit': {
+          if (dead) return false;
+          let side = 0;
+          const f = opts.from;
+          if (f && Number.isFinite(f.x)) {
+            const p = chr.object.position;
+            const rx = Math.cos(player.heading);
+            const rz = -Math.sin(player.heading);
+            const dx = f.x - p.x;
+            const dz = f.z - p.z;
+            const l = Math.hypot(dx, dz) || 1;
+            side = clamp((dx * rx + dz * rz) / l, -1, 1);
+          }
+          a.hit(side, opts.amount ?? 1);
+          hitT = 0;
+          ctx.cameraRig?.shake?.(0.05 * clamp(opts.amount ?? 1, 0.3, 2));
+          return true;
+        }
+        case 'dodge':
+          return startDodge(opts);
+        case 'die':
+          if (dead) return false;
+          dead = true;
+          fireHold = 0;
+          dodgeT = -1;
+          vel.x = 0;
+          vel.z = 0;
+          ctx.cameraRig?.setAim?.(false);
+          a.die({ dir: opts.dir });
+          ctx.events.emit('player:die', {});
+          return true;
+        case 'respawn':
+          dead = false;
+          spawning = true;
+          dodgeT = -1;
+          a.revive();
+          a.materialize(opts.duration ?? COMBAT_TIMING.materialize);
+          fx?.spawn(chr.object.position, opts.duration ?? COMBAT_TIMING.materialize, chr.frame.headC.y + 0.25);
+          if (aiming) ctx.cameraRig?.setAim?.(true);
+          ctx.events.emit('player:respawn', {});
+          return true;
+        default:
+          return false;
+      }
+    },
+
+    /** True inside the roll's invulnerability window. */
+    get dodging() {
+      return dodgeT >= DODGE_IFRAMES[0] && dodgeT <= DODGE_IFRAMES[1];
+    },
+    get rolling() {
+      return dodgeT >= 0;
+    },
+    get dead() {
+      return dead;
+    },
+
+    /**
+     * Anim state for the network (C.STATE `a`): one of NET_ANIMS (the states the server accepts);
+     * 'drive' in vehicles, 'build' while building, 'dead' while the server says so.
+     */
+    netAnim() {
+      if (dead || ctx.state?.get?.('smp.dead')) return 'dead';
+      if (ctx.modes?.name === 'drive') return 'drive';
+      const a = player.animState();
+      if (a === 'idle' && ctx.build?.active) return 'build';
+      return toNetAnim(a);
+    },
+
+    /** Full anim state: idle walk run sprint jump fall swim aim shoot reload hit dodge dead respawn sit wave. */
+    animState() {
+      const a = chr.anim;
+      if (dead) return 'dead';
+      if (spawning) return 'respawn';
+      if (dodgeT >= 0) return 'dodge';
+      if (hitT < 0.3) return 'hit';
+      if (a.reloading) return 'reload';
+      if (shotT < 0.22) return 'shoot';
+      const st = player.state;
+      if ((aiming || fireHold > 0) && st !== 'swim') return 'aim';
+      if (st === 'swim' || st === 'jump' || st === 'fall') return st;
+      if (a.targets.sit > 0.5) return 'sit';
+      if (a.targets.wave > 0.5) return 'wave';
+      if (st === 'run') return player.sprinting && Math.hypot(vel.x, vel.z) > 6.2 ? 'sprint' : 'run';
+      return st === 'walk' ? 'walk' : 'idle';
+    },
+
+    /** World position of the held weapon's muzzle (head height when unarmed). */
+    muzzleWorld(out = new THREE.Vector3()) {
+      if (weapon.kind && !weapon.holstered) return weapon.muzzleWorld(out);
+      return chr.headTop(out);
+    },
+    weaponRig: weapon,
   };
+
+  function startDodge(opts = {}) {
+    if (dead || spawning || dodgeT >= 0 || dodgeCd > 0 || !player.onFoot || player.swimming || !player.grounded) return false;
+    let dx = 0;
+    let dz = 0;
+    if (opts.dir && Number.isFinite(opts.dir.x)) {
+      dx = opts.dir.x;
+      dz = opts.dir.z ?? 0;
+    } else if (player.controlsEnabled) {
+      const mv = ctx.input.moveVector();
+      const yaw = ctx.cameraRig ? ctx.cameraRig.yaw : player.heading;
+      dx = -Math.sin(yaw) * mv.y + Math.cos(yaw) * mv.x;
+      dz = -Math.cos(yaw) * mv.y - Math.sin(yaw) * mv.x;
+    }
+    let l = Math.hypot(dx, dz);
+    if (l < 0.1) {
+      dx = -Math.sin(player.heading);
+      dz = -Math.cos(player.heading);
+      l = 1;
+    }
+    dodgeDir.set(dx / l, 0, dz / l);
+    dodgeT = 0;
+    chr.anim.dodge(COMBAT_TIMING.dodge);
+    ctx.events.emit('player:dodge', { dir: dodgeDir });
+    return true;
+  }
+
+  /** Aim yaw/pitch (character space) toward the convergence point of the camera ray. */
+  function updateAim() {
+    const a = chr.anim;
+    if (aimPointSet) aimTmp.copy(aimPoint);
+    else {
+      const cam = ctx.camera;
+      cam.getWorldDirection(aimDir);
+      aimTmp.copy(cam.position).addScaledVector(aimDir, 40);
+    }
+    const o = chr.object.position;
+    const dx = aimTmp.x - o.x;
+    const dy = aimTmp.y - (o.y + 1.38 * chr.frame.s);
+    const dz = aimTmp.z - o.z;
+    const h = player.heading;
+    const c = Math.cos(h);
+    const sn = Math.sin(h);
+    const lx = dx * c - dz * sn;
+    const lz = dx * sn + dz * c;
+    a.aimYaw = Math.atan2(-lx, -lz);
+    a.aimPitch = Math.atan2(dy, Math.hypot(lx, lz));
+  }
+
+  /** Follows a swapped ctx.world (its queries, and its scene while the player stands in a scene). */
+  function syncWorld() {
+    const w = ctx.world;
+    if (!w || w === world) return;
+    world = w;
+    const par = chr.object.parent;
+    if (w.scene && par && par.isScene && par !== w.scene) w.scene.add(chr.object);
+  }
 
   chr.anim.onStep = (side) => {
     ctx.events.emit('player:footstep', { surface, side, speed: Math.hypot(vel.x, vel.z) });

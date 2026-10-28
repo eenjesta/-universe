@@ -10,7 +10,7 @@
  */
 import { levelFor, LEVEL_POINTS } from './catalog.js';
 
-export function createPower(ctx, reg, mats) {
+export function createPower(ctx, reg, mats, { accrue = () => true } = {}) {
   const { state, events } = ctx;
   const st = {
     production: 0,
@@ -100,8 +100,9 @@ export function createPower(ctx, reg, mats) {
       throttle = 2;
       emit(false);
     }
-    // energy accrual (per minute rates)
-    acc += (st.net / 60) * dt;
+    // energy accrual (per minute rates) — single-player only: online the server owns the inventory
+    if (!accrue()) acc = 0;
+    else acc += (st.net / 60) * dt;
     if (acc >= 1 || acc <= -1) {
       const whole = acc > 0 ? Math.floor(acc) : Math.ceil(acc);
       acc -= whole;

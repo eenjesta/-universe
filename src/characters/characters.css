@@ -27,6 +27,17 @@
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
 }
 .chr-tag-anon { display: none; }
+/* remote players: cyan name (+ ▼) and thin shield / health bars (poster 25_coop_squad) */
+.chr-tag-player .chr-tag-name { color: #bfefff; border-color: rgba(127, 224, 255, 0.28); padding: 2px 9px 3px; font-size: 12.5px; }
+.chr-tag-player .chr-tag-arrow { border-top-color: rgba(127, 224, 255, 0.95); }
+.chr-tag-bars { display: flex; flex-direction: column; gap: 2px; width: 54px; margin-top: 4px; }
+.chr-bar { position: relative; height: 3px; border-radius: 2px; overflow: hidden; background: rgba(8, 10, 14, 0.62); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); }
+.chr-bar-fill { position: absolute; inset: 0; transform-origin: 0 50%; transition: transform 0.18s var(--ease); }
+.chr-bar-sh { background: linear-gradient(90deg, #4fc8ff, #9be8ff); box-shadow: 0 0 6px rgba(95, 214, 255, 0.55); }
+.chr-bar-hp { background: linear-gradient(90deg, #e8e2d6, #ffffff); }
+.chr-bar-hp.low { background: linear-gradient(90deg, #ff5a4a, #ff8a6a); }
+.chr-tag.dim { opacity: 0.45; }
+.chr-tag.dim .chr-tag-bars { display: none; }
 .chr-bubble {
   max-width: 260px; padding: 8px 13px 9px; border-radius: 12px;
   background: rgba(12, 15, 22, 0.82); border: 1px solid rgba(236, 230, 220, 0.18);

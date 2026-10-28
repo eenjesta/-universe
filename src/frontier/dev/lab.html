@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier lab</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #07090d; overflow: hidden; color: #e8e4da; font: 12px/1.35 system-ui, sans-serif; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #panel { position: fixed; top: 8px; left: 8px; width: 250px; padding: 10px; background: rgba(12, 14, 20, 0.72); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; backdrop-filter: blur(6px); }
+  #panel h1 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #8fe9ff; }
+  #panel label { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  #panel input[type=number] { width: 70px; background: #11151c; color: #eee; border: 1px solid #2a313c; border-radius: 4px; padding: 2px 4px; }
+  #panel select, #panel button { background: #11151c; color: #eee; border: 1px solid #2a313c; border-radius: 4px; padding: 2px 6px; }
+  #panel button { cursor: pointer; }
+  #legend { font-size: 10.5px; color: #cfd6e0; margin: 2px 0 4px; }
+  #stats { white-space: pre; font: 11px/1.3 ui-monospace, monospace; color: #cfd6e0; margin-top: 6px; }
+  #mini { position: fixed; right: 10px; bottom: 10px; width: 220px; height: 220px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15); background: #10141a; }
+  #hint { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); color: rgba(255,255,255,0.55); font-size: 11px; }
+  body.ui-off #panel, body.ui-off #mini, body.ui-off #hint { display: none; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="panel">
+  <h1>Ø Frontier lab</h1>
+  <label>x <input id="tx" type="number" step="10"> z <input id="tz" type="number" step="10"></label>
+  <label>alt <input id="ta" type="number" step="5" value="30"> <button id="go">Teleport</button></label>
+  <label>view <select id="views"></select></label>
+  <label>time <input id="time" type="range" min="0" max="24" step="0.1"> <span id="timev"></span></label>
+  <label>quality <select id="quality"><option>low</option><option>medium</option><option>high</option></select></label>
+  <label>overlay <select id="overlay"><option value="">off</option><option value="biomes">biomes</option><option value="rules">build rules (§11.2)</option></select></label>
+  <div id="legend" hidden><b style="color:#ff9a3c">▨</b> hub buffer 500 m · <b style="color:#ff3a44">▨</b> highway 20 m · <b style="color:#c060ff">▨</b> POI 60 m · <b style="color:#5fd56a">■</b> buildable · <b style="color:#ffdc78">┅</b> 16 m height limit</div>
+  <div id="stats"></div>
+</div>
+<canvas id="mini" width="220" height="220"></canvas>
+<div id="hint">click: mouse look · WASD fly · Shift ×6 · Space / C up / down · scroll speed</div>
+<script type="module" src="./lab.js"></script>
+</body>
+</html>

@@ -61,6 +61,8 @@ export const REASONS = {
   ground: { en: 'Needs open ground', nl: 'Heeft open terrein nodig' },
   uneven: { en: 'Uneven support', nl: 'Ongelijke ondergrond' },
   nothing: { en: 'Aim at the ground', nl: 'Richt op de grond' },
+  custom: { en: '{text}', nl: '{text}' }, // text supplied by the online authority (claims …)
+  pending: { en: 'Waiting for the server…', nl: 'Wachten op de server…' },
 };
 
 const HOUSE_NAME = { en: 'your house', nl: 'je huis' };
@@ -305,6 +307,15 @@ export function slotLayout(def, x, y, z, rot, L, variant) {
 }
 
 // --------------------------------------------------------------- placement
+/** Resource affordability without the creative-mode shortcut of state.canAfford. */
+function canAffordRes(state, cost = {}) {
+  const res = state.data?.resources || {};
+  for (const k in cost) {
+    if (k === 'credits' ? (state.data?.credits ?? 0) < cost[k] : (res[k] ?? 0) < cost[k]) return false;
+  }
+  return true;
+}
+
 export function createPlacement(ctx, reg) {
   const world = ctx.world;
   const physics = ctx.physics;
@@ -1103,10 +1114,10 @@ export function createPlacement(ctx, reg) {
         }
       }
     }
-    // slots
+    // slots (placed pieces + placements waiting for the server)
     if (tg.valid) {
       for (const key of tg.layout.slots) {
-        if (reg.slots.has(key)) {
+        if (reg.slots.has(key) || reg.pendingSlots?.has(key)) {
           setReason('occupied');
           break;
         }
@@ -1136,12 +1147,24 @@ export function createPlacement(ctx, reg) {
         }
       }
     }
-    // blueprint + cost
+    // online authority: client-side prediction (someone else's claim, limits …)
+    const auth = reg.authority;
+    if (tg.valid && auth?.check) {
+      let why = null;
+      try {
+        why = auth.check(tg, def);
+      } catch {
+        why = null;
+      }
+      if (why) setReason('custom', { text: typeof why === 'string' ? why : why.text || '' });
+    }
+    // blueprint + cost (creative mode only counts in single-player)
+    const creativeOn = !auth && !!ctx.state?.get?.('settings.creative');
     if (def.unlock && !opts.ignoreUnlock) {
       const owned = ctx.state?.get?.('owned.items') || [];
-      if (!owned.includes(def.unlock) && !ctx.state?.get?.('settings.creative')) setReason('locked');
+      if (!owned.includes(def.unlock) && !creativeOn) setReason('locked');
     }
-    if (!opts.ignoreCost && ctx.state && !ctx.state.canAfford(def.cost)) {
+    if (!opts.ignoreCost && ctx.state && !(creativeOn || canAffordRes(ctx.state, def.cost))) {
       const res = ctx.state.data.resources || {};
       let miss = null;
       for (const [k, v] of Object.entries(def.cost)) if ((res[k] ?? 0) < v) miss = miss || k;

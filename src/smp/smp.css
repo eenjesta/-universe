@@ -1,0 +1,205 @@
+/* SMP — inventory & crafting screen, quick bar, claim pill, loot labels (tokens: src/ui/base.css) */
+
+/* ------------------------------------------------------------ modal */
+.smp-inv-wrap .modal-backdrop { background: radial-gradient(ellipse at 30% 40%, rgba(10, 18, 28, 0.35), rgba(4, 6, 10, 0.78)); }
+.smp-inv {
+  position: relative;
+  width: min(1120px, calc(100vw - 32px - var(--sal, 0px) - var(--sar, 0px)));
+  height: min(680px, calc(100vh - 32px - var(--sat, 0px) - var(--sab, 0px)));
+  height: min(680px, calc(100dvh - 32px - var(--sat, 0px) - var(--sab, 0px)));
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(14, 18, 26, 0.92), rgba(8, 10, 15, 0.94));
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.smp-inv::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan-glow), transparent);
+  pointer-events: none;
+}
+.smp-inv-head { display: flex; align-items: center; gap: 18px; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); }
+.smp-inv-titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.smp-inv-title { font-size: 22px; font-weight: 300; text-transform: uppercase; letter-spacing: 0.42em; color: var(--ink); white-space: nowrap; }
+.smp-inv-tagline { font-size: 10px; text-transform: uppercase; letter-spacing: var(--track); color: var(--ink-3); }
+.smp-inv-tabs { display: none; gap: 6px; margin-left: auto; }
+.smp-inv-tab {
+  min-height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+}
+.smp-inv-tab.active { border-color: var(--cyan); color: var(--cyan); background: rgba(127, 224, 255, 0.08); }
+.smp-inv-credits { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: rgba(240, 180, 106, 0.08); border: 1px solid rgba(240, 180, 106, 0.32); color: var(--gold-2); font-size: 14px; }
+.smp-inv-tabs + .smp-inv-credits { margin-left: 0; }
+.smp-inv-credits-icon { display: inline-flex; color: var(--gold); }
+.smp-inv-close { position: static; flex: none; }
+.smp-notice { margin: 10px 22px 0; padding: 9px 12px; border-radius: var(--radius-sm); background: rgba(255, 154, 74, 0.1); border: 1px solid rgba(255, 154, 74, 0.35); color: var(--gold-2); font-size: 12.5px; }
+.smp-notice[hidden] { display: none; }
+.smp-inv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.22fr 1fr; gap: 0; }
+.smp-inv-col { min-height: 0; overflow-y: auto; padding: 16px 22px 18px; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.smp-inv-right { border-left: 1px solid var(--line); background: rgba(255, 255, 255, 0.015); }
+.smp-inv-foot { padding: 8px 22px 12px; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); border-top: 1px solid var(--line); }
+.smp-inv-foot:empty { display: none; }
+.smp-sec { margin-bottom: 18px; }
+.smp-sec-title { font-size: 11px; text-transform: uppercase; letter-spacing: var(--track); color: var(--ink-2); margin: 0 0 10px; display: flex; align-items: center; gap: 10px; }
+.smp-sec-title::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.smp-sec-split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+/* ------------------------------------------------------------ weapon cards */
+.smp-weapons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.smp-wcard {
+  position: relative; display: grid; grid-template-rows: auto auto auto auto; align-items: start; gap: 4px;
+  min-height: 150px; padding: 10px 12px 12px; text-align: left; cursor: pointer;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); font: inherit;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.smp-wcard:hover { border-color: var(--line-2); background: rgba(255, 255, 255, 0.06); }
+.smp-wcard:active { transform: scale(0.99); }
+.smp-wcard.equipped { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(127, 224, 255, 0.3), 0 0 22px rgba(127, 224, 255, 0.16) inset; }
+.smp-wcard.locked { cursor: default; opacity: 0.62; }
+.smp-wcard.locked .smp-wcard-art { filter: grayscale(1); opacity: 0.5; }
+.smp-wcard-key { position: absolute; top: 8px; left: 10px; font-size: 10px; color: var(--ink-3); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 5px; }
+.smp-wcard-art { display: block; height: 62px; margin: 2px 0 0; }
+.smp-wcard-art svg { width: 100%; height: 100%; }
+.smp-wcard-name { font-size: 14px; letter-spacing: 0.04em; }
+.smp-wcard-ammo { font-size: 12px; color: var(--cyan); display: flex; align-items: center; gap: 5px; min-height: 16px; }
+.smp-wcard-ammo-icon { display: inline-flex; opacity: 0.85; }
+.smp-wcard-stats { display: grid; gap: 3px; margin-top: 2px; }
+.smp-stat { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 6px; font-size: 10px; color: var(--ink-3); letter-spacing: 0.04em; }
+.smp-stat-track { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.smp-stat-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan-2), var(--cyan)); border-radius: 2px; }
+.smp-wcard-lock { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-3); }
+.smp-wcard-badge { position: absolute; top: 8px; right: 10px; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.2em; color: #061017; background: var(--cyan); border-radius: 4px; padding: 2px 6px; }
+
+/* ------------------------------------------------------------ supplies */
+.smp-supplies { display: grid; gap: 8px; }
+.smp-scard { display: grid; grid-template-columns: 64px 1fr auto auto; align-items: center; gap: 12px; padding: 6px 10px 6px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255, 255, 255, 0.025); }
+.smp-scard.empty { opacity: 0.6; }
+.smp-scard-art { display: block; width: 64px; height: 36px; }
+.smp-scard-art svg { width: 100%; height: 100%; }
+.smp-scard-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.smp-scard-name { font-size: 13.5px; }
+.smp-scard-desc { font-size: 11.5px; color: var(--ink-3); }
+.smp-scard-count { font-size: 13px; color: var(--ink-2); }
+.smp-use { gap: 6px; }
+.smp-kbd { min-width: 18px; height: 18px; font-size: 10px; padding: 0 4px; }
+
+/* ------------------------------------------------------------ lists */
+.smp-list { display: grid; gap: 4px; }
+.smp-row { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid rgba(236, 230, 220, 0.06); font-size: 13px; }
+.smp-row-icon { display: inline-flex; color: var(--ink-2); }
+.smp-row-name { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.smp-row-val { color: var(--ink); }
+
+/* ------------------------------------------------------------ crafting */
+.smp-craft-title { margin-bottom: 12px; }
+.smp-station { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 12px; border-radius: var(--radius); border: 1px solid rgba(127, 224, 255, 0.4); background: rgba(127, 224, 255, 0.07); }
+.smp-station-icon { display: inline-flex; color: var(--cyan); }
+.smp-station.none { border-color: rgba(255, 154, 74, 0.38); background: rgba(255, 154, 74, 0.07); }
+.smp-station.none .smp-station-icon { color: var(--orange); }
+.smp-station-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.smp-station-name { font-size: 13.5px; letter-spacing: 0.04em; }
+.smp-station-sub { font-size: 11.5px; color: var(--ink-3); line-height: 1.35; }
+.smp-recipes { display: grid; gap: 6px; }
+.smp-rgroup { margin: 8px 0 2px; font-size: 10px; text-transform: uppercase; letter-spacing: var(--track); color: var(--ink-3); }
+.smp-recipe { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: rgba(255, 255, 255, 0.02); }
+.smp-recipe.ok { border-color: rgba(127, 224, 255, 0.28); }
+.smp-recipe.gated { opacity: 0.72; }
+.smp-recipe-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); color: var(--ink-2); }
+.smp-recipe.ok .smp-recipe-icon { color: var(--cyan); background: rgba(127, 224, 255, 0.08); }
+.smp-recipe-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.smp-recipe-name { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.smp-tier { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.16em; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line-2); color: var(--ink-3); }
+.smp-tier.t2 { border-color: rgba(180, 140, 255, 0.5); color: var(--violet); }
+.smp-rcost { display: flex; flex-wrap: wrap; gap: 5px; }
+.smp-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.smp-chip.short { color: var(--red); background: rgba(255, 122, 110, 0.1); }
+.smp-chip-icon { display: inline-flex; }
+.smp-recipe-why { font-size: 11px; color: var(--orange); }
+.smp-recipe-why.cost { color: var(--red); }
+.smp-recipe-why.owned { color: var(--green); }
+.smp-recipe-actions { display: flex; gap: 6px; }
+.smp-craft { min-width: 74px; border-color: rgba(127, 224, 255, 0.5); color: var(--cyan); }
+.smp-craft:hover { background: rgba(127, 224, 255, 0.12); border-color: var(--cyan); }
+.smp-craft-n { min-width: 44px; padding: 0 10px; }
+
+/* ------------------------------------------------------------ phones / narrow */
+@media (max-width: 760px) {
+  .smp-inv { width: calc(100vw - 16px - var(--sal, 0px) - var(--sar, 0px)); height: calc(100vh - 16px - var(--sat, 0px) - var(--sab, 0px)); height: calc(100dvh - 16px - var(--sat, 0px) - var(--sab, 0px)); border-radius: var(--radius); }
+  .smp-inv-head { flex-wrap: wrap; gap: 10px 12px; padding: 12px 14px 10px; }
+  .smp-inv-title { font-size: 17px; letter-spacing: 0.32em; }
+  .smp-inv-tagline { display: none; }
+  .smp-inv-tabs { display: flex; order: 3; width: 100%; margin: 0; }
+  .smp-inv-tab { flex: 1; }
+  .smp-inv-credits { margin-left: auto; }
+  .smp-inv-body { grid-template-columns: 1fr; }
+  .smp-inv-col { padding: 12px 14px 14px; }
+  .smp-inv[data-tab='inv'] .smp-inv-right, .smp-inv[data-tab='craft'] .smp-inv-left { display: none; }
+  .smp-inv-right { border-left: 0; }
+  .smp-weapons { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .smp-wcard { min-height: 0; padding: 8px 10px 10px; }
+  .smp-wcard-art { height: 44px; }
+  .smp-wcard-stats { display: none; }
+  .smp-sec-split { grid-template-columns: 1fr; gap: 10px; }
+  .smp-scard { grid-template-columns: 48px 1fr auto auto; gap: 8px; }
+  .smp-scard-art { width: 48px; height: 28px; }
+  .smp-scard-desc { display: none; }
+}
+@media (max-height: 460px) {
+  .smp-inv { height: calc(100vh - 12px - var(--sat, 0px) - var(--sab, 0px)); height: calc(100dvh - 12px - var(--sat, 0px) - var(--sab, 0px)); }
+  .smp-inv-head { padding-top: 8px; padding-bottom: 8px; }
+  .smp-inv-title { font-size: 17px; letter-spacing: 0.32em; }
+  .smp-inv-tagline { display: none; }
+  .smp-inv-foot { display: none; }
+  /* landscape phones: compact weapon cards so both rows fit */
+  .smp-wcard { min-height: 0; padding: 8px 10px 10px; }
+  .smp-wcard-art { height: 40px; }
+  .smp-wcard-stats { display: none; }
+}
+
+/* ------------------------------------------------------------ quick bar */
+.smp-quick { display: flex; gap: 6px; padding: 6px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+.smp-quick-slot {
+  position: relative; width: 46px; height: 46px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.04); color: var(--ink); cursor: pointer; padding: 0; font: inherit;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.smp-quick-slot:hover { border-color: var(--line-2); background: rgba(255, 255, 255, 0.08); }
+.smp-quick-slot.empty { color: var(--ink-3); }
+.smp-quick-slot.empty .smp-quick-icon { opacity: 0.45; }
+.smp-quick-icon { display: inline-flex; }
+.smp-quick-key { position: absolute; top: 2px; left: 4px; font-size: 9.5px; color: var(--ink-3); }
+.smp-quick-count { position: absolute; right: 4px; bottom: 2px; font-size: 11px; color: var(--ink); }
+.smp-quick-slot.empty .smp-quick-count { color: var(--red); }
+.smp-quick-bag { color: var(--cyan); }
+.smp-quick-slot.used { animation: smp-pulse 0.5s var(--ease); }
+.smp-quick-slot.gain { animation: smp-gain 0.7s var(--ease); }
+.smp-quick-slot.denied { animation: smp-shake 0.35s linear; }
+@keyframes smp-pulse { 0% { box-shadow: 0 0 0 0 rgba(127, 224, 255, 0.7); border-color: var(--cyan); } 100% { box-shadow: 0 0 0 12px rgba(127, 224, 255, 0); } }
+@keyframes smp-gain { 0% { border-color: var(--gold); background: rgba(240, 180, 106, 0.25); } 100% { background: rgba(255, 255, 255, 0.04); } }
+@keyframes smp-shake { 0%, 100% { transform: none; } 25% { transform: translateX(-3px); border-color: var(--red); } 75% { transform: translateX(3px); border-color: var(--red); } }
+body[data-touch='1'] .smp-quick-key { display: none; }
+body[data-touch='1'] .smp-quick-slot { width: 50px; height: 50px; }
+
+/* ------------------------------------------------------------ claim pill */
+.smp-claim { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 5px 12px; border-radius: 999px; background: var(--panel); border: 1px solid rgba(255, 154, 74, 0.45); color: var(--gold-2); font-size: 12.5px; letter-spacing: 0.04em; backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+.smp-claim[data-mine='1'] { border-color: rgba(127, 224, 255, 0.45); color: var(--cyan); }
+.smp-claim-icon { display: inline-flex; }
+.smp-claim[data-kind='safe'] { border-color: rgba(108, 240, 200, 0.42); color: #9ff5da; }
+.smp-claim[data-kind='leaving'] { border-color: rgba(255, 196, 92, 0.7); color: var(--gold-2); animation: smp-zone-pulse 1.6s ease-in-out infinite; }
+.smp-claim[data-kind='buffer'] { border-color: rgba(255, 255, 255, 0.16); color: var(--ink-2); }
+@keyframes smp-zone-pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 196, 92, 0.12); } }
+@media (prefers-reduced-motion: reduce) { .smp-claim[data-kind='leaving'] { animation: none; } }
+.smp-claim-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--ink-3); }
+
+/* ------------------------------------------------------------ loot labels */
+.smp-loot-label { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; background: rgba(8, 11, 16, 0.72); border: 1px solid rgba(127, 224, 255, 0.4); color: var(--cyan); font-size: 11.5px; white-space: nowrap; pointer-events: none; will-change: transform; }
+.smp-loot-label[data-kind='mine'] { border-color: rgba(240, 180, 106, 0.6); color: var(--gold-2); }
+.smp-loot-label[data-kind='other'] { border-color: rgba(255, 122, 110, 0.4); color: var(--red); }
+.smp-loot-label-icon { display: inline-flex; }

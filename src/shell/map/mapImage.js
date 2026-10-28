@@ -159,7 +159,7 @@ export class MapImage {
       size: this.size,
       extent: E,
       light: LIGHT,
-      playBounds: WORLD.playBounds,
+      playBounds: WORLD.hubPlayBounds ?? WORLD.playBounds,
       cityIslands: CITY_ISLANDS.map((c) => ({ x: c.x, z: c.z, radius: c.radius * 0.97 })),
     };
 

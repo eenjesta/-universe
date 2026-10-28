@@ -3,19 +3,28 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Ø Universe — Explore · Create · Connect. A ThreeJS open-world prototype.",
+  "description": "\u00d8 Universe \u2014 Explore \u00b7 Create \u00b7 Connect. A ThreeJS open-world prototype.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "shot": "node tools/shot.mjs"
+    "shot": "node tools/shot.mjs",
+    "server": "node server/index.js --local",
+    "start": "node server/index.js",
+    "test": "node --test shared/ server/ src/net/test/ src/characters/test/ src/smp/ src/combat/",
+    "platform": "node server/platform/dev.js --port 8095 --demo"
   },
   "dependencies": {
     "@fontsource/jost": "^5.3.0",
-    "three": "^0.186.1"
+    "pg": "^8.23.1",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "playwright": "^1.64.1",
     "vite": "^8.3.5"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

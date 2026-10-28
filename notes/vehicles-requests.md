@@ -43,5 +43,27 @@ Everything below is optional: the vehicles module null-checks all of it. Public 
   shots/vehicles/final_base.png). A little warm fill / pad floodlight contribution on the apron and the base
   landing pad would help the "15_spaceport" look. Vehicles keep one shared SpotLight (car headlights) in the
   scene permanently, so no light-count recompiles come from this module.
+  **Update (fix-flight):** the vehicles' own readability is now handled inside the module (`look.js`: fill /
+  rim / pad uplight in the vehicle materials + a light pool decal under the parked ship, boosted only in
+  terrain shade via `sunVisibility.sample`), so this is no longer needed for the vehicles — only for the
+  apron itself.
 - The spaceport fuel tanks have no physics box for the camera rig to collide with (the rig clips into them
   when the player stands right next to one).
+
+## characters (camera rig) — from the flight / chase-camera fix (notes/fix-flight-progress.md)
+Worked around locally in `src/vehicles/drive.js` (`updateChase`); nothing is blocked. Optional rig changes
+that would let vehicles drop the workaround:
+- **Why the workaround:** `align` only starts after 1.2 s without mouse movement (`idleLook`), so while the
+  mouse is the steering input (air vehicles) the rig never re-aligned behind the vehicle (measured up to
+  ±179° off; the vehicle ended up beside / in front of the camera), and mouse-Y pitch never recentred.
+  Drive mode now sets `rig.lookEnabled = false` + `align: 0` and writes `rig.yaw` / `rig.pitch` every frame
+  before `rig.update(dt)` (yaw = short first-order follow of the vehicle heading, no build-up; look-around
+  offsets spring back, critically damped, 0.9 s after the mouse goes quiet); it restores `lookEnabled = true` on exit.
+- **Request 1 — look offset with recentre:** e.g. `follow(obj, { align, heading: () => v.heading,
+  recenter: { delay: 0.9, omega: 4.5 }, steerYaw: true })`: yaw follows the target heading continuously,
+  mouse look adds a yaw/pitch offset that springs back after `delay`; `steerYaw` = mouse X belongs to the
+  vehicle (no offset). Take the heading from the yaw only (or a callback) — `align` currently derives it
+  from the target's matrixWorld forward, which is unstable when the target pitches steeply.
+- **Request 2 — focus damping in follow opts:** `focusRate` (now fixed 22/s horizontal, 9/s vertical). At
+  ship boost speed (195 m/s) the focus trails ~9 m; a per-follow rate (or velocity look-ahead) would keep
+  fast vehicles framed tighter.

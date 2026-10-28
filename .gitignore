@@ -14,3 +14,6 @@ reference/
 .DS_Store
 ._*
 *.log
+
+# local game-server data (guest accounts, world saves)
+data/

@@ -139,6 +139,7 @@ export class PauseMenu {
           { id: 'about', label: TXT.about, icon: 'info' },
           inSpace ? null : { id: 'map', label: TXT.map, icon: 'map' },
           { sep: true },
+          ctx.platform?.available ? { id: 'home', label: { en: 'Home', nl: 'Home' }, icon: 'home' } : null,
           { id: 'title', label: { en: 'Back to title screen', nl: 'Terug naar titelscherm' }, icon: 'shell-exit' },
           { id: 'reset', label: TXT.reset, icon: 'trash', danger: true },
         ]
@@ -199,6 +200,10 @@ export class PauseMenu {
         break;
       case 'map':
         this.shell.map?.open({ from: 'pause' });
+        break;
+      case 'home':
+        this.close({ keepPaused: true });
+        this.ctx.platform?.openHome?.();
         break;
       case 'title':
         this.close({ keepPaused: true });

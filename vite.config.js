@@ -12,6 +12,11 @@ export default defineConfig({
     port: Number(process.env.PORT || 5173),
     strictPort: true,
     hmr: noHmr ? false : undefined,
+    // multiplayer: the Node game server (npm run server) handles the WebSocket
+    proxy: {
+      '/ws': { target: process.env.WS_TARGET || 'ws://127.0.0.1:8080', ws: true, changeOrigin: true },
+      '/api': { target: process.env.API_TARGET || 'http://127.0.0.1:8080', changeOrigin: true },
+    },
   },
   preview: { host: process.env.HOST || '127.0.0.1', port: 4173 },
   optimizeDeps: {

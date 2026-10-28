@@ -10,14 +10,22 @@
  *   ctx.player     object, position, velocity, heading, state, onFoot, controlsEnabled,
  *                  appearance, setAppearance(app), setVisible(bool), teleport(zone | {x,z} | Vector3, heading?),
  *                  setPose('idle' | 'wave' | 'cheer' | 'clap' | 'talk' | 'tablet' | 'sit'), headPosition(out),
- *                  grounded, swimming, wading, sprinting, zone
+ *                  grounded, swimming, wading, sprinting, zone,
+ *                  combat: holdWeapon(mesh | null, {grip, muzzle, support, stock, holster}) → {object, grip, holstered},
+ *                  weapon, holster(bool), setAim(bool), aiming, aimAt(point | null),
+ *                  playAction('shoot' | 'reload' | 'hit' | 'dodge' | 'die' | 'respawn', opts) → bool,
+ *                  dodging (i-frames), rolling, dead, netAnim() → anim state, muzzleWorld(out)
  *   ctx.cameraRig  camera, yaw, pitch, distance, follow(object, {distance, height, minDistance, maxDistance,
- *                  shoulder, aimHeight, align, snap}), update(dt), shake(amount), zoomEnabled, lookEnabled,
- *                  snap(), setYaw(h, pitch?), focus(target | null, {distance, pitch, rate}), rightVec
+ *                  shoulder, aimHeight, align, focusRate, snap}), update(dt), shake(amount), zoomEnabled, lookEnabled,
+ *                  snap(), setYaw(h, pitch?), focus(target | null, {distance, pitch, rate}), rightVec,
+ *                  setAim(bool), aiming, aimW, aim (framing settings), aimRay() → {origin, dir (= direction), near}
+ *   ctx.remotes    remote player avatars (remotes.js): add(id, {name, appearance}), remove(id), get(id),
+ *                  list, count, clear(), mock(n) (?mockRemotes=N), driven by ctx.net.players views
  *   ctx.npcs       list, get(id), party (Set), named, say/setGoal/follow/lookAt per NPC,
  *                  spawn(def), remove(id), startGathering(), endGathering(), triangles()
  *   ctx.portraits  render(appearance | npcId, {width, height, framing: 'face'|'bust'|'full', view, fast}), has(), clearCache()
- * Events: player:zone, player:jump, player:land, player:footstep, npc:interact, npc:say, customize:done.
+ * Events: player:zone, player:jump, player:land, player:footstep, player:dodge, player:die,
+ * player:respawn, npc:interact, npc:say, customize:done, remote:add, remote:remove.
  * Heavy hero meshes are built in a module worker (build-worker.js) when possible.
  */
 import './characters.css';
@@ -28,6 +36,8 @@ import { createCameraRig } from './camera-rig.js';
 import { createPortraits } from './portraits.js';
 import { createNpcs } from './npcs.js';
 import { createDrones } from './drones.js';
+import { createCombatFx } from './combat-fx.js';
+import { createRemotes } from './remotes.js';
 import { Labels } from './labels.js';
 import { createStudio } from './studio.js';
 import { createCreator, defaultName, isDefaultName } from './creator.js';
@@ -63,7 +73,8 @@ export async function install(ctx, { progress = () => {} } = {}) {
   // ------------------------------------------------------------ rig + player
   const rig = createCameraRig(ctx);
   ctx.cameraRig = rig;
-  const player = createPlayer(ctx, { material: worldMat });
+  const fx = createCombatFx(ctx);
+  const player = createPlayer(ctx, { material: worldMat, fx });
   ctx.player = player;
   progress(0.3);
 
@@ -98,8 +109,20 @@ export async function install(ctx, { progress = () => {} } = {}) {
     console.error('[characters] drones failed', err);
   }
 
+  // ---------------------------------------------------------- remote players
+  let remotes = null;
+  try {
+    remotes = createRemotes(ctx, { material: worldMat, labels, fx });
+  } catch (err) {
+    console.error('[characters] remote players failed — continuing without them', err);
+    ctx.errors.push({ module: 'characters/remotes', error: String(err?.stack || err) });
+  }
+  ctx.remotes = remotes;
+
   // ------------------------------------------------------------ loop systems
   loop.add('chr-rim', () => updateRimFromWorld(worldMat, world, 0.78), { order: 19 });
+  loop.add('chr-remotes', (dt) => remotes?.update(dt), { order: 34, when: () => modes.is('explore', 'drive', 'title') });
+  loop.add('chr-fx', (dt) => fx.update(dt), { order: 35 });
   loop.add('chr-player-idle', (dt) => player.idle(dt, modes.is('title')), {
     order: 30,
     when: () => !modes.is('explore', 'customize') && player.object.visible,
@@ -199,6 +222,15 @@ export async function install(ctx, { progress = () => {} } = {}) {
     player.setAppearance(state.get('profile.appearance'));
   });
 
+  // aiming belongs to explore (vehicles, space, menus reset it)
+  events.on('mode:change', ({ to } = {}) => {
+    if (to !== 'explore' && player.aiming) player.setAim(false);
+  });
+  // ?mockRemotes=N — fake players around the player (offline avatar tests)
+  if (ctx.params.mockRemotes) {
+    events.once('game:start', () => remotes?.mock(Math.max(1, Math.min(64, Number(ctx.params.mockRemotes) || 6))));
+  }
+
   player.teleport('spawn', 0);
   progress(1);
   console.log(`[characters] installed in ${Math.round(performance.now() - t0)} ms (${npcs.list.length} NPCs, meshes building in workers)`);
@@ -211,6 +243,8 @@ export async function install(ctx, { progress = () => {} } = {}) {
     creator,
     labels,
     drones,
+    remotes,
+    fx,
     material: worldMat,
     PLAYER_CAM,
     catalog: { OUTFITS, HAIR_STYLES, SKIN_TONES, OUTFIT_COLORS },

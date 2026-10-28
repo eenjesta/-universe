@@ -7,6 +7,10 @@
  * step sway, trauma shake. follow(object, opts) is reused by vehicles:
  *   ctx.cameraRig.follow(car.object, { distance: 7, height: 1.6, shoulder: 0, align: 2 });
  *   ctx.cameraRig.update(dt);   // from the vehicle mode's update
+ * Aim mode (combat): setAim(true) eases to a closer over-the-shoulder framing with a
+ * narrower FOV and finer mouse look (settings in rig.aim); aimRay() → { origin, dir,
+ * near } is the camera-centre ray (near = distance to the followed target along it, so
+ * hits in front of the player can be ignored). Without aiming nothing changes.
  */
 import * as THREE from 'three';
 import { clamp, damp, dampAngle } from '../core/math.js';
@@ -32,6 +36,9 @@ export function createCameraRig(ctx) {
   let savedZoom = null;
   const focusOpts = { distance: 2.3, pitch: -0.04, rate: 3 };
   const fp = new THREE.Vector3();
+  let aimOn = false;
+  const ray = { origin: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1), near: 0, direction: null };
+  ray.direction = ray.dir; // alias
 
   const rig = {
     camera,
@@ -44,6 +51,7 @@ export function createCameraRig(ctx) {
     shoulder: 0.48,
     aimHeight: 0.22,
     align: 0,
+    focusRate: 22, // follow(…, { focusRate })
     target: null,
     zoomEnabled: true,
     lookEnabled: true,
@@ -53,15 +61,42 @@ export function createCameraRig(ctx) {
     swayPhase: 0,
     rightVec: new THREE.Vector3(1, 0, 0), // camera right on the XZ plane (read by others)
     _zoom: 3.4,
+    /** Aim framing (combat): distance, shoulder offset, extra height, FOV, look sensitivity, blend rate. */
+    aim: { distance: 1.5, shoulder: 0.64, height: 0.06, fov: 45, look: 0.78, rate: 9 },
+    aimW: 0, // 0 explore … 1 fully aimed (smoothed)
+
+    /** Over-the-shoulder aim mode on/off (smooth transition). */
+    setAim(on) {
+      aimOn = !!on;
+    },
+    get aiming() {
+      return aimOn;
+    },
+
+    /** The camera-centre ray { origin, dir (= direction), near } (reused object; valid after update()). */
+    aimRay() {
+      const cam = camera;
+      ray.origin.setFromMatrixPosition(cam.matrixWorld);
+      ray.dir.set(0, 0, -1).transformDirection(cam.matrixWorld);
+      ray.near = 0;
+      if (rig.target) {
+        rig.target.getWorldPosition(tmp);
+        tmp.y += rig.height;
+        ray.near = Math.max(0, tmp.sub(ray.origin).dot(ray.dir));
+      }
+      return ray;
+    },
 
     /**
      * Follow an object. opts: { distance, height, minDistance, maxDistance,
      * shoulder, aimHeight, align (auto-yaw rate behind the target's heading, 0 = off),
-     * snap (jump immediately) }
+     * focusRate (how tightly the framing follows the target, 1/s: horizontal; vertical ≈ 0.4×;
+     * default 22 — raise it for fast vehicles), snap (jump immediately) }
      */
     follow(object, opts = {}) {
       const changed = rig.target !== object;
       rig.target = object;
+      rig.focusRate = Number.isFinite(opts.focusRate) && opts.focusRate > 0 ? opts.focusRate : 22;
       if (opts.distance != null) rig._zoom = rig.distance = opts.distance;
       if (opts.height != null) rig.height = opts.height;
       if (opts.minDistance != null) rig.minDistance = opts.minDistance;
@@ -114,15 +149,19 @@ export function createCameraRig(ctx) {
       const obj = rig.target;
       if (!obj) return;
       // ---- input
+      rig.aimW = damp(rig.aimW, aimOn ? 1 : 0, rig.aim.rate, dt);
+      if (rig.aimW < 0.001 && !aimOn) rig.aimW = 0;
+      const aw = rig.aimW;
       if (rig.lookEnabled) {
-        const lx = input.lookX || 0;
-        const ly = input.lookY || 0;
+        const ls = 1 + (rig.aim.look - 1) * aw;
+        const lx = (input.lookX || 0) * ls;
+        const ly = (input.lookY || 0) * ls;
         rig.yaw -= lx * 0.0026;
         rig.pitch = clamp(rig.pitch - ly * 0.0021, -1.15, 0.72);
         if (Math.abs(lx) + Math.abs(ly) > 0.5) idleLook = 0;
       }
       idleLook += dt;
-      if (rig.zoomEnabled && input.wheel) {
+      if (rig.zoomEnabled && input.wheel && !aimOn) {
         rig._zoom = clamp(rig._zoom * (1 + input.wheel * 0.14), rig.minDistance, rig.maxDistance);
       }
       rig.distance = damp(rig.distance, rig._zoom, 10, dt);
@@ -130,12 +169,13 @@ export function createCameraRig(ctx) {
       // ---- target position (world)
       obj.updateWorldMatrix(true, false);
       tgt.setFromMatrixPosition(obj.matrixWorld);
-      tgt.y += rig.height;
+      tgt.y += rig.height + rig.aim.height * aw;
       if (!initialised) focus.copy(tgt);
       else {
-        focus.x = damp(focus.x, tgt.x, 22, dt);
-        focus.z = damp(focus.z, tgt.z, 22, dt);
-        focus.y = damp(focus.y, tgt.y, 9, dt);
+        const fr = rig.focusRate;
+        focus.x = damp(focus.x, tgt.x, fr, dt);
+        focus.z = damp(focus.z, tgt.z, fr, dt);
+        focus.y = damp(focus.y, tgt.y, fr === 22 ? 9 : fr * 0.41, dt);
       }
       // focus framing (dialogue): look past the followed object at the focus target
       if (focusTarget) {
@@ -159,10 +199,11 @@ export function createCameraRig(ctx) {
       back.set(Math.sin(rig.yaw) * cp, -Math.sin(rig.pitch), Math.cos(rig.yaw) * cp);
       right.set(Math.cos(rig.yaw), 0, -Math.sin(rig.yaw));
       rig.rightVec.copy(right);
-      // shoulder offset shrinks when zoomed far out
-      const sh = rig.shoulder * clamp(1.4 - rig.distance / 10, 0.3, 1);
+      // shoulder offset shrinks when zoomed far out; aiming eases to a close OTS framing
+      const sh0 = rig.shoulder * clamp(1.4 - rig.distance / 10, 0.3, 1);
+      const sh = sh0 + (rig.aim.shoulder - sh0) * aw;
       pivot.copy(focus).addScaledVector(right, sh);
-      let dist = rig.distance;
+      let dist = rig.distance + (Math.min(rig.distance, rig.aim.distance) - rig.distance) * aw;
 
       // ---- collision: physics boxes along focus → camera
       desired.copy(pivot).addScaledVector(back, dist);
@@ -219,7 +260,7 @@ export function createCameraRig(ctx) {
         trauma = Math.max(0, trauma - dt * 1.5);
       }
       // ---- fov kick
-      const fov = rig.baseFov + rig.fovKick * 7;
+      const fov = rig.baseFov + rig.fovKick * 7 * (1 - aw) + (rig.aim.fov - rig.baseFov) * aw;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = initialised ? damp(camera.fov, fov, 4, dt) : fov;
         camera.updateProjectionMatrix();

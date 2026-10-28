@@ -197,6 +197,9 @@ export class TitleScreen {
           formatDuration(st.get('stats.playtime', 0)),
         ].join(' · ')
       : t({ en: 'Create your character and step into the world', nl: 'Maak je personage en stap de wereld in' });
+    // signed in to a platform account: show who is playing in the Play line
+    const who = ctx.platform?.available ? ctx.platform.statusLine?.() : null;
+    const playSub = who ? [who, t({ en: 'Level {n}', nl: 'Niveau {n}' }, { n: st.get('progress.level', 1) })].join(' · ') : sub;
     const item = (id, label, iconName, extra = {}) =>
       h(
         'button',
@@ -216,7 +219,7 @@ export class TitleScreen {
     const nav = h(
       'nav',
       { class: 'shell-tmenu', 'aria-label': t({ en: 'Main menu', nl: 'Hoofdmenu' }) },
-      item('play', resume ? { en: 'Continue', nl: 'Doorgaan' } : { en: 'Play', nl: 'Speel' }, 'play', { primary: true, sub }),
+      item('play', resume ? { en: 'Continue', nl: 'Doorgaan' } : { en: 'Play', nl: 'Speel' }, 'play', { primary: true, sub: playSub }),
       item('character', { en: 'Character', nl: 'Karakter' }, 'user'),
       item('settings', { en: 'Settings', nl: 'Instellingen' }, 'settings'),
     );
@@ -238,6 +241,11 @@ export class TitleScreen {
   async _action(id) {
     if (this._busy || this.ctx.modes.transitioning) return;
     uiSound(this.ctx, 'ui.click');
+    // platform layer: Play opens Home (the hub with the flagship SMP, experiences and friends)
+    if (id === 'play' && this.ctx.platform?.available && typeof this.ctx.platform.openHome === 'function') {
+      this.ctx.platform.openHome();
+      return;
+    }
     if (id === 'settings') {
       this.shell.pause.open({ context: 'title', tab: 'settings' });
       return;

@@ -181,6 +181,10 @@
   filter: none;
 }
 .build-cross.bad .build-cross-label { border-color: rgba(255, 122, 110, 0.45); color: #ffd2cc; }
+/* short screens: the bottom stack (build bar + vitals) reaches the centre → label above the reticle */
+@media (max-height: 640px) {
+  .build-cross-label { top: auto; bottom: 56px; }
+}
 .build-cross.shake { animation: build-shake 0.36s ease; }
 @keyframes build-shake {
   0%, 100% { transform: none; }

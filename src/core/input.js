@@ -56,6 +56,10 @@ export const ACTIONS = {
   slot4: ['Digit4'],
   slot5: ['Digit5'],
   slot6: ['Digit6'],
+  slot7: ['Digit7'],
+  inventory: ['KeyI'],
+  reload: ['KeyR'],
+  dodge: ['KeyQ'],
 };
 
 /** Keys whose browser default (scrolling, focus moves) we suppress during play. */

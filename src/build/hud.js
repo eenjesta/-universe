@@ -107,9 +107,10 @@ export function createHud(ctx, api) {
     refreshStrip();
   });
   state.subscribe('credits', (v) => setRow(credits, Number(v ?? 0)));
+  const isCreative = () => (api.creative ? api.creative() : !!state.get('settings.creative'));
   const syncCreative = () => {
-    ui.setVisible(creativeChip, !!state.get('settings.creative'));
-    creativeChip.hidden = !state.get('settings.creative');
+    ui.setVisible(creativeChip, isCreative());
+    creativeChip.hidden = !isCreative();
     refreshStrip();
   };
   state.subscribe('settings', syncCreative);
@@ -174,7 +175,7 @@ export function createHud(ctx, api) {
 
   function refreshStrip(force = false) {
     if (!cards.length) return;
-    const creative = !!state.get('settings.creative');
+    const creative = isCreative();
     const res = state.get('resources') || {};
     for (const c of cards) {
       const locked = !api.isOwned(c.def);
@@ -204,6 +205,12 @@ export function createHud(ctx, api) {
         }
       }
     }
+  }
+
+  /** Shows / hides a category tile (the SMP 'survival' tile only exists while a server is authoritative). */
+  function setCategoryVisible(id, on) {
+    const el = tiles[id];
+    if (el) el.hidden = !on;
   }
 
   function setSelection(catId, pieceId) {
@@ -309,5 +316,5 @@ export function createHud(ctx, api) {
     }
   }
 
-  return { setSelection, setCross, flashInvalid, setBuilding, setPower, setBaseLevel, refreshStrip, update, el: { resPanel, bar, hints, cross, baseLabel } };
+  return { setSelection, setCategoryVisible, syncCreative, setCross, flashInvalid, setBuilding, setPower, setBaseLevel, refreshStrip, update, el: { resPanel, bar, hints, cross, baseLabel } };
 }

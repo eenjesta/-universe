@@ -19,6 +19,13 @@
  *   unlock   market item id required in state.owned.items
  *   points   contribution to the base level
  *   radius   footprint radius of 'free' pieces (overlap checks)
+ *   hidden   not in the build bar (e.g. 'workbench-2', created by the server's upgrade recipe)
+ *   smp      survival role: { station: 'workbench', tier } | { claim: radius } | { spawn: true }
+ *
+ * The 'survival' category (key 7: Workbench, Claim Beacon, Spawn Beacon) is only
+ * shown while a server is authoritative (ctx.build.setAuthority, online or
+ * LocalServer); the single-player fallback keeps the classic six categories.
+ * Costs are mirrored in shared/defs/pieces.js (server truth when online).
  */
 
 export const CELL = 4; // grid cell (m)
@@ -27,6 +34,7 @@ export const WALL_H = 3.0; // wall height (a 0.2 m slab sits on top)
 export const SLAB = 0.2;
 export const MAX_LEVEL = 6;
 export const REACH = 24; // max horizontal distance player → placement
+export const CLAIM_RADIUS = 24; // claim beacon protection radius (PLATFORM.md §1)
 
 export const RESOURCES = [
   { id: 'metal', icon: 'metal', name: { en: 'Metal', nl: 'Metaal' }, color: '#9fc6ff' },
@@ -42,6 +50,7 @@ export const CATEGORIES = [
   { id: 'roof', key: 'Digit4', icon: 'roof', name: { en: 'Roof', nl: 'Dak' } },
   { id: 'decor', key: 'Digit5', icon: 'decor', name: { en: 'Decor', nl: 'Decor' } },
   { id: 'power', key: 'Digit6', icon: 'power', name: { en: 'Power', nl: 'Energie' } },
+  { id: 'survival', key: 'Digit7', icon: 'bld-survival', name: { en: 'Survival', nl: 'Overleven' }, smp: true },
 ];
 
 const P = (category, id, name, cost, snap, extra = {}) => ({ category, id, name, cost, snap, points: 1, ...extra });
@@ -117,12 +126,30 @@ export const PIECES = [
   P('power', 'fusion-core', { en: 'Fusion Core', nl: 'Fusiekern' }, { metal: 60, energy: 30 }, 'free', {
     radius: 1.3, power: { produce: 15 }, unlock: 'power-fusion', points: 6, icon: 'bld-fusion',
   }),
+  // -------------------------------------------------------------- SURVIVAL (SMP)
+  P('survival', 'workbench', { en: 'Workbench', nl: 'Werkbank' }, { metal: 30, wood: 20, stone: 10 }, 'free', {
+    desc: { en: 'Crafting station (tier 1): ammo, rations, medkits, shield cells, weapons.', nl: 'Werkstation (niveau 1): munitie, rantsoenen, medkits, schildcellen, wapens.' },
+    radius: 1.25, points: 3, icon: 'bld-workbench', smp: { station: 'workbench', tier: 1 },
+  }),
+  P('survival', 'workbench-2', { en: 'Workbench Mk II', nl: 'Werkbank Mk II' }, { metal: 120, stone: 80, energy: 40 }, 'free', {
+    desc: { en: 'Upgraded crafting station (tier 2): railgun and advanced gear.', nl: 'Verbeterd werkstation (niveau 2): railgun en geavanceerde uitrusting.' },
+    radius: 1.35, points: 5, icon: 'bld-workbench', hidden: true, smp: { station: 'workbench', tier: 2 },
+  }),
+  P('survival', 'claim-beacon', { en: 'Claim Beacon', nl: 'Claimbaken' }, { metal: 25, stone: 20, energy: 10 }, 'free', {
+    desc: { en: 'Claims the land within 24 m: only you can build or remove there.', nl: 'Claimt het land binnen 24 m: alleen jij kunt daar bouwen of slopen.' },
+    radius: 0.8, points: 2, icon: 'bld-claim', smp: { claim: CLAIM_RADIUS },
+  }),
+  P('survival', 'spawn-beacon', { en: 'Spawn Beacon', nl: 'Spawnbaken' }, { metal: 20, energy: 15 }, 'free', {
+    desc: { en: 'Your respawn point after a defeat.', nl: 'Je respawnpunt na een nederlaag.' },
+    radius: 1.1, points: 2, icon: 'bld-spawn', smp: { spawn: true },
+  }),
 ];
 
 export const PIECE = Object.fromEntries(PIECES.map((p) => [p.id, p]));
 
+/** Pieces of a category shown in the build bar (hidden pieces like 'workbench-2' excluded). */
 export function piecesOf(categoryId) {
-  return PIECES.filter((p) => p.category === categoryId);
+  return PIECES.filter((p) => p.category === categoryId && !p.hidden);
 }
 
 /** Base level thresholds (points → level 1…8). Level 1 = the landmarks base alone. */

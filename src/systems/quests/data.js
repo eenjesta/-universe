@@ -364,6 +364,52 @@ export function buildQuests(refs) {
       objectives: [{ id: 'harvest', on: [{ event: 'harvest' }], count: 5, text: t({ en: 'Harvest resources', nl: 'Oogst grondstoffen' }) }],
       rewards: { xp: 300, resources: { metal: 40, wood: 40, stone: 30 } },
     },
+    // ------------------------------------------------- survival chain (SMP — events from src/smp + src/build)
+    {
+      id: 'survival',
+      type: 'side',
+      title: t({ en: 'Survival Basics', nl: 'Overleven: de basis' }),
+      giver: null,
+      location: t({ en: 'Beyond the hub', nl: 'Voorbij de hub' }),
+      summary: t({
+        en: 'The hub is a safe zone; past its Ø border beacons you keep yourself alive. Harvest resources, build a Workbench to craft at, and claim a patch of land (at least 500 m beyond the border) so nobody can build over your base. [I] opens your inventory, [B] then 7 shows the survival pieces.',
+        nl: 'De hub is een veilige zone; voorbij de Ø-grensbakens hou je jezelf in leven. Oogst grondstoffen, bouw een werkbank om aan te werken en claim een stuk land (minstens 500 m voorbij de grens) zodat niemand over je basis heen bouwt. [I] opent je inventaris, [B] en dan 7 toont de overlevingsonderdelen.',
+      }),
+      triggers: [{ check: (ctx) => !!ctx.smp?.ready }],
+      objectives: [
+        { id: 'workbench', on: [{ event: 'build:placed', filter: (p) => p?.piece === 'workbench' }], text: t({ en: 'Build a workbench', nl: 'Bouw een werkbank' }) },
+        { id: 'ration', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'ration' }], text: t({ en: 'Craft a ration at your workbench', nl: 'Maak een rantsoen aan je werkbank' }) },
+        {
+          id: 'claim',
+          on: [{ event: 'build:placed', filter: (p) => p?.piece === 'claim-beacon' }, { event: 'smp:claimed' }],
+          text: t({ en: 'Claim your land', nl: 'Claim je land' }),
+        },
+      ],
+      rewards: { xp: 400, credits: 200 },
+      next: ['survival2'],
+    },
+    {
+      id: 'survival2',
+      type: 'side',
+      title: t({ en: 'Armed and Ready', nl: 'Gewapend en klaar' }),
+      giver: null,
+      location: t({ en: 'The wilderness', nl: 'De wildernis' }),
+      requires: ['survival'],
+      summary: t({
+        en: 'Security drones guard the Ø ruins, outposts and crash sites beyond the hub — more of them at night. Take one down, then craft a plasma rifle at your workbench for the long nights ahead.',
+        nl: 'Beveiligingsdrones bewaken de Ø-ruïnes, buitenposten en neergestorte schepen voorbij de hub — ’s nachts nog meer. Haal er één neer en maak dan een plasmageweer aan je werkbank voor de lange nachten.',
+      }),
+      triggers: [{ check: (ctx) => !!ctx.smp?.ready }],
+      objectives: [
+        {
+          id: 'drone',
+          on: [{ event: 'smp:kill', filter: (p) => !p?.type || /drone/i.test(String(p.type)) }],
+          text: t({ en: 'Defeat a security drone', nl: 'Versla een beveiligingsdrone' }),
+        },
+        { id: 'rifle', on: [{ event: 'smp:crafted', filter: (p) => p?.recipe === 'plasma-rifle' }], text: t({ en: 'Craft a plasma rifle', nl: 'Maak een plasmageweer' }) },
+      ],
+      rewards: { xp: 600, credits: 300, resources: { metal: 40, energy: 20 } },
+    },
     {
       id: 'highabove',
       type: 'side',

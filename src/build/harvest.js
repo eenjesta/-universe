@@ -9,6 +9,19 @@
  * cyan progress ring on the ground while holding, a floating "+7 Metal" and
  * a shrink; nodes respawn after 2.5–4 minutes with a grow-in.
  * Rendering: one InstancedMesh per node type × material part.
+ *
+ * Positions come from the shared generator shared/sim/nodes.js (same ids and
+ * spots as the server) when it exists, else from the local regions below.
+ * Online (opts.authority() returns the build authority): hold-E completion
+ * calls authority.harvest(nodeId) (→ C.HARVEST) and the node only depletes when
+ * applyHarvested({node, by, res, respawnIn, mine}) mirrors S.HARVESTED;
+ * resources then arrive through the server inventory, not state.gain.
+ *
+ * Wilderness nodes (PLATFORM.md §11): setSource({ nodesNear(x, z, r) }) — the world provider
+ * src/smp resolves with the server seed (shared/sim/world.js, same ids as the sim) — streams
+ * the nodes around the player into pooled instanced slots (W_CAP per type, added within
+ * W_ADD m, dropped beyond W_KEEP m); depleted state survives streaming out. Single-player
+ * (no source) is unchanged.
  */
 import * as THREE from 'three';
 import { ZONES } from '../world/layout.js';
@@ -18,6 +31,10 @@ import { GeoBuilder, rockGeometry } from './geo.js';
 import { REVEAL_DONE } from './materials.js';
 import { protectedAt, roadClearance } from './placement.js';
 import { RESOURCES } from './catalog.js';
+
+// shared node generator (sim engineer); optional so the build module never breaks without it
+const SHARED = import.meta.glob('../../shared/sim/nodes.js', { eager: true });
+const SHARED_NODES = Object.values(SHARED)[0] || null;
 
 const TYPES = {
   metal: {
@@ -185,7 +202,7 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-export function createHarvest(ctx, mats) {
+export function createHarvest(ctx, mats, opts = {}) {
   const { world, state, events, ui } = ctx;
   const root = new THREE.Group();
   root.name = 'build-nodes';
@@ -222,14 +239,53 @@ export function createHarvest(ctx, mats) {
     return true;
   }
 
-  for (const R of REGIONS) {
+  // shared generator first (identical ids + positions on server and client)
+  let shared = null;
+  if (typeof SHARED_NODES?.generateNodes === 'function') {
+    try {
+      shared = SHARED_NODES.generateNodes({
+        getHeightAt: H,
+        isWater: (x, z) => !!world?.isWater?.(x, z),
+        getNormalAt: world?.getNormalAt ? (x, z, out) => world.getNormalAt(x, z, out) : null,
+      });
+    } catch (err) {
+      console.warn('[build] shared node generator failed — using the local layout', err);
+      shared = null;
+    }
+  }
+  if (Array.isArray(shared) && shared.length) {
+    for (const g of shared) {
+      const type = g?.type;
+      if (!TYPES[type] || !Number.isFinite(g.x) || !Number.isFinite(g.z)) continue;
+      if (world?.isSafe?.(g.x, g.z)) continue; // no gathering in the safe social hub (PLATFORM.md §11)
+      nodes.push({
+        id: `bld-node-${nodes.length}`,
+        sid: String(g.id ?? `n${nodes.length}`),
+        type,
+        def: TYPES[type],
+        x: g.x,
+        z: g.z,
+        y: Number.isFinite(g.y) ? g.y : H(g.x, g.z),
+        rotY: Number.isFinite(g.rotY) ? g.rotY : rng.random() * Math.PI * 2,
+        scale: Number.isFinite(g.scale) ? g.scale : rng.range(0.85, 1.2),
+        available: true,
+        respawnAt: 0,
+        waitT: 0,
+        anim: 0,
+        set: null,
+        index: -1,
+        pos: new THREE.Vector3(),
+      });
+    }
+  }
+  for (const R of shared?.length ? [] : REGIONS) {
     let placed = 0;
     for (let tries = 0; tries < R.n * 40 && placed < R.n; tries++) {
       const a = rng.random() * Math.PI * 2;
       const r = R.rMin + Math.sqrt(rng.random()) * (R.rMax - R.rMin);
       const x = R.x + Math.cos(a) * r;
       const z = R.z + Math.sin(a) * r;
-      if (!okSpot(x, z)) continue;
+      if (!okSpot(x, z) || world?.isSafe?.(x, z)) continue;
       const type = R.mix[placed % R.mix.length];
       const def = TYPES[type];
       nodes.push({
@@ -243,6 +299,7 @@ export function createHarvest(ctx, mats) {
         scale: rng.range(0.85, 1.2),
         available: true,
         respawnAt: 0,
+        waitT: 0, // online: seconds left waiting for the server's answer
         anim: 0, // 0 idle, >0 grow-in progress, <0 shrink progress
         set: null,
         index: -1,
@@ -251,6 +308,20 @@ export function createHarvest(ctx, mats) {
       placed++;
     }
   }
+  for (const n of nodes) if (!n.sid) n.sid = n.id;
+  const bySid = new Map(nodes.map((n) => [n.sid, n]));
+  const byIid = new Map(nodes.map((n) => [n.id, n])); // interaction id → node (static + streamed)
+
+  // ------------------------------------------------------------ wilderness nodes (streamed)
+  const W_CAP = 48; // instances per node type
+  const W_ADD = 150; // stream in within this (m)
+  const W_KEEP = 185; // drop beyond this (m)
+  let source = null; // { nodesNear(x, z, r) } from src/smp (the shared world provider)
+  const wsets = {}; // type → { parts, free: [slots], used }
+  const wnodes = []; // streamed nodes (dense)
+  const depleted = new Map(); // sid → loop time it grows back (also for nodes not streamed in)
+  const keep = new Set();
+  const lastQ = { x: Infinity, z: Infinity, t: -10 };
 
   // ------------------------------------------------------------ rendering
   for (const type of Object.keys(TYPES)) {
@@ -276,6 +347,121 @@ export function createHarvest(ctx, mats) {
       writeMatrix(n, n.scale, 0);
     });
     for (const p of parts) p.mesh.computeBoundingSphere();
+  }
+
+  function poolSet(type) {
+    let ws = wsets[type];
+    if (ws) return ws;
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    const parts = nodeGeometry(type).map((p) => {
+      p.geometry.setAttribute('aReveal', new THREE.InstancedBufferAttribute(new Float32Array(W_CAP).fill(REVEAL_DONE), 1));
+      const mesh = new THREE.InstancedMesh(p.geometry, mats[p.mat], W_CAP);
+      mesh.name = `build-wnode-${type}-${p.mat}`;
+      const lit = p.mat !== 'neon' && p.mat !== 'pool';
+      mesh.castShadow = lit;
+      mesh.receiveShadow = lit;
+      if (p.mat === 'pool') mesh.renderOrder = 2;
+      mesh.frustumCulled = false; // slots move as the player travels; hidden while the pool is empty
+      for (let i = 0; i < W_CAP; i++) mesh.setMatrixAt(i, zero);
+      mesh.visible = false;
+      root.add(mesh);
+      return { mat: p.mat, mesh };
+    });
+    const free = [];
+    for (let i = W_CAP - 1; i >= 0; i--) free.push(i);
+    ws = wsets[type] = { parts, free, used: 0 };
+    return ws;
+  }
+
+  function addWild(g) {
+    const def = TYPES[g.type];
+    if (!def) return;
+    const ws = poolSet(g.type);
+    const slot = ws.free.pop();
+    if (slot === undefined) return;
+    const sid = String(g.id);
+    const n = {
+      id: `bld-wnode-${sid}`,
+      sid,
+      type: g.type,
+      def,
+      x: g.x,
+      z: g.z,
+      y: Number.isFinite(g.y) ? g.y : H(g.x, g.z),
+      rotY: Number.isFinite(g.rotY) ? g.rotY : 0,
+      scale: Number.isFinite(g.scale) ? g.scale : 1,
+      available: true,
+      respawnAt: 0,
+      waitT: 0,
+      anim: 0,
+      set: ws,
+      index: slot,
+      pos: new THREE.Vector3(),
+      wild: true,
+    };
+    n.pos.set(n.x, n.y + 0.8, n.z);
+    const until = depleted.get(sid);
+    if (until !== undefined && until > ctx.loop.time) {
+      n.available = false;
+      n.respawnAt = until;
+      writeMatrix(n, 0, 0);
+    } else {
+      depleted.delete(sid);
+      writeMatrix(n, n.scale, 0);
+    }
+    ws.used++;
+    for (const p of ws.parts) p.mesh.visible = true;
+    wnodes.push(n);
+    bySid.set(sid, n);
+    byIid.set(n.id, n);
+    addInteraction(n);
+  }
+
+  function dropWild(i) {
+    const n = wnodes[i];
+    if (!n.available) depleted.set(n.sid, n.respawnAt);
+    writeMatrix(n, 0, 0);
+    n.set.free.push(n.index);
+    n.set.used--;
+    if (n.set.used <= 0) for (const p of n.set.parts) p.mesh.visible = false;
+    ctx.interactions?.remove?.(n.id);
+    bySid.delete(n.sid);
+    byIid.delete(n.id);
+    wnodes[i] = wnodes[wnodes.length - 1];
+    wnodes.pop();
+  }
+
+  /** Streams wilderness nodes around (x, z) — at most every 0.5 s or after moving 12 m. */
+  function stream(x, z, time) {
+    if (!source) return;
+    if (time - lastQ.t < 0.5 || (Math.hypot(x - lastQ.x, z - lastQ.z) < 12 && time - lastQ.t < 4)) return;
+    lastQ.x = x;
+    lastQ.z = z;
+    lastQ.t = time;
+    let list = null;
+    try {
+      list = source.nodesNear(x, z, W_KEEP);
+    } catch (err) {
+      console.warn('[build] node source failed', err);
+      source = null;
+      return;
+    }
+    keep.clear();
+    for (const g of list || []) {
+      if (!g || g.id == null) continue;
+      const sid = String(g.id);
+      if (bySid.has(sid) && !bySid.get(sid).wild) continue; // a hand-placed hub node with the same id
+      keep.add(sid);
+      if (!bySid.has(sid) && Math.hypot(g.x - x, g.z - z) <= W_ADD) addWild(g);
+    }
+    for (let i = wnodes.length - 1; i >= 0; i--) if (!keep.has(wnodes[i].sid)) dropWild(i);
+    if (depleted.size > 512) for (const [k, v] of depleted) if (v <= time) depleted.delete(k);
+  }
+
+  function setSource(src) {
+    source = src && typeof src.nodesNear === 'function' ? src : null;
+    lastQ.t = -10;
+    if (!source) for (let i = wnodes.length - 1; i >= 0; i--) dropWild(i);
   }
 
   function writeMatrix(n, s, wobble) {
@@ -368,6 +554,18 @@ export function createHarvest(ctx, mats) {
   // ------------------------------------------------------------ interactions
   function harvest(n) {
     if (!n.available) return null;
+    const auth = opts.authority?.();
+    if (auth) {
+      // online: ask the server; the node depletes when S.HARVESTED arrives (applyHarvested)
+      if (n.waitT > 0) return null;
+      n.waitT = 2.5;
+      try {
+        auth.harvest?.(n.sid, n);
+      } catch (err) {
+        console.warn('[build] harvest request failed', err);
+      }
+      return 0;
+    }
     const [a0, a1] = n.def.amount;
     const amount = a0 + Math.floor(Math.random() * (a1 - a0 + 1));
     state.gain({ [n.def.resource]: amount });
@@ -384,7 +582,38 @@ export function createHarvest(ctx, mats) {
     return amount;
   }
 
-  for (const n of nodes) {
+  /**
+   * Mirrors S.HARVESTED { node, by, res, respawnAt } (respawnIn = seconds until it grows back,
+   * mine = harvested by the local player → floating text + `harvest` event, silent = welcome sync).
+   */
+  function applyHarvested({ node, res = null, respawnIn = 180, mine = false, silent = false } = {}) {
+    const n = bySid.get(String(node));
+    if (!n) {
+      // a wilderness node that isn't streamed in (yet): remember it so it appears depleted
+      if (node != null) depleted.set(String(node), ctx.loop.time + Math.max(3, Number(respawnIn) || 180));
+      return false;
+    }
+    n.waitT = 0;
+    if (n.available) {
+      n.available = false;
+      n.anim = silent ? 0 : -0.0001;
+      if (silent) writeMatrix(n, 0, 0);
+    }
+    n.respawnAt = ctx.loop.time + Math.max(3, Number(respawnIn) || 180);
+    if (silent || !mine) return true;
+    let amount = Number(res?.[n.def.resource]);
+    if (!Number.isFinite(amount)) amount = Object.values(res || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+    burst = 1;
+    ring.position.set(n.x, n.y + 0.08, n.z);
+    ring.visible = true;
+    ctx.audio?.play?.('harvest', { position: n.pos });
+    if (amount > 0) floatText(n, amount);
+    state.add('stats.harvested', 1);
+    events.emit('harvest', { resource: n.def.resource, amount, source: 'node', node: n.id, sid: n.sid, position: { x: n.x, y: n.y, z: n.z }, online: true });
+    return true;
+  }
+
+  function addInteraction(n) {
     ctx.interactions?.add?.({
       id: n.id,
       scope: 'world',
@@ -393,10 +622,11 @@ export function createHarvest(ctx, mats) {
       label: t(n.def.label),
       hold: n.def.hold,
       priority: 1,
-      enabled: () => n.available,
+      enabled: () => n.available && !(n.waitT > 0),
       onInteract: () => harvest(n),
     });
   }
+  for (const n of nodes) addInteraction(n);
 
   // ------------------------------------------------------------ per frame
   let wob = 0;
@@ -404,7 +634,11 @@ export function createHarvest(ctx, mats) {
     const I = ctx.interactions;
     const cur = I?.current;
     let active = null;
-    if (cur && typeof cur.id === 'string' && cur.id.startsWith('bld-node-')) active = nodes[+cur.id.slice(9)] || null;
+    if (cur && typeof cur.id === 'string' && cur.id.startsWith('bld-')) active = byIid.get(cur.id) || null;
+    if (source) {
+      const p = ctx.player?.position;
+      if (p) stream(p.x, p.z, time);
+    }
     const progress = active && cur.hold > 0 ? Math.min(1, I.holdTime / cur.hold) : 0;
     if (burst > 0) {
       burst = Math.max(0, burst - dt * 2.2);
@@ -423,44 +657,54 @@ export function createHarvest(ctx, mats) {
       writeMatrix(active, active.scale, Math.sin(wob) * 0.03 * progress);
       active._wob = true;
     } else {
-      for (const n of nodes) {
-        if (n._wob && n.available && n.anim === 0) {
-          writeMatrix(n, n.scale, 0);
-          n._wob = false;
-        }
-      }
+      for (const n of nodes) unwobble(n);
+      for (let i = 0; i < wnodes.length; i++) unwobble(wnodes[i]);
     }
     // shrink / respawn / grow-in
-    for (const n of nodes) {
-      if (n.anim < 0) {
-        n.anim -= dt / 0.35;
-        const k = Math.max(0, 1 + n.anim);
-        writeMatrix(n, n.scale * k * (1 + (1 - k) * 0.25), 0);
-        if (k <= 0) {
-          n.anim = 0;
-          writeMatrix(n, 0, 0);
-        }
-      } else if (n.anim > 0) {
-        n.anim += dt / 1.4;
-        const k = Math.min(1, n.anim);
-        const e = 1 - Math.pow(1 - k, 3);
-        writeMatrix(n, n.scale * e, 0);
-        if (k >= 1) n.anim = 0;
-      } else if (!n.available && time >= n.respawnAt) {
-        n.available = true;
-        n.anim = 0.0001;
-      }
-    }
+    for (const n of nodes) stepNode(n, dt, time);
+    for (let i = 0; i < wnodes.length; i++) stepNode(wnodes[i], dt, time);
     updateFloats(dt, ctx.engine?.camera || ctx.camera);
+  }
+
+  function unwobble(n) {
+    if (n._wob && n.available && n.anim === 0) {
+      writeMatrix(n, n.scale, 0);
+      n._wob = false;
+    }
+  }
+
+  function stepNode(n, dt, time) {
+    if (n.waitT > 0) n.waitT = Math.max(0, n.waitT - dt);
+    if (n.anim < 0) {
+      n.anim -= dt / 0.35;
+      const k = Math.max(0, 1 + n.anim);
+      writeMatrix(n, n.scale * k * (1 + (1 - k) * 0.25), 0);
+      if (k <= 0) {
+        n.anim = 0;
+        writeMatrix(n, 0, 0);
+      }
+    } else if (n.anim > 0) {
+      n.anim += dt / 1.4;
+      const k = Math.min(1, n.anim);
+      const e = 1 - Math.pow(1 - k, 3);
+      writeMatrix(n, n.scale * e, 0);
+      if (k >= 1) n.anim = 0;
+    } else if (!n.available && time >= n.respawnAt) {
+      n.available = true;
+      n.anim = 0.0001;
+      if (n.wild) depleted.delete(n.sid);
+    }
   }
 
   function dispose() {
     for (const n of nodes) ctx.interactions?.remove?.(n.id);
+    for (let i = wnodes.length - 1; i >= 0; i--) dropWild(i);
     for (const s of Object.values(sets)) for (const p of s.parts) p.mesh.dispose();
+    for (const s of Object.values(wsets)) for (const p of s.parts) p.mesh.dispose();
     ring.geometry.dispose();
     ringMat.dispose();
     for (const f of floats) f.el.remove();
   }
 
-  return { root, nodes, harvest, update, dispose, types: TYPES };
+  return { root, nodes, wnodes, bySid, harvest, applyHarvested, setSource, update, dispose, types: TYPES };
 }

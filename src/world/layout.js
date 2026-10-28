@@ -29,7 +29,8 @@ export const WORLD = {
   seed: 'o-universe',
   size: 2400, // terrain square side, centred on the origin
   half: 1200,
-  playBounds: 1050, // characters/vehicles are kept inside |x|,|z| < playBounds
+  playBounds: 1050, // characters/vehicles are kept inside |x|,|z| < playBounds (lifted when the infinite planet is attached)
+  hubPlayBounds: 1050, // the hand-made hub's playable half-size (map bake, hub-only logic) — never changes
   waterLevel: 0,
 };
 

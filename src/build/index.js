@@ -25,6 +25,22 @@
  *   stats.harvested.
  * URL: build=1 (core calls enter(); at the base the player is framed on the plot),
  *   piece=<id> (initial piece).
+ *
+ * Online / LocalServer (PLATFORM.md §7, wired by src/smp):
+ *   setAuthority({ place(rec) → Promise<{ok, record | reason, text}>, remove(id) → Promise<{ok, reason, text}>,
+ *     check?(target, def) → null | {reason, text}   (client-side prediction, e.g. someone else's claim),
+ *     canEnter?() → null | text   (build mode refused here, e.g. inside the hub safe zone → toast),
+ *     canRemove?(rec) → null | text, harvest?(node) → bool (sends C.HARVEST), me?: playerId })
+ *   or setAuthority(null) (single-player: local state.structures + state.spend, unchanged).
+ *   While an authority is set, placing/removing only asks it (the ghost waits as a hologram phantom; a denial
+ *   turns the ghost red with the reason), structures come from the server through
+ *   applyRemote({ add: [record], remove: [id], reset }) (record = {id, type|piece, x, y, z | p, rot, level,
+ *   variant, owner, ownerName}), state.structures (the single-player save) is left untouched, power pieces
+ *   don't add energy locally, creative mode is ignored and the 'survival' category (Workbench, Claim Beacon,
+ *   Spawn Beacon) is shown. applyHarvest({node, by, res, respawnAt, mine}) mirrors S.HARVESTED.
+ *   placeAtAsync(pieceId, opts) → Promise<{ok, id | reason}> (tests). targetRef = the live target (no allocation).
+ *   setNodeSource({nodesNear(x, z, r)} | null) streams wilderness harvest nodes around the player (wildNodes).
+ *   Extra events: build:remote {id, piece, owner} (someone else built), build:denied {reason, text, piece}.
  * Files: catalog · geo · materials · pieces · hologram · placement · structures ·
  *   power · harvest · hud (+ build.css) · icons · dev/lab.
  */
@@ -45,6 +61,18 @@ import { createHud } from './hud.js';
 import { registerBuildIcons } from './icons.js';
 
 const BUILD_CAM = { distance: 6.4, height: 1.8, shoulder: 1.1, aimHeight: 0.5 };
+/** Fallback texts for server denials without a translated `text` (src/smp passes its own). */
+const DENY_TEXT = {
+  denied: { en: 'Not allowed here', nl: 'Hier niet toegestaan' },
+  noBuild: { en: 'Safe zone', nl: 'Veilige zone' },
+  claim: { en: 'This land is claimed', nl: 'Dit land is geclaimd' },
+  owner: { en: 'Not your structure', nl: 'Niet jouw bouwwerk' },
+  cost: { en: 'Not enough resources', nl: 'Niet genoeg grondstoffen' },
+  offline: { en: 'No connection to the server', nl: 'Geen verbinding met de server' },
+  timeout: { en: 'The server did not answer', nl: 'De server antwoordde niet' },
+  reset: { en: 'World reloaded', nl: 'Wereld opnieuw geladen' },
+  error: { en: 'Something went wrong', nl: 'Er ging iets mis' },
+};
 const SLOTS = CATEGORIES.map((c, k) => [`slot${k + 1}`, c.key || `Digit${k + 1}`]); // [action, key] per category
 
 export async function install(ctx, { progress = () => {} } = {}) {
@@ -81,10 +109,10 @@ export async function install(ctx, { progress = () => {} } = {}) {
   for (const rec of reg.records.values()) clearUnder(rec);
   progress(0.45);
 
-  const power = createPower(ctx, reg, mats);
+  const power = createPower(ctx, reg, mats, { accrue: () => !reg.authority });
   let harvest = null;
   try {
-    harvest = createHarvest(ctx, mats);
+    harvest = createHarvest(ctx, mats, { authority: () => reg.authority });
     scene.add(harvest.root);
   } catch (err) {
     console.error('[build] harvest nodes failed — continuing without them', err);
@@ -92,15 +120,29 @@ export async function install(ctx, { progress = () => {} } = {}) {
   }
   progress(0.7);
 
+  // ------------------------------------------------------------ online authority (SMP)
+  let authority = null;
+  const pending = new Map(); // cid → { def, rec, slots, ghost, resolve }
+  const pendingSlots = new Set();
+  reg.pendingSlots = pendingSlots;
+  const removing = new Set(); // ids I asked the server to remove
+  const deny = { text: '', t: 0 };
+  let cidSeq = 0;
+  /** Creative mode only counts in single-player (the server owns the inventory online). */
+  const creative = () => !authority && !!state.get('settings.creative');
+
   // ------------------------------------------------------------ selection
   const sel = { cat: 'structure', piece: 'foundation', rot: 0, last: {} };
-  const isOwned = (def) => !def.unlock || !!state.get('settings.creative') || (state.get('owned.items') || []).includes(def.unlock);
+  const isOwned = (def) => !def.unlock || creative() || (state.get('owned.items') || []).includes(def.unlock);
+  const catVisible = (c) => !c.smp || !!authority;
 
   const hud = createHud(ctx, {
     selectCategory: (id) => selectCategory(id),
     selectPiece: (id) => selectPiece(id),
     isOwned,
+    creative,
   });
+  for (const c of CATEGORIES) if (c.smp) hud.setCategoryVisible(c.id, false);
 
   function announce() {
     hud.setSelection(sel.cat, sel.piece);
@@ -108,8 +150,11 @@ export async function install(ctx, { progress = () => {} } = {}) {
   }
 
   function select(categoryId, pieceId) {
-    const def = pieceId ? PIECE[pieceId] : null;
-    const cat = def ? def.category : CATEGORIES.some((c) => c.id === categoryId) ? categoryId : sel.cat;
+    let def = pieceId ? PIECE[pieceId] : null;
+    if (def?.hidden) def = null;
+    const catDef = CATEGORIES.find((c) => c.id === (def ? def.category : categoryId));
+    if (catDef && !catVisible(catDef)) return api.selected;
+    const cat = def ? def.category : catDef ? categoryId : sel.cat;
     const list = piecesOf(cat);
     const next = def && def.category === cat ? def : PIECE[sel.last[cat]] || list[0];
     if (!next) return api.selected;
@@ -175,9 +220,21 @@ export async function install(ctx, { progress = () => {} } = {}) {
 
   // ------------------------------------------------------------ enter / exit
   let popEscape = null;
+  let enterDenyT = -10;
   function enter(opts = {}) {
     if (api.active) return true;
     if (!modes.is('explore') || ctx.player?.onFoot === false) return false;
+    // online: the authority may refuse build mode here (the hub safe zone, PLATFORM.md §11)
+    const why = authority?.canEnter?.();
+    if (why) {
+      if (ctx.loop.time - enterDenyT > 1.5) {
+        enterDenyT = ctx.loop.time;
+        ui.toast({ title: t(DENY_TEXT.noBuild), text: why, icon: 'bld-foundation', kind: 'warn', duration: 4200 });
+        ctx.audio?.play?.('ui.error');
+      }
+      events.emit('build:denied', { reason: 'safe', text: why, piece: sel.piece });
+      return false;
+    }
     if (framePending) framePlot();
     const piece = opts.piece || ctx.params.piece;
     if (piece && PIECE[piece]) selectPiece(String(piece));
@@ -241,10 +298,12 @@ export async function install(ctx, { progress = () => {} } = {}) {
   const tmpV = new THREE.Vector3();
 
   function persist() {
+    if (authority) return; // the server owns the world; keep the single-player save intact
     state.set('structures', reg.serialize());
   }
 
   function commit(def, tg, { free = false } = {}) {
+    if (authority) return commitRemote(def, tg);
     if (!free && !state.spend(def.cost)) return null;
     const rec = reg.add({ type: def.id, x: tg.x, y: tg.y, z: tg.z, rot: tg.rot, level: tg.level, variant: tg.variant }, { animate: true });
     if (!rec) return null;
@@ -282,6 +341,8 @@ export async function install(ctx, { progress = () => {} } = {}) {
   function placeAt(pieceId, { x, z, rot = 0, level = null, free = false, ignoreUnlock = false } = {}) {
     const def = PIECE[pieceId];
     if (!def || !Number.isFinite(x) || !Number.isFinite(z)) return { ok: false, reason: 'unknown' };
+    const catDef = CATEGORIES.find((c) => c.id === def.category);
+    if (catDef && !catVisible(catDef)) return { ok: false, reason: 'unknown' }; // survival pieces need a server
     let top = world.getHeightAt(x, z);
     if (level != null) {
       // start just above storey `level`: higher storeys are not considered
@@ -300,10 +361,209 @@ export async function install(ctx, { progress = () => {} } = {}) {
       return res;
     }
     const rec = commit(def, tg, { free });
+    if (rec?.pending) return { ok: true, pending: true, cid: rec.cid, x: tg.x, y: tg.y, z: tg.z, level: tg.level, variant: tg.variant };
     return rec ? { ok: true, id: rec.id, x: rec.x, y: rec.y, z: rec.z, level: rec.level, variant: rec.variant } : { ok: false, reason: 'cost' };
   }
 
+  /** placeAt that resolves once the server answered (single-player: at once). */
+  function placeAtAsync(pieceId, opts = {}) {
+    const res = placeAt(pieceId, opts);
+    if (!res.pending) return Promise.resolve(res);
+    const p = pending.get(res.cid);
+    if (!p) return Promise.resolve(res);
+    return new Promise((resolve) => (p.resolve = resolve));
+  }
+
+  // ------------------------------------------------------------ online: place / remove through the authority
+  const phantoms = [];
+  function takePhantom(tg) {
+    let g = phantoms.find((x) => !x.busy);
+    if (!g) {
+      if (phantoms.length >= 6) return null;
+      g = new Ghost(holo, { clone: true });
+      scene.add(g.group);
+      phantoms.push(g);
+    }
+    g.busy = true;
+    g.setPiece(tg.info);
+    g.setValid(true);
+    g.setOpacity?.(0.75);
+    g.group.position.set(tg.x, tg.y, tg.z);
+    g.group.rotation.set(0, tg.rotY, 0);
+    g.group.visible = true;
+    return g;
+  }
+  function releasePhantom(g) {
+    if (!g) return;
+    g.busy = false;
+    g.group.visible = false;
+  }
+
+  function commitRemote(def, tg) {
+    const cid = `c${Date.now().toString(36)}${(++cidSeq).toString(36)}`;
+    const rec = { piece: def.id, type: def.id, x: tg.x, y: tg.y, z: tg.z, rot: tg.rot, level: tg.level, variant: tg.variant };
+    const slots = [...tg.layout.slots];
+    for (const k of slots) pendingSlots.add(k);
+    const p = { cid, def, rec, slots, ghost: takePhantom(tg), resolve: null };
+    pending.set(cid, p);
+    ctx.audio?.play?.('ui.click');
+    let pr;
+    try {
+      pr = Promise.resolve(authority.place({ ...rec, cid }));
+    } catch (err) {
+      pr = Promise.reject(err);
+    }
+    pr.then(
+      (res) => resolvePending(cid, res || { ok: false, reason: 'error' }),
+      () => resolvePending(cid, { ok: false, reason: 'offline' }),
+    );
+    // never wait forever (lost reply)
+    setTimeout(() => resolvePending(cid, { ok: false, reason: 'timeout' }), 8000);
+    return { pending: true, cid };
+  }
+
+  function resolvePending(cid, res) {
+    const p = pending.get(cid);
+    if (!p) return;
+    pending.delete(cid);
+    for (const k of p.slots) pendingSlots.delete(k);
+    releasePhantom(p.ghost);
+    let out;
+    if (res?.ok) {
+      const rec = res.record ? ensureRecord(res.record, true) : null;
+      if (rec) {
+        state.add('stats.built', 1);
+        ctx.audio?.play?.('build.place', { position: tmpV.set(rec.x, rec.y + 1, rec.z) });
+        ctx.cameraRig?.shake?.(0.04);
+        events.emit('build:placed', { piece: rec.type, category: rec.def.category, id: rec.id, position: { x: rec.x, y: rec.y, z: rec.z }, name: t(rec.def.name), level: rec.level, owner: rec.owner || null });
+      }
+      out = { ok: true, id: rec?.id || res.record?.id || null, x: rec?.x, y: rec?.y, z: rec?.z, level: rec?.level, variant: rec?.variant };
+    } else {
+      const text = denyFeedback(res?.reason, res?.text, p.def);
+      out = { ok: false, reason: res?.reason || 'denied', text };
+    }
+    p.resolve?.(out);
+  }
+
+  /** The server said no: the ghost turns red with the reason for a moment. */
+  function denyFeedback(reason, text, def) {
+    const msg = text || t(DENY_TEXT[reason] || DENY_TEXT.denied);
+    deny.text = msg;
+    deny.t = 1.8;
+    events.emit('build:invalid', { reason: reason || 'denied', text: msg, piece: def?.id, remote: true });
+    events.emit('build:denied', { reason: reason || 'denied', text: msg, piece: def?.id });
+    ctx.audio?.play?.('build.invalid');
+    hud.flashInvalid();
+    return msg;
+  }
+
+  function removeRemote(id) {
+    const rec = reg.records.get(id);
+    if (!rec || removing.has(id)) return null;
+    const why = authority.canRemove?.(rec);
+    if (why) {
+      denyFeedback('owner', why, rec.def);
+      return null;
+    }
+    removing.add(id);
+    let pr;
+    try {
+      pr = Promise.resolve(authority.remove(id));
+    } catch (err) {
+      pr = Promise.reject(err);
+    }
+    pr.then(
+      (res) => {
+        if (res && res.ok === false) {
+          removing.delete(id);
+          denyFeedback(res.reason, res.text, rec.def);
+        }
+      },
+      () => removing.delete(id),
+    );
+    setTimeout(() => removing.delete(id), 8000);
+    return { id, pending: true };
+  }
+
+  /** Normalises a server record ({id, type|piece, x,y,z | p, rot, level, variant, owner, ownerName}). */
+  function normRecord(r) {
+    if (!r || typeof r !== 'object') return null;
+    const type = r.type || r.piece;
+    const p = Array.isArray(r.p) ? r.p : null;
+    const x = Number(r.x ?? p?.[0]);
+    const y = Number(r.y ?? p?.[1]);
+    const z = Number(r.z ?? p?.[2]);
+    if (!PIECE[type] || !r.id || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+    const level = r.level | 0;
+    return { id: String(r.id), type, x, y, z, rot: r.rot | 0, level, variant: r.variant || (level === 0 ? 'ground' : 'raised'), owner: r.owner ?? null, ownerName: r.ownerName ?? r.name ?? null, tier: r.tier };
+  }
+
+  /** Adds (or refreshes) a record from the server; returns the registry record. */
+  function ensureRecord(raw, animate) {
+    const e = normRecord(raw);
+    if (!e) return null;
+    const ex = reg.records.get(e.id);
+    if (ex) {
+      if (ex.type === e.type && Math.abs(ex.x - e.x) < 0.01 && Math.abs(ex.y - e.y) < 0.01 && Math.abs(ex.z - e.z) < 0.01 && ex.rot === e.rot) {
+        ex.owner = e.owner;
+        ex.ownerName = e.ownerName;
+        return ex;
+      }
+      reg.remove(e.id); // changed (e.g. workbench upgraded): rebuild in place
+    }
+    const rec = reg.add(e, { animate });
+    if (rec) clearUnder(rec);
+    return rec;
+  }
+
+  /** Server structures: { add: [record], remove: [id], reset: true (replace everything) }. */
+  function applyRemote({ add = null, remove: rem = null, reset = false } = {}, { animate = true } = {}) {
+    const me = authority?.me ?? ctx.net?.id ?? null;
+    if (reset) {
+      for (const id of [...pending.keys()]) resolvePending(id, { ok: false, reason: 'reset' });
+      reg.clear();
+      for (const raw of add || []) ensureRecord(raw, false);
+      return reg.records.size;
+    }
+    for (const id of rem || []) {
+      const rec = reg.records.get(String(id));
+      if (!rec) continue;
+      reg.remove(rec.id, { animate: true });
+      const mine = removing.delete(rec.id);
+      if (mine) ctx.audio?.play?.('build.remove', { position: tmpV.set(rec.x, rec.y + 1, rec.z) });
+      events.emit('build:removed', { piece: rec.type, category: rec.def.category, id: rec.id, position: { x: rec.x, y: rec.y, z: rec.z }, refund: null, remote: !mine });
+    }
+    for (const raw of add || []) {
+      const had = raw && reg.records.has(String(raw.id));
+      const rec = ensureRecord(raw, animate);
+      if (rec && !had && rec.owner !== me) events.emit('build:remote', { id: rec.id, piece: rec.type, owner: rec.owner, position: { x: rec.x, y: rec.y, z: rec.z } });
+    }
+    return reg.records.size;
+  }
+
+  function setAuthority(a) {
+    const prev = authority;
+    authority = a && typeof a.place === 'function' ? a : null;
+    reg.authority = authority;
+    api.authority = authority;
+    for (const c of CATEGORIES) if (c.smp) hud.setCategoryVisible(c.id, !!authority);
+    if (!authority) {
+      for (const id of [...pending.keys()]) resolvePending(id, { ok: false, reason: 'offline' });
+      removing.clear();
+      if (sel.cat === 'survival') selectCategory('structure');
+      if (prev) {
+        // back to single-player: the local save again
+        reg.load(state.get('structures'));
+        for (const rec of reg.records.values()) clearUnder(rec);
+      }
+    }
+    hud.refreshStrip(true);
+    events.emit('build:authority', { online: !!authority });
+    return api;
+  }
+
   function remove(id) {
+    if (authority) return removeRemote(id);
     const rec = reg.remove(id, { animate: true });
     if (!rec) return null;
     const refund = state.get('settings.creative') ? {} : refundOf(rec.def.cost);
@@ -344,7 +604,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
     if (!api.active) return;
     if (on) {
       // core action map (keyboard + on-screen touch controls): slot1–6, cycle, rotate, place, remove
-      for (let k = 0; k < CATEGORIES.length; k++) if (act(SLOTS[k][0], SLOTS[k][1])) selectCategory(CATEGORIES[k].id);
+      for (let k = 0; k < CATEGORIES.length; k++) if (catVisible(CATEGORIES[k]) && act(SLOTS[k][0], SLOTS[k][1])) selectCategory(CATEGORIES[k].id);
       if (act('cycle', 'Tab')) cycle(input.down('ShiftLeft') || input.down('ShiftRight') ? -1 : 1);
       const w = input.wheel;
       if (w) {
@@ -362,9 +622,11 @@ export async function install(ctx, { progress = () => {} } = {}) {
     cam.getWorldDirection(d);
     const def = PIECE[sel.piece];
     const tg = placement.compute(def, sel.rot, o, d, { player: ctx.player?.position });
+    if (deny.t > 0) deny.t -= dt;
+    const denied = deny.t > 0;
     if (tg.has) {
       ghost.setPiece(tg.info);
-      ghost.setValid(tg.valid);
+      ghost.setValid(tg.valid && !denied);
       const jump = !ghostInit || gpos.distanceTo(tmpV.set(tg.x, tg.y, tg.z)) > 9;
       if (jump) {
         gpos.set(tg.x, tg.y, tg.z);
@@ -383,7 +645,8 @@ export async function install(ctx, { progress = () => {} } = {}) {
       const cz = (tg.rect[1] + tg.rect[3]) / 2;
       grid.update({ cx: tg.gridX, cz: tg.gridZ, flatY: tg.flatY, cursorX: cx, cursorZ: cz, rect: tg.rect, edge: tg.edge, valid: tg.valid });
       grid.group.visible = true;
-      hud.setCross(tg.valid, tg.valid ? t(def.name) : placement.reasonText(tg));
+      if (denied) hud.setCross(false, deny.text);
+      else hud.setCross(tg.valid, tg.valid ? t(def.name) : placement.reasonText(tg));
     } else {
       ghost.group.visible = false;
       grid.group.visible = false;
@@ -437,7 +700,7 @@ export async function install(ctx, { progress = () => {} } = {}) {
     ctx.audio?.play?.('reward');
   });
   events.on('state:reset', () => {
-    reg.load(state.get('structures'));
+    if (!authority) reg.load(state.get('structures'));
   });
 
   // ------------------------------------------------------------ public API
@@ -467,8 +730,20 @@ export async function install(ctx, { progress = () => {} } = {}) {
     rotate,
     place,
     placeAt,
+    placeAtAsync,
     remove,
     removeAimed,
+    setAuthority,
+    applyRemote,
+    applyHarvest: (msg) => harvest?.applyHarvested?.(msg) ?? false,
+    authority: null,
+    get online() {
+      return !!authority;
+    },
+    get pendingCount() {
+      return pending.size;
+    },
+    targetRef: placement.target,
     get target() {
       const tg = placement.target;
       return { has: tg.has, valid: tg.valid, reason: tg.reason, text: tg.has && !tg.valid ? placement.reasonText(tg) : '', piece: tg.def?.id, x: tg.x, y: tg.y, z: tg.z, level: tg.level, variant: tg.variant, rot: tg.rot };
@@ -483,8 +758,14 @@ export async function install(ctx, { progress = () => {} } = {}) {
     },
     nodes: harvest?.nodes || [],
     harvestNode: (i) => (harvest && harvest.nodes[i] ? harvest.harvest(harvest.nodes[i]) : null),
-    reload: () => reg.load(state.get('structures')),
+    /** Wilderness node source ({nodesNear(x, z, r)} from src/smp's world provider; null = none). */
+    setNodeSource: (src) => harvest?.setSource?.(src),
+    get wildNodes() {
+      return harvest?.wnodes || [];
+    },
+    reload: () => (authority ? reg.records.size : reg.load(state.get('structures'))),
     clear() {
+      if (authority) return; // the shared world is the server's
       reg.clear();
       persist();
     },

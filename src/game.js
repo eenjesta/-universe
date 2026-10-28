@@ -29,10 +29,21 @@ const MODULES = [
   { name: 'vehicles', label: { en: 'Vehicles', nl: 'Voertuigen' }, load: () => import('./vehicles/index.js'), fallback: () => import('./fallback/vehicles.js') },
   { name: 'build', label: { en: 'Building', nl: 'Bouwsysteem' }, load: () => import('./build/index.js'), fallback: () => import('./fallback/build.js') },
   { name: 'space', label: { en: 'Space', nl: 'Ruimte' }, load: () => import('./space/index.js'), fallback: () => import('./fallback/space.js') },
+  { name: 'net', label: { en: 'Multiplayer', nl: 'Multiplayer' }, load: () => import('./net/index.js'), fallback: () => import('./fallback/net.js') },
+  { name: 'combat', label: { en: 'Combat', nl: 'Gevechten' }, load: () => import('./combat/index.js'), fallback: () => import('./fallback/combat.js') },
+  { name: 'smp', label: { en: 'Survival', nl: 'Overleven' }, load: () => import('./smp/index.js'), fallback: () => import('./fallback/smp.js') },
   { name: 'systems', label: { en: 'Missions, stories and chat', nl: 'Missies, verhalen en chat' }, load: () => import('./systems/index.js'), fallback: () => import('./fallback/systems.js') },
   { name: 'sound', label: { en: 'Sound', nl: 'Geluid' }, load: () => import('./audio/index.js'), fallback: () => import('./fallback/audio.js') },
+  { name: 'studio', label: { en: 'Ø Studio', nl: 'Ø Studio' }, load: () => import('./studio/index.js'), fallback: () => import('./fallback/studio.js') },
+  { name: 'platform', label: { en: 'Platform', nl: 'Platform' }, load: () => import('./platform/index.js'), fallback: () => import('./fallback/platform.js') },
   { name: 'shell', label: { en: 'Interface', nl: 'Interface' }, load: () => import('./shell/index.js'), fallback: () => import('./fallback/shell.js') },
 ];
+
+/** The infinite planet around the hub (PLATFORM.md §11): on by default; ?frontier=0 shows the hub only. */
+function frontierEnabled(params) {
+  const v = params.frontier;
+  return v === undefined || (v !== '0' && v !== 'false');
+}
 
 function parseParams() {
   const q = new URLSearchParams(location.search);
@@ -149,6 +160,15 @@ export async function createGame() {
       }
     }
     ctx[m.name] = api ?? ctx[m.name] ?? {};
+    if (m.name === 'world' && frontierEnabled(params)) {
+      // PLATFORM.md §11: the infinite survival planet around the hub (same scene)
+      try {
+        await (await import('./world/frontier-bridge.js')).attachFrontier(ctx, { seed: params.seed || 'o-universe' });
+      } catch (err) {
+        console.error('[game] frontier attach failed — hub only', err);
+        ctx.errors.push({ module: 'frontier', error: String(err?.stack || err) });
+      }
+    }
   }
   setProgress(1, t({ en: 'Ready', nl: 'Klaar' }));
 
